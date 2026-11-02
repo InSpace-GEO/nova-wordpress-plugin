@@ -1,6 +1,25 @@
 # Release verification
 
-## Locale association hotfix
+## 1.0.4
+
+All 98 local suites passed. The installable ZIP contains 146 runtime files; its SHA-256 is `9108e5edeafe3ac3020c7ee5459d5f8f9ee69011cf21e4c06786ef918fcde061`.
+
+The local worker tests exercise a pending receipt for one language followed by an article in a second language with the same backend URL ID. Separate destination pages can finish independently; the same canonical destination still blocks a competing mutation. Replaying the first receipt does not create another page.
+
+On an isolated WordPress 7.1.2 staging installation:
+
+- **WPML 4.9.5:** With English primary and German configured on a different host, German arrived first. The stored-layout writer created two native posts using the same slug and NOVA URL ID, linked them for the switcher and updated each independently. The German delivery on the English URL was rejected. The synthetic German host had no public DNS; the checks used WPML's native permalink and WordPress's content renderer.
+- **Polylang 3.8.5:** With Dutch primary, the French delivery created and then updated `/fr/article/`. The Dutch sibling kept its own native ID, URL and content. Both directions of the language switcher were checked. A French delivery aimed at the Dutch URL was rejected.
+- **TranslatePress 3.3.7 with Personal:** Two German deliveries updated the rendered title and body at the localized HTTP URL. The published Dutch original kept its native ID and original bytes, passed its own native writer verification after both updates, and replay created no duplicate.
+- **Weglot 6.4.3:** An English-source project served both the English original and its German translation from one post on a site whose WordPress locale was Dutch. In a normal WordPress request, two German deliveries and a replay succeeded. HTTP reads of both URLs confirmed the intended title and body, and the original still passed its native writer verification.
+
+For both WPML and Polylang, an editor filled the target language slot after NOVA had planned a second post. Applying the frozen plan left the editor’s post untouched and did not create a duplicate. Both suites passed 21 staging checks.
+
+The TranslatePress test also seeded an unrelated, manually reviewed translation for the same source string. The attempted overwrite was refused, and the existing dictionary entry was unchanged. Local tests covered an interrupted write and retries, including cases where the original or translation changed in the meantime.
+
+These tests exercise the WordPress writers with synthetic NOVA deliveries. No client site or external posting-service publication is part of the verification.
+
+## Locale association change included in 1.0.4
 
 Stored-layout and owned-CPT associations now include the delivery locale. Case
 and underscore/hyphen variants share one association. Two locales sharing a
@@ -8,8 +27,9 @@ backend URL ID retain separate native pages at their supplied URLs and update
 independently. Each locale retains its content/version guards. A matching legacy
 association is reused lazily without changing its old option; another locale
 cannot adopt its native page. Malformed legacy identities require reconciliation.
-Operation journals, reservation recovery, native language routing and target URL
-locks retain their existing behavior.
+This earlier change retained the existing operation journals, reservation recovery,
+native language routing and target URL locks. The provider routing tests above
+cover the additional changes in the final release.
 
 Owned CPTs retain a private native owner marker when a page is created or first
 adopted. Another locale cannot adopt that same native URL, including through an

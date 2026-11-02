@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.0.3
+Stable tag: 1.0.4
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+= 1.0.4 =
+WordPress uses the NOVA article language when publishing to WPML or Polylang. Translations that share a NOVA URL ID can create and update their own posts. On TranslatePress and Weglot, a translated delivery uses the published original for that NOVA URL.
+
 = 1.0.3 =
 Elementor Loop Carousel and Loop Grid widgets can keep their query and their published Loop Item template when syncing a saved layout. If this reference blocked an earlier sync, reopen the layout and choose Sync saved revision.
 

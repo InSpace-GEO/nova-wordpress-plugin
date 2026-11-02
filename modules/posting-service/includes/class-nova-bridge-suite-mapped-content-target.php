@@ -27,11 +27,11 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         sort( $query, SORT_STRING ); $identity = $origin . $path . ( $query ? '?' . implode( '&', $query ) : '' );
         return [ 'origin' => $origin, 'path' => $path, 'identity' => $identity ];
     }
-    private static function owned_url( $url ) {
+    private static function owned_url( $url, ?string $language_home = null ) {
         $target = self::normalize_url( $url ); if ( is_wp_error( $target ) ) { return $target; }
         // The stored home option avoids a request-language filter narrowing a shared
         // installation to just its current language's subdirectory.
-        $home = get_option( 'home', home_url( '/' ) ); $site = self::normalize_url( is_string( $home ) && '' !== $home ? $home : home_url( '/' ) );
+        $home = $language_home ?? get_option( 'home', home_url( '/' ) ); $site = self::normalize_url( is_string( $home ) && '' !== $home ? $home : home_url( '/' ) );
         if ( is_wp_error( $site ) || $target['origin'] !== $site['origin'] || ( '/' !== $site['path'] && $target['path'] !== $site['path'] && 0 !== strpos( $target['path'], $site['path'] . '/' ) ) ) { return self::error( 'foreign_target_url', 'This URL does not belong to the connected WordPress site.', 403 ); }
         return $target;
     }
@@ -39,7 +39,7 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
     public static function native_url( string $resource, string $kind, int $id ) {
         $term = 'term' === $kind; $name = substr( $resource, strpos( $resource, ':' ) + 1 ); $url = $term ? get_term_link( $id, $name ) : get_permalink( $id );
         if ( is_wp_error( $url ) || ! is_string( $url ) ) { return self::error( 'native_url', 'The native item has no canonical URL.' ); }
-        if ( function_exists( 'has_filter' ) && ( has_filter( 'wpml_element_language_details' ) || defined( 'ICL_SITEPRESS_VERSION' ) ) ) {
+        if ( ! function_exists( 'pll_get_post_language' ) && function_exists( 'has_filter' ) && ( has_filter( 'wpml_element_language_details' ) || defined( 'ICL_SITEPRESS_VERSION' ) ) ) {
             $object = $term ? get_term( $id, $name ) : null; $element = $term ? (int) ( $object->term_taxonomy_id ?? 0 ) : $id; $details = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $element, 'element_type' => ( $term ? 'tax_' : 'post_' ) . $name ] );
             $language = is_object( $details ) ? ( $details->language_code ?? '' ) : ( $details['language_code'] ?? '' );
             if ( ! is_string( $language ) || '' === $language ) { return false === apply_filters( $term ? 'wpml_is_translated_taxonomy' : 'wpml_is_translated_post_type', null, $name ) ? $url : self::error( 'native_language', 'The native item language could not be verified.' ); }
@@ -78,10 +78,11 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         return $language === $context['code'] ? true : self::error( 'create_language_readback', 'The witnessed native item was not saved in its requested default language. No duplicate will be inserted.' );
     }
     /** Derive native routing from the site's registered permalink structure only. */
-    public static function creation( string $resource, string $url, ?string $language = null ) {
-        $wanted = self::owned_url( $url ); if ( is_wp_error( $wanted ) ) { return $wanted; }
+    public static function creation( string $resource, string $url, ?string $language = null, ?array $provider_context = null ) {
+        $language_home = $provider_context['home'] ?? null;
+        $wanted = self::owned_url( $url, $language_home ); if ( is_wp_error( $wanted ) ) { return $wanted; }
         if ( isset( wp_parse_url( $wanted['identity'] )['query'] ) ) { return self::error( 'create_route', 'Creation requires a native pretty permalink without query parameters.' ); }
-        $native_language = null; if ( null !== $language ) { $native_language = self::creation_language( $language ); if ( is_wp_error( $native_language ) ) { return $native_language; } }
+        $native_language = $provider_context; if ( null === $native_language && null !== $language ) { $native_language = self::creation_language( $language ); if ( is_wp_error( $native_language ) ) { return $native_language; } }
         global $wp_rewrite;
         $term = 0 === strpos( $resource, 'taxonomy:' ); $name = substr( $resource, strpos( $resource, ':' ) + 1 ); $object = $term ? get_taxonomy( $name ) : get_post_type_object( $name );
         if ( ! is_object( $object ) || ! is_object( $wp_rewrite ) ) { return self::error( 'create_route', 'The native endpoint permalink structure is unavailable.' ); }
@@ -89,18 +90,28 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         if ( $term || ! in_array( $name, [ 'post', 'page' ], true ) ) { $structure = $wp_rewrite->get_extra_permastruct( $name ); if ( ! $term ) { $token = '%' . $name . '%'; } }
         else { $structure = 'page' === $name ? $wp_rewrite->get_page_permastruct() : get_option( 'permalink_structure', '' ); }
         if ( ! is_string( $structure ) || substr_count( $structure, $token ) !== 1 || preg_match( '/%[a-zA-Z0-9_]+%/', str_replace( $token, '', $structure ) ) ) { return self::error( 'create_route', 'This native permalink structure needs an explicit certified creation adapter.' ); }
-        $route_home = get_option( 'home', home_url( '/' ) );
-        if ( ( $native_language['provider'] ?? '' ) === 'wpml' ) { $route_home = apply_filters( 'wpml_permalink', rtrim( $route_home, '/' ) . '/', $native_language['code'], true ); }
+        if ( isset( $provider_context['code'] ) && 'wpml' === $provider_context['provider'] && ! in_array( $name, [ 'post', 'page' ], true ) ) {
+            $base = trim( (string) ( $object->rewrite['slug'] ?? '' ), '/' );
+            $suffix = '/' . $base . '/' . $token;
+            $path = rtrim( '/' . ltrim( $structure, '/' ), '/' );
+            if ( '' !== $base && substr( $path, -strlen( $suffix ) ) === $suffix ) {
+                $localized = apply_filters( 'wpml_get_translated_slug', $base, $name, $provider_context['code'], $term ? 'taxonomy' : 'post' );
+                if ( ! is_string( $localized ) || '' === $localized ) { return self::error( 'create_route', 'WPML did not return the registered route base.' ); }
+                $structure = substr( $path, 0, -strlen( $suffix ) ) . '/' . trim( $localized, '/' ) . '/' . $token;
+            }
+        }
+        $route_home = $language_home ?? get_option( 'home', home_url( '/' ) );
+        if ( null === $language_home && ( $native_language['provider'] ?? '' ) === 'wpml' ) { $route_home = apply_filters( 'wpml_permalink', rtrim( $route_home, '/' ) . '/', $native_language['code'], true ); }
         if ( ! is_string( $route_home ) ) { return self::error( 'create_route', 'The native default-language home URL is unavailable.' ); }
-        $marker = 'nova-mapped-route-slot'; $route = self::owned_url( rtrim( $route_home, '/' ) . '/' . ltrim( str_replace( $token, $marker, $structure ), '/' ) ); if ( is_wp_error( $route ) ) { return $route; }
+        $marker = 'nova-mapped-route-slot'; $route = self::owned_url( rtrim( $route_home, '/' ) . '/' . ltrim( str_replace( $token, $marker, $structure ), '/' ), $language_home ); if ( is_wp_error( $route ) ) { return $route; }
         $sides = explode( $marker, $route['path'] ); if ( count( $sides ) !== 2 || 0 !== strpos( $wanted['path'], $sides[0] ) || ( '' !== $sides[1] && substr( $wanted['path'], -strlen( $sides[1] ) ) !== $sides[1] ) ) { return self::error( 'create_route', 'The planned URL does not match this endpoint’s native permalink route.' ); }
         $tail = substr( $wanted['path'], strlen( $sides[0] ) ); if ( '' !== $sides[1] ) { $tail = substr( $tail, 0, -strlen( $sides[1] ) ); } $segments = explode( '/', $tail );
         $hierarchical = $term ? ! empty( $object->rewrite['hierarchical'] ) : ! empty( $object->hierarchical );
         if ( ! $tail || ( ! $hierarchical && count( $segments ) !== 1 ) ) { return self::error( 'create_route', 'The planned URL hierarchy is unsupported by this endpoint.' ); }
         foreach ( $segments as $segment ) { $slug = rawurldecode( $segment ); if ( '' === $slug || strlen( $slug ) > 180 || sanitize_title( $slug ) !== $slug ) { return self::error( 'create_slug', 'The planned URL must use canonical native slugs.' ); } }
         $slug = rawurldecode( array_pop( $segments ) ); $parent = 0;
-        if ( $segments ) { $parentUrl = $wanted['origin'] . $sides[0] . implode( '/', $segments ) . $sides[1]; $resolved = self::resolve( $parentUrl, $resource ); if ( is_wp_error( $resolved ) ) { return $resolved; } $parent = $resolved['reference_id']; }
-        $occupied = self::resolve( $url ); if ( ! is_wp_error( $occupied ) ) { return self::error( 'target_exists', 'The planned URL already belongs to an existing native item.' ); } if ( 'nova_mapped_target_not_found' !== $occupied->get_error_code() ) { return $occupied; }
+        if ( $segments ) { $parentUrl = $wanted['origin'] . $sides[0] . implode( '/', $segments ) . $sides[1]; $resolved = self::resolve( $parentUrl, $resource, null, $language_home ); if ( is_wp_error( $resolved ) ) { return $resolved; } $parent = $resolved['reference_id']; }
+        $occupied = self::resolve( $url, null, null, $language_home ); if ( ! is_wp_error( $occupied ) ) { return self::error( 'target_exists', 'The planned URL already belongs to an existing native item.' ); } if ( 'nova_mapped_target_not_found' !== $occupied->get_error_code() ) { return $occupied; }
         return [ 'slug' => $slug, 'parent' => $parent, 'target_url' => $wanted['identity'] ] + ( null !== $language ? [ 'language' => $language, 'native_language' => $native_language ] : [] );
     }
     private static function routing_resources() {
@@ -121,8 +132,8 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
     }
 
     /** Enumerate actual native links, preserving hierarchy, taxonomy and language. */
-    public static function resolve( string $url, ?string $resource_hint = null, ?string $language = null ) {
-        $wanted = self::owned_url( $url ); if ( is_wp_error( $wanted ) ) { return $wanted; }
+    public static function resolve( string $url, ?string $resource_hint = null, ?string $language = null, ?string $language_home = null ) {
+        $wanted = self::owned_url( $url, $language_home ); if ( is_wp_error( $wanted ) ) { return $wanted; }
         $matches = []; $inspected = 0; $resources = self::routing_resources();
         if ( is_wp_error( $resources ) ) { return $resources; }
         foreach ( $resources as $resource ) {
@@ -133,7 +144,7 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
                 foreach ( $ids as $id ) {
                     if ( ++$inspected > self::MAX_OBJECTS ) { return self::error( 'target_scan_limit', 'Exact URL ownership could not be proven within the bounded native inventory.', 503 ); }
                     $id = is_object( $id ) ? (int) ( $term ? $id->term_id : $id->ID ) : (int) $id;
-                    $native = self::native_url( $resource['id'], $term ? 'term' : 'post', $id ); if ( is_wp_error( $native ) ) { continue; } $identity = self::owned_url( $native );
+                    $native = self::native_url( $resource['id'], $term ? 'term' : 'post', $id ); if ( is_wp_error( $native ) ) { continue; } $identity = self::normalize_url( $native );
                     if ( is_wp_error( $identity ) || $identity['identity'] !== $wanted['identity'] ) { continue; }
                     $key = ( $term ? 'term:' : 'post:' ) . $id; $matches[$key] = [ 'resource_id' => $resource['id'], 'reference_type' => $term ? 'term' : 'post', 'reference_id' => $id, 'url' => $native ];
                 }

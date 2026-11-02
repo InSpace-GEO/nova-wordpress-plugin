@@ -55,19 +55,69 @@ final class Nova_Bridge_Suite_Posting_Url_Scope {
         return '/' === $prefix || $path === $prefix || 0 === strpos( $path, $prefix . '/' );
     }
 
+    /** An active provider is the only authority for another origin on this installation. */
+    private static function language_route( string $language ) {
+        if ( '' === $language ) { return null; }
+        foreach ( [ 'Nova_Bridge_Suite_Translation_Writer', 'Nova_Bridge_Suite_Stored_Layout_Language' ] as $provider ) {
+            if ( ! is_callable( [ $provider, 'language_home' ] ) ) { continue; }
+            if ( 'Nova_Bridge_Suite_Stored_Layout_Language' === $provider && ! $provider::is_multilingual_post_provider() ) { continue; }
+            $home = $provider::language_home( $language );
+            if ( is_wp_error( $home ) ) { return $home; }
+            if ( is_string( $home ) ) { return [ 'provider' => $provider, 'home' => $home ]; }
+        }
+        return null;
+    }
+
+    private static function destination( $target, string $language, ?array $route ) {
+        if ( ! is_string( $target ) || '' === $target || 0 === strpos( $target, '//' ) || in_array( $target[0], [ '?', '#' ], true ) ) { return self::error( 'Supply an unambiguous destination.' ); }
+        if ( ! preg_match( '/^[a-z][a-z0-9+.-]*:/i', $target ) ) {
+            if ( $route && '/' !== $target[0] ) {
+                $provider = $route['provider'];
+                $target = $provider::delivery_url( $target, $language );
+                if ( is_wp_error( $target ) ) { return $target; }
+            } else {
+                $home = self::url( $route['home'] ?? get_option( 'home', home_url( '/' ) ) );
+                if ( is_wp_error( $home ) ) { return $home; }
+                $target = $home['origin'] . ( '/' === $target[0] ? $target : rtrim( $home['path'], '/' ) . '/' . $target );
+            }
+        }
+        return self::url( $target );
+    }
+
+    /** Separate siblings only when both destinations and the distinct content identities are known. */
+    public static function independent_translations( array $previous, array $current ): bool {
+        if ( empty( $previous['content_item_id'] ) || empty( $current['content_item_id'] ) || $previous['content_item_id'] === $current['content_item_id'] ) { return false; }
+        $destinations = [];
+        $previous_home = null;
+        foreach ( [ $previous, $current ] as $snapshot ) {
+            $locale = $snapshot['language'] ?? '';
+            if ( ! is_string( $locale ) || ! preg_match( '/^[a-z]{2,8}(?:[-_][a-z0-9]{1,8})*$/iD', $locale ) ) { return false; }
+            $key = strtolower( str_replace( '_', '-', $locale ) );
+            if ( isset( $destinations[$key] ) ) { return false; }
+            $route = self::language_route( $locale );
+            if ( is_wp_error( $route ) ) { return false; }
+            if ( $route ) {
+                // A locale and its provider alias can identify the same language despite different article paths.
+                $home = self::url( $route['home'] );
+                if ( is_wp_error( $home ) || $home === $previous_home ) { return false; }
+                $previous_home = $home;
+            }
+            $target = self::destination( $snapshot['url'] ?? null, $locale, $route );
+            if ( is_wp_error( $target ) ) { return false; }
+            $destinations[$key] = $target;
+        }
+        return reset( $destinations ) !== end( $destinations );
+    }
+
     /** True owns the URL, false is a local skip, WP_Error requires local review. */
-    public static function owns( array $connection, $target ) {
+    public static function owns( array $connection, $target, string $language = '' ) {
         if ( empty( $connection['url_scope_enabled'] ) ) { return true; }
-        // The stored public home avoids language filters narrowing the installation.
-        $home_value = get_option( 'home', home_url( '/' ) );
+        $route = self::language_route( $language );
+        if ( is_wp_error( $route ) ) { return $route; }
+        $home_value = $route['home'] ?? get_option( 'home', home_url( '/' ) );
         $home = self::url( $home_value );
         if ( is_wp_error( $home ) ) { return $home; }
-        // A leading / is relative to the domain root, not the sub-site directory.
-        if ( is_string( $target ) && '/' === substr( $target, 0, 1 ) && '//' !== substr( $target, 0, 2 ) ) {
-            $parts = parse_url( $home_value );
-            $target = $parts['scheme'] . '://' . $parts['host'] . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' ) . $target;
-        }
-        $url = self::url( $target );
+        $url = self::destination( $target, $language, $route );
         if ( is_wp_error( $url ) ) { return $url; }
         if ( ! is_array( $connection['url_scope_excluded_paths'] ?? [] ) ) { return self::error( 'Review the excluded paths for this installation.' ); }
         $exclusions = [];

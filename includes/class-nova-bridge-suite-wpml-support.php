@@ -451,7 +451,7 @@ final class Nova_Bridge_Suite_WPML_Support {
 	 * @return mixed
 	 */
 	public static function filter_nondefault_option_updates( $value, $option, $old_value ) {
-		if ( ! is_string( $option ) || '' === $option ) {
+		if ( ! is_string( $option ) || '' === $option || ! self::is_localized_settings_save_request() ) {
 			return $value;
 		}
 
@@ -459,10 +459,6 @@ final class Nova_Bridge_Suite_WPML_Support {
 		$default_language = self::get_default_language_code();
 
 		if ( '' === $current_language || '' === $default_language || $current_language === $default_language ) {
-			return $value;
-		}
-
-		if ( ! self::is_localized_settings_save_request() ) {
 			return $value;
 		}
 
