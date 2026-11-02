@@ -1,119 +1,314 @@
 <?php
-/** Stored-layout pages use the site's native default language, independent of delivery metadata. */
+/** Resolve an authenticated delivery locale against WordPress's installed language provider. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 final class Nova_Bridge_Suite_Stored_Layout_Language {
-    private static function error( string $message ): WP_Error { return new WP_Error( 'nova_stored_layout_language', $message, [ 'status' => 409 ] ); }
-    private static function locale( string $value ): string { return strtolower( str_replace( '_', '-', $value ) ); }
+    private static function error( string $message ): WP_Error {
+        return new WP_Error( 'nova_stored_layout_language', $message, [ 'status' => 409 ] );
+    }
+
+    private static function locale( string $value ): string {
+        return strtolower( str_replace( '_', '-', $value ) );
+    }
+
+    public static function provider(): string {
+        // Polylang can expose compatibility hooks with the same names as WPML's.
+        if ( function_exists( 'pll_get_post_language' ) ) { return 'polylang'; }
+        if ( defined( 'ICL_SITEPRESS_VERSION' ) || ( function_exists( 'has_filter' ) && has_filter( 'wpml_element_language_details' ) ) ) { return 'wpml'; }
+        return 'core';
+    }
 
     private static function native_default() {
-        if ( function_exists( 'has_filter' ) && ( has_filter( 'wpml_element_language_details' ) || defined( 'ICL_SITEPRESS_VERSION' ) ) ) {
-            $code = apply_filters( 'wpml_default_language', null );
-            return is_string( $code ) && '' !== $code ? $code : self::error( 'The native default WPML language is unavailable.' );
-        }
+        if ( self::provider() === 'polylang' ) { return pll_default_language( 'slug' ); }
+        if ( self::provider() === 'wpml' ) { return apply_filters( 'wpml_default_language', null ); }
         $locale = get_option( 'WPLANG', null );
         if ( null === $locale ) { $locale = function_exists( 'get_locale' ) ? get_locale() : 'en_US'; }
-        return is_string( $locale ) ? str_replace( '_', '-', '' === $locale ? 'en_US' : $locale ) : self::error( 'The native default WordPress locale is unavailable.' );
+        return is_string( $locale ) ? str_replace( '_', '-', '' === $locale ? 'en_US' : $locale ) : self::error( 'The native WordPress locale is unavailable.' );
     }
-    /** The configured Polylang default owns native routing; payload language never selects a destination. */
-    private static function polylang( string $post_type = 'page' ) {
-        foreach ( [ 'pll_default_language', 'pll_languages_list', 'pll_home_url', 'pll_get_post_language', 'pll_set_post_language', 'pll_is_translated_post_type' ] as $function ) { if ( ! function_exists( $function ) ) { return self::error( 'The installed Polylang language API is incomplete.' ); } }
-        $default = pll_default_language( 'slug' ); $default_locale = pll_default_language( 'locale' );
-        if ( ! is_string( $default ) || '' === $default || ! is_string( $default_locale ) || ! preg_match( '/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/D', self::locale( $default_locale ) ) || ! pll_is_translated_post_type( $post_type ) ) { return self::error( 'The selected post type needs a verified site-default language before stored-layout delivery.' ); }
-        $codes = pll_languages_list( [ 'fields' => 'slug', 'hide_empty' => 0 ] ); $locales = pll_languages_list( [ 'fields' => 'locale', 'hide_empty' => 0 ] );
-        if ( ! is_array( $codes ) || ! is_array( $locales ) || count( $codes ) !== count( $locales ) || count( array_unique( $codes ) ) !== count( $codes ) ) { return self::error( 'Polylang did not return an unambiguous language catalog.' ); }
+
+    private static function site_home(): string {
+        $home = get_option( 'home', '' );
+        return is_string( $home ) && '' !== $home ? $home : home_url( '/' );
+    }
+
+    /** These homes come exclusively from the active plugin. A delivery cannot authorize its own domain. */
+    private static function languages( string $provider ) {
+        $languages = [];
+        if ( 'polylang' === $provider ) {
+            if ( ! function_exists( 'pll_languages_list' ) || ! function_exists( 'pll_home_url' ) ) { return self::error( 'The installed Polylang language API is incomplete.' ); }
+            $codes = pll_languages_list( [ 'fields' => 'slug', 'hide_empty' => 0 ] );
+            $locales = pll_languages_list( [ 'fields' => 'locale', 'hide_empty' => 0 ] );
+            if ( ! is_array( $codes ) || ! is_array( $locales ) || count( $codes ) !== count( $locales ) ) { return self::error( 'The Polylang language catalog is unavailable.' ); }
+            $locales = array_values( $locales );
+            foreach ( array_values( $codes ) as $index => $code ) {
+                $languages[] = [ 'code' => $code, 'locale' => $locales[$index], 'home' => pll_home_url( $code ) ];
+            }
+        } else {
+            $records = apply_filters( 'wpml_active_languages', null, [ 'skip_missing' => 0 ] );
+            global $sitepress;
+            // WPML's front-end switcher filter can be empty during REST and cron.
+            if ( empty( $records ) && is_callable( [ $sitepress, 'get_active_languages' ] ) ) { $records = $sitepress->get_active_languages(); }
+            foreach ( (array) $records as $key => $record ) {
+                $code = $record['language_code'] ?? $record['code'] ?? $key;
+                if ( ! is_string( $code ) || '' === $code ) { continue; }
+                $locale = $record['default_locale'] ?? '';
+                if ( '' === $locale && is_callable( [ $sitepress, 'get_locale' ] ) ) { $locale = $sitepress->get_locale( $code ); }
+                // A switcher's url may point at the current article. Convert the installation home instead.
+                $home = is_callable( [ $sitepress, 'language_url' ] ) ? $sitepress->language_url( $code, true ) : apply_filters( 'wpml_permalink', rtrim( self::site_home(), '/' ) . '/', $code );
+                $languages[] = [ 'code' => $code, 'locale' => $locale, 'home' => $home ];
+            }
+        }
+        return $languages;
+    }
+
+    private static function context( string $language, string $type = '', ?string $url = null ) {
+        $provider = self::provider();
+        $records = self::languages( $provider );
+        if ( is_wp_error( $records ) ) { return $records; }
+        $requested = self::locale( $language );
         $matches = [];
-        foreach ( array_values( $codes ) as $index => $code ) { $locale = array_values( $locales )[$index]; if ( ! is_string( $code ) || '' === $code || ! is_string( $locale ) ) { return self::error( 'The configured language catalog is invalid.' ); } if ( $code === $default && self::locale( $locale ) === self::locale( $default_locale ) ) { $matches[] = [ 'code' => $code, 'locale' => $locale ]; } }
-        if ( count( $matches ) !== 1 ) { return self::error( 'The native Polylang default does not match its configured language catalog.' ); }
-        $context = $matches[0]; $home = pll_home_url( $context['code'] );
-        $normalized = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $home );
-        if ( is_wp_error( $normalized ) || isset( wp_parse_url( $home )['query'] ) ) { return self::error( 'The default Polylang language has no canonical pretty-permalink home URL.' ); }
-        $site = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( get_option( 'home', home_url( '/' ) ) );
-        if ( is_wp_error( $site ) || $normalized['origin'] !== $site['origin'] || ( $site['path'] !== '/' && $normalized['path'] !== $site['path'] && strpos( $normalized['path'], $site['path'] . '/' ) !== 0 ) ) { return self::error( 'This stored-layout adapter supports language paths on the connected WordPress origin only.' ); }
-        $result = [ 'provider' => 'polylang', 'code' => $context['code'], 'locale' => $context['locale'], 'home' => $normalized['identity'] ];
-        if ( 'page' !== $post_type ) { $result['post_type'] = $post_type; }
-        return $result;
+        $homes = [];
+        foreach ( $records as $record ) {
+            $home = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $record['home'] );
+            if ( is_wp_error( $home ) || null !== parse_url( $record['home'], PHP_URL_QUERY ) || ! is_string( $record['code'] ) || ! is_string( $record['locale'] ) ) { return self::error( 'This language setup requires verified pretty-permalink homes.' ); }
+            $homes[] = [ 'url' => $home, 'code' => $record['code'] ];
+            if ( '' !== $requested && in_array( $requested, [ self::locale( $record['code'] ), self::locale( $record['locale'] ) ], true ) ) {
+                $matches[] = [ 'provider' => $provider, 'code' => $record['code'], 'locale' => $record['locale'], 'home' => $home['identity'], 'post_type' => $type, 'routing_version' => 2 ];
+            }
+        }
+        if ( count( $matches ) !== 1 ) { return self::error( 'The requested delivery language does not match exactly one configured language.' ); }
+        $context = $matches[0];
+        if ( $type !== '' ) {
+            if ( 'polylang' === $provider && ( ! function_exists( 'pll_is_translated_post_type' ) || ! pll_is_translated_post_type( $type ) ) ) { return self::error( 'Polylang does not translate the mapped post type.' ); }
+            if ( 'wpml' === $provider && false === apply_filters( 'wpml_is_translated_post_type', null, $type ) ) { return self::error( 'WPML does not translate the mapped post type.' ); }
+        }
+        if ( null !== $url ) {
+            $target = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url );
+            if ( is_wp_error( $target ) || null !== parse_url( $url, PHP_URL_QUERY ) ) { return self::error( 'The delivery requires an exact native pretty permalink.' ); }
+            // /en/ belongs to English even when the default language also owns the root of this host.
+            $owners = [];
+            foreach ( $homes as $candidate ) {
+                $home = $candidate['url'];
+                if ( $home['origin'] !== $target['origin'] || ( '/' !== $home['path'] && $home['path'] !== $target['path'] && 0 !== strpos( $target['path'], $home['path'] . '/' ) ) ) { continue; }
+                $owners[strlen( $home['path'] )][] = $candidate['code'];
+            }
+            if ( ! $owners || $owners[max( array_keys( $owners ) )] !== [ $context['code'] ] ) { return self::error( 'The destination URL does not belong to the configured home for the requested language.' ); }
+        }
+        return $context;
     }
-    /** Existing pages keep their native identity and must already belong to the site default. */
-    public static function existing( string $resource, int $id, string $url ) {
-        $post = get_post( $id );
-        if ( ! preg_match( '/^post_type:([a-z0-9_-]{1,20})$/D', $resource, $match ) || ! $post || $post->post_type !== $match[1] ) { return self::error( 'The saved layout must match the existing native post type.' ); }
-        $wanted = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ); $native = Nova_Bridge_Suite_Mapped_Content_Target::native_url( $resource, 'post', $id );
-        $actual = is_wp_error( $native ) ? $native : Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $native );
-        if ( is_wp_error( $wanted ) || is_wp_error( $actual ) || $wanted['identity'] !== $actual['identity'] || isset( wp_parse_url( $url )['query'] ) ) { return self::error( 'The existing page must own the exact canonical delivery URL.' ); }
-        if ( function_exists( 'pll_get_post_language' ) ) { $context = self::polylang( $post->post_type ); if ( is_wp_error( $context ) ) { return $context; } $language = $context['locale']; }
-        else {
-            $language = self::native_default(); if ( is_wp_error( $language ) ) { return $language; }
-            $wpml = function_exists( 'has_filter' ) && ( has_filter( 'wpml_element_language_details' ) || defined( 'ICL_SITEPRESS_VERSION' ) );
-            $context = [ 'provider' => $wpml ? 'wpml' : 'core', 'code' => $wpml ? $language : self::locale( $language ) ];
-        }
-        $target = [ 'slug' => $post->post_name, 'parent' => (int) $post->post_parent, 'target_url' => $actual['identity'], 'language' => $language, 'native_language' => $context ];
-        $verified = self::verify( $resource, $id, $target ); return is_wp_error( $verified ) ? $verified : $target;
+
+    public static function language_home( string $language ) {
+        if ( 'core' === self::provider() ) { return self::site_home(); }
+        $context = self::context( $language );
+        return is_wp_error( $context ) ? $context : $context['home'];
     }
-    public static function creation( string $resource, string $url, string $language ) {
-        // The original delivery language remains in its content identity; native routing always uses the site default.
-        if ( ! function_exists( 'pll_get_post_language' ) ) { $default = self::native_default(); return is_wp_error( $default ) ? $default : Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $default ); }
-        if ( ! preg_match( '/^post_type:([a-z0-9_-]{1,20})$/D', $resource, $match ) ) { return self::error( 'Choose a registered native post destination.' ); }
-        $type = $match[1]; $context = self::polylang( $type ); if ( is_wp_error( $context ) ) { return $context; }
-        $wanted = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ); if ( is_wp_error( $wanted ) || isset( wp_parse_url( $url )['query'] ) ) { return self::error( 'The planned page needs a canonical native URL without query parameters.' ); }
-        foreach ( pll_languages_list( [ 'fields' => 'slug', 'hide_empty' => 0 ] ) as $code ) {
-            if ( $code === $context['code'] ) { continue; }
-            $other = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( pll_home_url( $code ) );
-            if ( ! is_wp_error( $other ) && $other['identity'] !== $context['home'] && $other['origin'] === $wanted['origin'] && $other['path'] !== '/' && ( $wanted['path'] === $other['path'] || strpos( $wanted['path'], $other['path'] . '/' ) === 0 ) ) { return self::error( 'The planned URL belongs to a nondefault language. Supply a URL in the site default language; this adapter does not rewrite delivery URLs.' ); }
-        }
-        global $wp_rewrite;
-        $token = 'page' === $type ? '%pagename%' : ( 'post' === $type ? '%postname%' : '%' . $type . '%' );
-        $structure = null;
-        if ( is_object( $wp_rewrite ) ) {
-            if ( 'page' === $type && method_exists( $wp_rewrite, 'get_page_permastruct' ) ) { $structure = $wp_rewrite->get_page_permastruct(); }
-            elseif ( 'post' === $type ) { $structure = get_option( 'permalink_structure', '' ); }
-            elseif ( method_exists( $wp_rewrite, 'get_extra_permastruct' ) ) { $structure = $wp_rewrite->get_extra_permastruct( $type ); }
-        }
-        if ( ! is_string( $structure ) || substr_count( $structure, $token ) !== 1 || preg_match( '/%[a-zA-Z0-9_]+%/', str_replace( $token, '', $structure ) ) ) { return self::error( 'This native permalink structure needs an explicit routing adapter.' ); }
-        $marker = 'nova-stored-layout-route-slot'; $route = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( rtrim( $context['home'], '/' ) . '/' . ltrim( str_replace( $token, $marker, $structure ), '/' ) );
-        if ( is_wp_error( $route ) || $wanted['origin'] !== $route['origin'] ) { return self::error( 'The planned URL belongs to a different language origin.' ); }
-        $sides = explode( $marker, $route['path'] );
-        if ( count( $sides ) !== 2 || strpos( $wanted['path'], $sides[0] ) !== 0 || ( $sides[1] !== '' && substr( $wanted['path'], -strlen( $sides[1] ) ) !== $sides[1] ) ) { return self::error( 'The planned URL does not use the site default Polylang language path.' ); }
-        $tail = substr( $wanted['path'], strlen( $sides[0] ) ); if ( $sides[1] !== '' ) { $tail = substr( $tail, 0, -strlen( $sides[1] ) ); }
-        if ( '' === $tail ) { return self::error( 'The delivery must identify a new page below its language home.' ); }
-        $segments = explode( '/', $tail );
-        if ( count( $segments ) > 1 && 'page' !== $type ) { $object = get_post_type_object( $type ); if ( ! $object || empty( $object->hierarchical ) ) { return self::error( 'The selected native post type does not support a parent hierarchy.' ); } }
-        foreach ( $segments as $segment ) { $native = rawurldecode( $segment ); if ( '' === $native || strlen( $native ) > 180 || sanitize_title( $native ) !== $native ) { return self::error( 'The planned page path must use canonical native slugs.' ); } }
-        $slug = rawurldecode( array_pop( $segments ) ); $parent = 0;
-        if ( $segments ) {
-            $parent_url = $wanted['origin'] . $sides[0] . implode( '/', $segments ) . $sides[1]; $resolved = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $parent_url, $resource );
-            if ( is_wp_error( $resolved ) || pll_get_post_language( $resolved['reference_id'], 'slug' ) !== $context['code'] ) { return self::error( 'The requested native parent page must already exist in the same Polylang language.' ); } $parent = $resolved['reference_id'];
-        }
-        $occupied = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url );
-        if ( ! is_wp_error( $occupied ) ) { return self::error( 'An existing native item already owns the planned URL.' ); }
-        if ( $occupied->get_error_code() !== 'nova_mapped_target_not_found' ) { return $occupied; }
-        return [ 'slug' => $slug, 'parent' => $parent, 'target_url' => $wanted['identity'], 'language' => $context['locale'], 'native_language' => $context ];
+
+    public static function is_multilingual_post_provider(): bool {
+        return 'core' !== self::provider();
     }
-    public static function with_context( array $target, callable $work ) {
-        if ( ( $target['native_language']['provider'] ?? '' ) !== 'polylang' ) {
-            $default = self::native_default();
-            if ( is_wp_error( $default ) || self::locale( (string) ( $target['native_language']['code'] ?? '' ) ) !== self::locale( $default ) ) { return self::error( 'The retained native page target does not belong to the current site default language.' ); }
-            return Nova_Bridge_Suite_Mapped_Content_Target::with_creation_language( $target, $work );
+
+    public static function sibling_locales( array $target ): array {
+        $context = $target['native_language'] ?? [];
+        if ( empty( $context['routing_version'] ) || $context['provider'] !== self::provider() ) { return []; }
+        $records = self::languages( $context['provider'] );
+        if ( is_wp_error( $records ) ) { return []; }
+        $locales = [];
+        foreach ( $records as $record ) {
+            if ( $record['code'] === $context['code'] ) { continue; }
+            foreach ( [ $record['code'], $record['locale'] ] as $locale ) {
+                if ( is_string( $locale ) && '' !== $locale ) { $locales[] = self::locale( $locale ); }
+            }
         }
-        $current = self::polylang( $target['native_language']['post_type'] ?? 'page' );
-        if ( is_wp_error( $current ) || $current !== $target['native_language'] ) { return self::error( 'The site default language or its native URL changed after planning. The retained page will not be moved.' ); }
-        return $work();
+        return array_values( array_unique( $locales ) );
     }
-    /** Only the newly reserved owned page may have its language assigned. No translation relationship is created. */
-    public static function assign( int $id, array $target ) {
-        if ( ( $target['native_language']['provider'] ?? '' ) !== 'polylang' ) { return true; }
-        return self::with_context( $target, static function () use ( $id, $target ) {
-            if ( ! current_user_can( 'edit_post', $id ) ) { return self::error( 'The configured actor cannot assign this reserved page language.' ); }
-            $code = $target['native_language']['code']; if ( pll_get_post_language( $id, 'slug' ) !== $code ) { pll_set_post_language( $id, $code ); }
-            return self::verify( 'post_type:' . ( $target['native_language']['post_type'] ?? 'page' ), $id, $target );
+
+    public static function draft_url( string $sample, array $target ) {
+        if ( ( $target['native_language']['provider'] ?? '' ) !== 'wpml' ) { return $sample; }
+        // Core's sample permalink may reflect the admin language even after setting the post language.
+        $url = apply_filters( 'wpml_permalink', $sample, $target['native_language']['code'] );
+        return is_string( $url ) && '' !== $url ? $url : self::error( 'WPML did not return a sample permalink.' );
+    }
+
+    public static function delivery_url( $url, string $language ) {
+        // The native original uses WordPress storage, but its public URL belongs to the provider's
+        // source language. WordPress's interface locale may be completely different.
+        if ( 'core' === self::provider() && ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) ) ) {
+            return Nova_Bridge_Suite_Translation_Writer::delivery_url( $url, $language );
+        }
+        if ( ! is_string( $url ) || '' === $url || 0 === strpos( $url, '//' ) || in_array( $url[0], [ '?', '#' ], true ) ) { return self::error( 'The delivery URL is invalid.' ); }
+        if ( ! preg_match( '/^[a-z][a-z0-9+.-]*:/i', $url ) ) {
+            $home = self::language_home( $language );
+            if ( is_wp_error( $home ) ) { return $home; }
+            $parts = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $home );
+            $installation = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( self::site_home() );
+            if ( is_wp_error( $parts ) || is_wp_error( $installation ) ) { return self::error( 'The native home URL is unavailable.' ); }
+            $url = $parts['origin'] . ( '/' === $url[0] ? $url : rtrim( $installation['path'], '/' ) . '/' . $url );
+        }
+        if ( self::provider() !== 'core' ) {
+            $context = self::context( $language, '', $url );
+            if ( is_wp_error( $context ) ) { return $context; }
+        }
+        return $url;
+    }
+
+    public static function resolve( string $url, ?string $resource, string $language ) {
+        if ( self::provider() === 'core' ) { return Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url, $resource ); }
+        $context = self::context( $language, '', $url );
+        if ( is_wp_error( $context ) ) { return $context; }
+        // The third argument to the mapping UI's resolver finds a translation of an existing
+        // URL. Here the delivery supplies the final URL already; never pick another page.
+        return self::in_language( $context, static function () use ( $url, $resource, $context ) {
+            return Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url, $resource, null, $context['home'] );
         } );
     }
+
+    public static function existing( string $resource, int $id, string $url, string $language = '' ) {
+        $post = get_post( $id );
+        if ( ! $post || $resource !== 'post_type:' . $post->post_type ) { return self::error( 'The saved layout must match the native post type.' ); }
+        if ( '' === $language || 'core' === self::provider() ) { $language = self::native_default(); }
+        if ( ! is_string( $language ) || '' === $language ) { return self::error( 'The native language is unavailable.' ); }
+        $context = 'core' === self::provider() ? [ 'provider' => 'core', 'code' => self::locale( $language ) ] : self::context( $language, $post->post_type, $url );
+        if ( is_wp_error( $context ) ) { return $context; }
+        $wanted = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url );
+        $native = self::in_language( $context, static function () use ( $resource, $id ) { return Nova_Bridge_Suite_Mapped_Content_Target::native_url( $resource, 'post', $id ); } );
+        $actual = is_wp_error( $native ) ? $native : Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $native );
+        if ( is_wp_error( $wanted ) || is_wp_error( $actual ) || $actual['identity'] !== $wanted['identity'] || null !== parse_url( $url, PHP_URL_QUERY ) ) { return self::error( 'The existing post must own the exact delivery URL.' ); }
+        $target = [ 'slug' => $post->post_name, 'parent' => (int) $post->post_parent, 'target_url' => $wanted['identity'], 'language' => $language, 'native_language' => $context ];
+        $verified = self::verify( $resource, $id, $target );
+        return is_wp_error( $verified ) ? $verified : $target;
+    }
+
+    public static function creation( string $resource, string $url, string $language ) {
+        if ( self::provider() === 'core' ) {
+            $default = self::native_default();
+            return is_wp_error( $default ) ? $default : Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $default );
+        }
+        if ( ! preg_match( '/^post_type:([a-z0-9_-]{1,20})$/D', $resource, $match ) ) { return self::error( 'Choose a registered native post destination.' ); }
+        $context = self::context( $language, $match[1], $url );
+        if ( is_wp_error( $context ) ) { return $context; }
+        $target = self::in_language( $context, static function () use ( $context, $resource, $url, $language ) {
+            return Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $language, $context );
+        } );
+        if ( ! is_wp_error( $target ) && $target['parent'] && self::post_language( $target['parent'], $context ) !== $context['code'] ) { return self::error( 'The native parent belongs to another language.' ); }
+        return $target;
+    }
+
+    private static function in_language( array $context, callable $work ) {
+        if ( $context['provider'] !== 'wpml' ) { return $work(); }
+        $previous = apply_filters( 'wpml_current_language', null );
+        if ( $previous === $context['code'] ) { return $work(); }
+        try {
+            do_action( 'wpml_switch_language', $context['code'] );
+            if ( apply_filters( 'wpml_current_language', null ) !== $context['code'] ) { return self::error( 'WPML could not enter the requested language.' ); }
+            return $work();
+        } finally { do_action( 'wpml_switch_language', $previous ); }
+    }
+
+    public static function with_context( array $target, callable $work ) {
+        $saved = $target['native_language'] ?? [];
+        if ( ! $saved && ! isset( $target['language'] ) ) { return $work(); } // Previously frozen CPT plan.
+        if ( ( $saved['provider'] ?? null ) !== self::provider() ) { return self::error( 'The native language provider changed after planning.' ); }
+        if ( empty( $saved['routing_version'] ) ) {
+            $default = self::native_default();
+            if ( ! is_string( $default ) || self::locale( $saved['code'] ?? '' ) !== self::locale( $default ) ) { return self::error( 'The default language of this historical plan has changed.' ); }
+            if ( 'polylang' !== $saved['provider'] ) { return Nova_Bridge_Suite_Mapped_Content_Target::with_creation_language( $target, $work ); }
+        }
+        $current = self::context( $target['language'], $saved['post_type'] ?? 'page', $target['target_url'] );
+        if ( is_wp_error( $current ) || $current['code'] !== $saved['code'] || $current['home'] !== ( $saved['home'] ?? null ) || self::locale( $current['locale'] ) !== self::locale( $saved['locale'] ?? '' ) ) { return self::error( 'The planned language or its native URL changed.' ); }
+        return self::in_language( $current, $work );
+    }
+
+    private static function wpml_details( int $id, string $type ): array {
+        return (array) apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $id, 'element_type' => 'post_' . $type ] );
+    }
+
+    private static function post_language( int $id, array $context ) {
+        if ( 'polylang' === $context['provider'] ) { return pll_get_post_language( $id, 'slug' ); }
+        $details = self::wpml_details( $id, $context['post_type'] ?? 'page' );
+        return $details['language_code'] ?? null;
+    }
+
+    /** Used only for reservations with the same slug and parent. An unassigned reservation still conflicts. */
+    public static function different_language( int $id, array $target ): bool {
+        $context = $target['native_language'] ?? [];
+        if ( empty( $context['routing_version'] ) || $context['provider'] !== self::provider() ) { return false; }
+        $code = self::post_language( $id, $context );
+        return is_string( $code ) && '' !== $code && $code !== $context['code'];
+    }
+
+    public static function assign( int $id, array $target ) {
+        $context = $target['native_language'] ?? [];
+        if ( ! $context || 'core' === $context['provider'] || ( 'wpml' === $context['provider'] && empty( $context['routing_version'] ) ) ) { return true; }
+        return self::with_context( $target, static function () use ( $id, $target, $context ) {
+            if ( ! current_user_can( 'edit_post', $id ) ) { return self::error( 'The publishing user cannot assign this reserved post language.' ); }
+            if ( self::post_language( $id, $context ) !== $context['code'] ) {
+                if ( 'polylang' === $context['provider'] ) { pll_set_post_language( $id, $context['code'] ); }
+                else {
+                    // Called only for a newly reserved post. Start its own group if there is no proven sibling yet.
+                    do_action( 'wpml_set_element_language_details', [ 'element_id' => $id, 'element_type' => 'post_' . $context['post_type'], 'trid' => false, 'language_code' => $context['code'], 'source_language_code' => null ] );
+                }
+            }
+            return self::verify( 'post_type:' . ( $context['post_type'] ?? 'page' ), $id, $target );
+        } );
+    }
+
     public static function verify( string $resource, int $id, array $target ) {
-        if ( ( $target['native_language']['provider'] ?? '' ) !== 'polylang' ) { return self::with_context( $target, static function () use ( $resource, $id, $target ) { return Nova_Bridge_Suite_Mapped_Content_Target::verify_created_language( $resource, 'post', $id, $target ); } ); }
-        $type = substr( $resource, strlen( 'post_type:' ) );
-        if ( $resource !== 'post_type:' . ( $target['native_language']['post_type'] ?? 'page' ) ) { return self::error( 'The retained native language belongs to a different post type.' ); }
-        $current = self::polylang( $type );
-        if ( is_wp_error( $current ) || $current !== $target['native_language'] || pll_get_post_language( $id, 'slug' ) !== $current['code'] || self::locale( (string) pll_get_post_language( $id, 'locale' ) ) !== self::locale( $current['locale'] ) ) { return self::error( 'The created page does not have its exact planned Polylang language.' ); }
-        return true;
+        if ( empty( $target['native_language'] ) && ! isset( $target['language'] ) ) { return true; }
+        return self::with_context( $target, static function () use ( $id, $resource, $target ) {
+            $context = $target['native_language'];
+            if ( 'core' === $context['provider'] || ( 'wpml' === $context['provider'] && empty( $context['routing_version'] ) ) ) { return Nova_Bridge_Suite_Mapped_Content_Target::verify_created_language( $resource, 'post', $id, $target ); }
+            if ( $resource !== 'post_type:' . ( $context['post_type'] ?? 'page' ) || self::post_language( $id, $context ) !== $context['code'] ) { return self::error( 'The saved post does not have the requested native language.' ); }
+            return true;
+        } );
+    }
+
+    /** Before reserving a new post, an empty ID checks that the sibling's requested language slot is vacant. */
+    public static function check_sibling( int $id, array $target, int $sibling_id ) {
+        return self::translation_pair( $id, $target, $sibling_id, false );
+    }
+
+    public static function link_sibling( int $id, array $target, int $sibling_id ) {
+        if ( ! $id ) { return self::error( 'A saved native post is required to link a translation.' ); }
+        return self::translation_pair( $id, $target, $sibling_id, true );
+    }
+
+    /** Attach only a verified sibling in this NOVA URL family; preserve every existing translation. */
+    private static function translation_pair( int $id, array $target, int $sibling_id, bool $save ) {
+        $context = $target['native_language'] ?? [];
+        if ( ! $sibling_id || empty( $context['routing_version'] ) ) { return true; }
+        $sibling = get_post( $sibling_id );
+        if ( ! $sibling || $sibling->post_type !== $context['post_type'] || ! current_user_can( 'edit_post', $sibling_id ) || ( $id && ! current_user_can( 'edit_post', $id ) ) ) { return self::error( 'The translation sibling must be an editable post of the same type.' ); }
+        $source_code = self::post_language( $sibling_id, $context );
+        $code = $context['code'];
+        if ( ! is_string( $source_code ) || '' === $source_code || $source_code === $code || ( $id && self::post_language( $id, $context ) !== $code ) ) { return self::error( 'The native translation pair has incompatible languages.' ); }
+        if ( 'polylang' === $context['provider'] ) {
+            if ( ! function_exists( 'pll_get_post_translations' ) || ! function_exists( 'pll_save_post_translations' ) ) { return self::error( 'The Polylang translation group API is unavailable.' ); }
+            $group = pll_get_post_translations( $sibling_id );
+            $current = $id ? pll_get_post_translations( $id ) : [];
+            if ( ! is_array( $group ) || ! is_array( $current ) || ( isset( $group[$code] ) && (int) $group[$code] !== $id ) ) { return self::error( 'The translation group already identifies a different post.' ); }
+            if ( (int) ( $group[$code] ?? 0 ) === $id && (int) ( $current[$source_code] ?? 0 ) === $sibling_id ) { return true; }
+            foreach ( $current as $language => $member ) {
+                if ( $language !== $code && (int) ( $group[$language] ?? 0 ) !== (int) $member ) { return self::error( 'The post already belongs to another translation group.' ); }
+            }
+            if ( ! $save ) { return true; }
+            $group[$source_code] = $sibling_id;
+            $group[$code] = $id;
+            pll_save_post_translations( $group );
+            return (int) pll_get_post( $id, $source_code ) === $sibling_id && (int) pll_get_post( $sibling_id, $code ) === $id ? true : self::error( 'Polylang did not confirm the translation group.' );
+        }
+        $type = $context['post_type'];
+        $source = self::wpml_details( $sibling_id, $type );
+        if ( empty( $source['trid'] ) ) { return self::error( 'WPML did not identify the translation group.' ); }
+        $existing = (int) apply_filters( 'wpml_object_id', $sibling_id, $type, false, $code );
+        if ( $existing && $existing !== $id ) { return self::error( 'The translation group already identifies a different post.' ); }
+        if ( ! $id ) { return true; }
+        $current = self::wpml_details( $id, $type );
+        if ( empty( $current['trid'] ) ) { return self::error( 'WPML did not identify the translation group.' ); }
+        if ( (int) $source['trid'] === (int) $current['trid'] ) { return true; }
+        $members = apply_filters( 'wpml_get_element_translations', null, $current['trid'], 'post_' . $type );
+        if ( ! is_array( $members ) || count( $members ) !== 1 ) { return self::error( 'The post already belongs to another translation group.' ); }
+        if ( ! $save ) { return true; }
+        do_action( 'wpml_set_element_language_details', [ 'element_id' => $id, 'element_type' => 'post_' . $type, 'trid' => (int) $source['trid'], 'language_code' => $code, 'source_language_code' => ( $source['source_language_code'] ?? null ) ?: $source_code ] );
+        return (int) apply_filters( 'wpml_object_id', $sibling_id, $type, false, $code ) === $id && (int) apply_filters( 'wpml_object_id', $id, $type, false, $source_code ) === $sibling_id ? true : self::error( 'WPML did not confirm the translation group.' );
     }
 }

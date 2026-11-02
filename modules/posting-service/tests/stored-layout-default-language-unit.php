@@ -22,10 +22,4 @@ check( Language::verify( 'post_type:page', 10, $target ) === true, 'Core default
 $old = $target; $old['native_language']['code'] = 'nl-nl'; $old['language'] = 'nl-NL'; $before = count( $calls );
 check( is_wp_error( Language::with_context( $old, static function () { throw new RuntimeException( 'Should not mutate' ); } ) ) && count( $calls ) === $before, 'Retained nondefault core target is rejected before invoking the native context' );
 $options['WPLANG'] = ''; $target = Language::creation( 'post_type:page', 'https://example.test/new/', 'de-DE' ); check( $target['language'] === 'en-US', 'Empty WordPress language option means native en-US default' );
-$wpml = true; $target = Language::creation( 'post_type:page', 'https://example.test/new/', 'nl-NL' );
-check( $target['language'] === 'de' && $target['native_language']['provider'] === 'wpml', 'WPML chooses its configured default, independent of content locale or core option' );
-check( Language::with_context( $target, static function () { return true; } ) === true && Language::verify( 'post_type:page', 10, $target ) === true, 'WPML default context and verification continue to delegate' );
-$target['language'] = 'de-DE'; check( Language::with_context( $target, static function () { return true; } ) === true, 'Previously retained default locale spelling remains compatible with its native default code' );
-$wpml_default = 'nl'; check( is_wp_error( Language::with_context( $target, static function () { return true; } ) ), 'A changed WPML default does not silently move a retained association' );
-$wpml_default = ''; check( is_wp_error( Language::creation( 'post_type:page', 'https://example.test/new/', 'nl-NL' ) ), 'Unavailable WPML default fails closed' );
-echo "Stored-layout core/default language checks: $checks passed.\n";
+echo "Stored-layout core language checks: $checks passed.\n";

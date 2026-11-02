@@ -2,6 +2,8 @@
 /** Source-free native publishing from an immutable layout and fitted scalar values. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-provider.php';
+require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
+require_once __DIR__ . '/class-nova-bridge-suite-translation-source.php';
 
 final class Nova_Bridge_Suite_Stored_Layout_Writer_Failure extends RuntimeException {
     public $reason;
@@ -49,13 +51,8 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     }
     private static function association_key( array $identity ): string { return 'nova_layout_page_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . self::locale( $identity['language'] ?? null ) ); }
     /** Resolve a site-relative path without changing the authenticated snapshot. */
-    private static function target_url( $url ) {
-        if ( ! is_string( $url ) || '' === $url || 0 === strpos( $url, '//' ) || preg_match( '/^[a-z][a-z0-9+.-]*:/i', $url ) || in_array( $url[0], [ '?', '#' ], true ) ) { return $url; }
-        $home = get_option( 'home', '' );
-        if ( ! is_string( $home ) || '' === $home ) { $home = home_url( '/' ); }
-        $site = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $home ) );
-        if ( '/' === $url[0] ) { return $site['origin'] . $url; }
-        return $site['origin'] . ( '/' === $site['path'] ? '/' : rtrim( $site['path'], '/' ) . '/' ) . $url;
+    private static function target_url( $url, string $language = '' ) {
+        return Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( $url, $language );
     }
     private static function decimal( $id ): bool { return is_string( $id ) && 1 === preg_match( '/^[1-9][0-9]{0,18}$/D', $id ); }
     private static function compare( string $a, string $b ): int { return strlen( $a ) <=> strlen( $b ) ?: strcmp( $a, $b ); }
@@ -72,22 +69,24 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     }
     /** Draft permalinks may hide an owned reservation from canonical URL resolution. */
     private static function assert_unreserved( string $type, array $target ): void {
-        global $wpdb;
-        foreach ( [ 'posts', 'postmeta' ] as $table ) { if ( ! isset( $wpdb->$table ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->$table ) ) { self::fail( 'storage', 'Native ownership storage is unavailable.' ); } }
-        $owned = $wpdb->get_var( $wpdb->prepare( 'SELECT p.ID FROM `' . $wpdb->posts . '` p WHERE p.post_type = %s AND p.post_parent = %d AND p.post_name = %s AND p.post_status <> %s AND (p.post_content_filtered LIKE %s OR EXISTS (SELECT 1 FROM `' . $wpdb->postmeta . '` m WHERE m.post_id = p.ID AND m.meta_key = %s)) LIMIT 1', $type, (int) $target['parent'], $target['slug'], 'trash', self::FORMAT . ':%', self::OWNER ) );
-        if ( ! empty( $wpdb->last_error ) ) { self::fail( 'storage', 'Native ownership could not be inspected.' ); }
-        if ( $owned ) { self::fail( 'ownership', 'This native path has an owned reservation. Reconcile the original operation before creating another item.' ); }
+        if ( self::checked( Nova_Bridge_Suite_Translation_Source::reserved( $type, $target, self::FORMAT, self::OWNER ) ) ) {
+            self::fail( 'ownership', 'This native path already has a reservation in the intended language.' );
+        }
     }
     private static function target( array $content, array $configuration, string $type ): array {
-        $association = self::association( $content ); $url = self::target_url( $content['url'] ?? '' ); $resource = 'post_type:' . $type;
+        $association = self::association( $content ); $url = self::checked( self::target_url( $content['url'] ?? '', $content['language'] ) ); $resource = 'post_type:' . $type;
         if ( $association ) {
             if ( ! in_array( $association['state'] ?? '', [ 'committed', 'retired' ], true ) || ( $association['template_id'] ?? '' ) !== $configuration['template']['id'] || ( $association['content_item_id'] ?? '' ) !== $content['content_item_id'] || self::compare( $content['content_item_version_id'], $association['content_item_version_id'] ?? '0' ) <= 0 ) { self::fail( 'association', 'This URL belongs to another mapping, content item, language or unfinished/newer delivery.' ); }
             $wanted = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ) );
             if ( $wanted['identity'] !== $association['target']['target_url'] ) { self::fail( 'url_changed', 'A retained page cannot be moved to a different delivery URL.' ); }
-            return [ 'post_id' => (int) $association['post_id'], 'target' => $association['target'], 'association' => $association ];
+            $target = $association['target'];
+            if ( Nova_Bridge_Suite_Stored_Layout_Language::is_multilingual_post_provider() ) {
+                $target = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::existing( $resource, (int) $association['post_id'], $url, $content['language'] ) );
+            }
+            return [ 'post_id' => (int) $association['post_id'], 'target' => $target, 'association' => $association ];
         }
         // Inspect canonical native URLs only: never infer a page from a matching leaf slug or redirect.
-        $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url, $resource );
+        $found = Nova_Bridge_Suite_Stored_Layout_Language::resolve( $url, $resource, $content['language'] );
         if ( is_wp_error( $found ) ) {
             if ( $found->get_error_code() !== 'nova_mapped_target_not_found' ) { self::checked( $found ); }
             $target = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( $resource, $url, $content['language'] ?? '' ) );
@@ -97,7 +96,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         $id = (int) $found['reference_id']; $post = get_post( $id );
         if ( $found['reference_type'] !== 'post' || ! $post || $post->post_type !== $type || ! current_user_can( 'edit_post', $id ) || ! in_array( $post->post_status, [ 'draft', 'publish' ], true ) ) { self::fail( 'target', 'The exact URL must identify an editable draft or published page of the mapped type.' ); }
         if ( '' !== get_post_meta( $id, self::OWNER, true ) || 0 === strpos( (string) $post->post_content_filtered, self::FORMAT . ':' ) ) { self::fail( 'ownership', 'This existing page already has a stored-layout owner or reservation. Reconcile its retained association before replacing it.' ); }
-        return [ 'post_id' => $id, 'target' => self::checked( Nova_Bridge_Suite_Stored_Layout_Language::existing( $resource, $id, $url ) ), 'association' => null ];
+        return [ 'post_id' => $id, 'target' => self::checked( Nova_Bridge_Suite_Stored_Layout_Language::existing( $resource, $id, $url, $content['language'] ) ), 'association' => null ];
     }
     private static function locked( array $plan, callable $work ) {
         global $wpdb;
@@ -193,6 +192,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             // apply/recovery checks; do not require the previous success's whole-page digest.
             $plan = [ 'format' => self::FORMAT, 'operation_id' => $operation, 'context' => $context, 'site_id' => $content['site_id'], 'template_id' => $configuration['template']['id'], 'template_revision' => $configuration['template']['revision'], 'profile_digest' => $configuration['profile_digest'], 'layout_digest' => $compiled['layout_digest'], 'post_type' => $type, 'payload' => $payload, 'post_fields' => $post_fields, 'target' => $target, 'target_post_id' => $target_id, 'desired_status' => $status, 'provider' => $provider, 'native_before' => $before, 'association_before' => $association, 'delivery_identity' => array_intersect_key( $content, array_flip( [ 'site_id', 'url_id', 'content_item_id', 'content_item_version_id', 'version_number', 'source_sha256', 'language' ] ) ) ];
             if ( 'nova.stored-recipe/v1' === ( $local['stored_layout']['format'] ?? '' ) || 'elementor' !== $builder ) { $plan['builder'] = $builder; }
+            self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, $target_id ) );
             if ( strlen( wp_json_encode( $plan ) ) > 786432 ) { self::fail( 'plan_size', 'This layout exceeds the recoverable native journal size.' ); }
             $plan['plan_digest'] = self::digest( $plan ); return $plan;
         } );
@@ -256,14 +256,16 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             if ( ! function_exists( 'get_sample_permalink' ) && is_file( ABSPATH . 'wp-admin/includes/post.php' ) ) { require_once ABSPATH . 'wp-admin/includes/post.php'; }
             if ( ! function_exists( 'get_sample_permalink' ) ) { self::fail( 'permalink', 'WordPress cannot verify the draft future permalink.' ); }
             $sample = get_sample_permalink( $id ); $url = str_replace( [ '%pagename%', '%postname%', '%' . $plan['post_type'] . '%' ], $sample[1] ?? '', $sample[0] ?? '' );
+            if ( isset( $plan['target']['native_language'] ) ) { $url = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::draft_url( $url, $plan['target'] ) ); }
         }
         $actual = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ) );
         if ( $actual['identity'] !== $plan['target']['target_url'] ) { self::fail( 'permalink', 'The saved page URL differs from the delivery URL. Its ID was retained; no duplicate will be created.' ); }
     }
-    private static function result( array $record ): array { $id = (int) $record['post_id']; return [ 'state' => 'complete', 'operation_id' => $record['plan']['operation_id'], 'post_id' => $id, 'cms_post_status' => get_post_status( $id ), 'url' => get_permalink( $id ), 'native_digest' => $record['native_digest'] ]; }
+    private static function result( array $record ): array { $id = (int) $record['post_id']; return [ 'state' => 'complete', 'operation_id' => $record['plan']['operation_id'], 'post_id' => $id, 'cms_post_status' => get_post_status( $id ), 'url' => in_array( $record['plan']['target']['native_language']['provider'] ?? '', [ 'wpml', 'polylang' ], true ) ? $record['plan']['target']['target_url'] : get_permalink( $id ), 'native_digest' => $record['native_digest'] ]; }
     private static function complete( array $plan, array $record ): array {
         $id = (int) $record['post_id']; $state = self::check_content( $plan, $id ); self::check_url( $plan, $id );
         if ( $state['status'] !== $plan['desired_status'] ) { self::fail( 'publication', 'The retained page has not reached the intended native publication state.' ); }
+        self::checked( Nova_Bridge_Suite_Translation_Source::link( $plan, $id ) );
         $record['state'] = 'committed'; $record['native_digest'] = self::digest( $state ); self::checkpoint( self::operation_key( $plan['operation_id'] ), $record );
         $association = $plan['delivery_identity'] + [ 'state' => 'committed', 'post_id' => $id, 'target' => $plan['target'], 'template_id' => $plan['template_id'], 'template_revision' => $plan['template_revision'], 'profile_digest' => $plan['profile_digest'], 'layout_digest' => $plan['layout_digest'], 'native_digest' => $record['native_digest'], 'operation_id' => $plan['operation_id'], 'creation_operation' => self::owner( $plan )['creation_operation'] ];
         if ( isset( $plan['payload']['theme_presentation'] ) ) { $association['theme_presentation'] = $plan['payload']['theme_presentation']; }
@@ -289,6 +291,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                     if ( $found ) { $record['post_id'] = $found; $record['state'] = 'reserved'; self::checkpoint( $key, $record ); }
                     elseif ( $record['state'] === 'creating' ) { self::fail( 'create_unknown', 'An uncertain creation has no unique reservation. Inspect it before trying again.' ); }
                     else {
+                        self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, 0 ) );
                         self::assert_unreserved( $plan['post_type'], $plan['target'] );
                         self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( 'post_type:' . $plan['post_type'], $plan['target']['target_url'], $plan['delivery_identity']['language'] ) );
                         self::checkpoint( self::association_key( $plan['delivery_identity'] ), $plan['delivery_identity'] + [ 'state' => 'pending', 'operation_id' => $operation, 'post_id' => 0 ] );
@@ -302,6 +305,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 }
                 $id = (int) $record['post_id']; if ( ! current_user_can( 'edit_post', $id ) ) { self::fail( 'permission', 'The configured actor cannot edit the retained page.' ); }
                 $saved = in_array( $record['state'], [ 'saving', 'saved', 'publishing' ], true );
+                if ( $plan['target_post_id'] || $saved ) { self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, $id ) ); }
                 if ( $record['state'] === 'saving' && self::pending_featured( $plan, $id ) ) {
                     $media = self::checked( Nova_Bridge_Suite_Native_Media::resolve( $plan['builder'] ?? 'elementor', $id, $plan['payload'], $operation, false ) );
                     self::checked( Nova_Bridge_Suite_Native_Media::apply_featured( $id, $media ) );
@@ -319,7 +323,10 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                     }
                     elseif ( $state['reservation'] !== self::reservation_marker( $plan ) || $state['elements'] || '' !== $state['content'] || 'draft' !== $state['status'] ) { self::fail( 'reservation_changed', 'The reserved page changed before the native layout save.' ); }
                     update_post_meta( $id, self::OWNER, self::owner( $plan ) ); if ( get_post_meta( $id, self::OWNER, true ) !== self::owner( $plan ) ) { self::fail( 'storage', 'The page ownership marker was not retained.' ); }
-                    if ( ! $plan['target_post_id'] ) { self::checked( Nova_Bridge_Suite_Stored_Layout_Language::assign( $id, $plan['target'] ) ); }
+                    if ( ! $plan['target_post_id'] ) {
+                        self::checked( Nova_Bridge_Suite_Stored_Layout_Language::assign( $id, $plan['target'] ) );
+                        self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, $id ) );
+                    }
                     else { self::checked( Nova_Bridge_Suite_Stored_Layout_Language::verify( 'post_type:' . $plan['post_type'], $id, $plan['target'] ) ); }
                     // Import after reservation, but before the native-save checkpoint. An interrupted
                     // download/sideload can resume its journal without claiming the document was saved.

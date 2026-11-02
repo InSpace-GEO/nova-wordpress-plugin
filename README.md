@@ -27,6 +27,17 @@ Under **Layouts**, choose an example, map its fields and go directly to **Save &
 - WPBakery, Avada, Beaver Builder, Breakdance, Divi 4 and Divi 5 support layout capture and native test drafts. In **Layouts**, select an existing Divi 5 page, save a fixed layout, then create a test draft. Divi uses its own adapter. The generic Gutenberg and plain WordPress writers leave Divi 5 documents protected.
 - The existing NOVA posting contract and ready webhook URL remain compatible. Older explicit live-source clone jobs require the original Suite.
 
+## Publishing in multiple languages
+
+Configure the languages and their URLs in one multilingual plugin. Each delivery needs the article language and the corresponding public URL. If the URL belongs to a different language, WordPress refuses the write.
+
+- **WPML and Polylang:** Each translation is a native WordPress post. Either language may arrive first. When NOVA sends siblings with the same URL ID, WordPress links them for the language switcher. A later update changes only the post for that language.
+- **TranslatePress and Weglot:** Each translation is a localized view of a single published original. Publish or update the original through NOVA for the same URL ID first. If the translation arrives first, the worker waits and retries for a limited time. NOVA does not guess which manually created post to translate. TranslatePress also requires the posting user to have its translator capability.
+
+The single-original providers support mapped WordPress and Gutenberg content and the supported text fields on NOVA Blog and Service posts. Weglot also supports saved Elementor documents. Use the normal WordPress delivery request for Weglot: its SDK does not resolve language URLs under WP-CLI. Separate translated drafts, translated media fields and other stored builders are not supported by these providers. Check the target language URL after publishing; the original should retain its own content.
+
+TranslatePress stores identical source strings in a shared dictionary. NOVA leaves conflicting manual translations and entries known to be used by another post untouched. TranslatePress may not have recorded a page it has never rendered; use a distinct source string when the same text needs different translations on different pages.
+
 ## Development
 
 The plugin derives from NOVA Bridge Suite commit 7e124d48d914b805a31bee340eb6f7fe338d61cc. Retained wire names and option keys preserve saved mappings. Set `NOVA_WP_CORE_FIXTURE` to a local WordPress `wp-includes` directory and run `python tools/test.py` with PHP and Node on your path. Build the runtime ZIP with `python tools/package.py OUTPUT_DIRECTORY`.

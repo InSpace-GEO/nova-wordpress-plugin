@@ -7,6 +7,19 @@ require_once __DIR__ . '/settings.php';
 require_once __DIR__ . '/class-nova-bridge-suite-wpml-support.php';
 Nova_Bridge_Suite_WPML_Support::bootstrap();
 
+// Weglot serves localized views of the original. Its container is available after plugins_loaded.
+add_action( 'plugins_loaded', static function () {
+    if ( class_exists( 'TRP_Translate_Press' ) ) {
+        require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-wordpress-translatepress-renderer.php';
+        add_action( 'wp', [ 'Nova_WordPress_TranslatePress_Renderer', 'on_request' ] );
+    }
+    if ( ! function_exists( 'weglot_get_service' ) ) { return; }
+    require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-bridge-suite-translation-writer.php';
+    require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-wordpress-weglot-renderer.php';
+    $weglot = new Nova_WordPress_Weglot();
+    ( new Nova_WordPress_Weglot_Renderer( $weglot, $weglot ) )->hooks();
+}, 20 );
+
 require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/api-mapping-context/includes/class-nova-bridge-suite-layout-setup-admin.php';
 require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/api-mapping-context/api-mapping-context.php';
 require_once __DIR__ . '/mapping-fields.php';

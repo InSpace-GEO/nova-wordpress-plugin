@@ -102,6 +102,27 @@ foreach ( [ 'retired', 'still_active', 'unknown_native' ] as $case ) {
     delivery_check( Contract_Test_Writer::$apply === ( 'retired' === $case ? 1 : 0 ), 'No competing/unreconciled native write: ' . $case );
     if ( 'retired' === $case ) { delivery_check( $store->retired[0][0]['payload']['pending_event'] === $previous['payload']['pending_event'], 'Prior pending receipt survives as history, not an outgoing event.' ); }
 }
+foreach ( [ 'different_url', 'same_url', 'same_locale', 'fixed_target' ] as $case ) {
+    Contract_Test_Writer::reset();
+    $snapshot = nova_contract_fixture()['snapshot'];
+    $snapshot['language'] = 'fr-FR';
+    $snapshot['url'] = 'https://native.fixture.invalid/fr/article/';
+    $fixture = nova_contract_fixture( [ 'content' => $snapshot ] );
+    $fixture['configuration']['mode'] = 'fixed_target' === $case ? 'fixed_mapping' : 'stored_layout_v3';
+    $store = new Predecessor_Store();
+    $server = new Contract_Test_Server( $fixture );
+    $other = $fixture['snapshot'];
+    $other['content_item_id'] = '999';
+    $other['language'] = 'same_locale' === $case ? 'FR_fr' : 'nl-NL';
+    $other['url'] = 'same_url' === $case ? rtrim( $other['url'], '/' ) : 'https://native.fixture.invalid/artikel/';
+    $store->previous = [ [ 'site_id' => $fixture['job']['site_id'], 'phase' => 'event_pending', 'payload' => [ 'content' => $other, 'native_writer' => 'stored_layout_v3', 'pending_event' => [ 'kind' => 'publication_succeeded' ] ] ] ];
+    $next = handover_worker( $fixture, $store, $server )->process( $fixture['job'] );
+    if ( 'different_url' === $case ) {
+        delivery_check( 'complete' === $next['state'] && 1 === Contract_Test_Writer::$apply && [] === $store->retired, 'Independent translations sharing a URL ID can proceed while the sibling remains unfinished.' );
+    } else {
+        delivery_check( 'other_mutation_unreconciled' === $next['last_error'] && 0 === Contract_Test_Writer::$apply, 'Keep an unfinished conflict for ' . $case );
+    }
+}
 Contract_Test_Writer::reset(); $fixture = nova_contract_fixture(); $store = new Predecessor_Store(); $store->deny_publication = true; $server = new Contract_Test_Server( $fixture );
 $worker = handover_worker( $fixture, $store, $server ); $next = $worker->process( $fixture['job'] );
 delivery_check( 'target_busy' === $next['last_error'] && 0 === Contract_Test_Writer::$apply && [] === $server->posts, 'The common URL lock serializes old/new deliveries before effects.' );
