@@ -43,7 +43,7 @@ async function fixture(status, later = []) {
     const unauthorized = await fixture({ ...restricted, discovery: { suspended: true, auth_status: 401, last_error: 'unauthorized' } });
     check(unauthorized.text().includes('Delivery is stopped until access is restored'), '401 accurately describes the stop-all state');
     const disabled = await fixture({ enabled: false, jobs: [], discovery: {} });
-    check(disabled.text().includes('Connection disabled.') && disabled.text().includes('No delivery jobs yet.') && !disabled.button('Recheck NOVA access'), 'Disabled unconfigured status renders without a recovery action');
+    check(disabled.text().includes('Save the NOVA connection details and posting user') && disabled.text().includes('No delivery jobs yet.') && !disabled.button('Recheck NOVA access'), 'Unconfigured status shows the next step without a recovery action');
     const failed = await fixture(restricted, [{ ok: false, data: { message: 'Refresh the Mapping page.' } }, { ok: true, data: restricted }]);
     await failed.button('Recheck NOVA access').events.click();
     check(failed.host.all().some(item => item.attributes.role === 'alert' && item.textContent === 'Refresh the Mapping page.') && failed.host.attributes['aria-busy'] === 'false', 'Failed authorization recheck displays the safe error and releases busy state');

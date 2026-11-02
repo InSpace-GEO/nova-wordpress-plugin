@@ -30,6 +30,15 @@ foreach(['https://x.example/a%2fb','https://x.example/a//b','https://x.example/%
 $item=good(Target::resolve('https://SITE.example:443/sub/parent/shared'),'Resolve exact hierarchy.');check($item['reference_id']===1 && $item['requested_url']==='https://site.example/sub/parent/shared','Parent hierarchy keeps similarly named sibling distinct.');
 bad(Target::resolve('https://site.example/sub/shared/'),'target_not_found');bad(Target::resolve('https://foreign.example/sub/parent/shared/'),'foreign_target_url');bad(Target::resolve('https://site.example/submarine/parent/shared/'),'foreign_target_url');bad(Target::resolve('https://site.example/sub/parent/shared/','taxonomy:product_cat'),'target_resource_mismatch');
 $denied=['edit_post:1'];bad(Target::resolve($links[1]),'target_permission');$denied=[];
+require_once __DIR__ . '/posting-actor-worker-fixture.php';
+function get_current_user_id() { return 2; }
+function get_taxonomies( $args ) { return [ 'product_cat' => 'product_cat' ]; }
+$denied = [ 'manage_options:' ];
+good( Target::creation( 'post_type:page', 'https://site.example/sub/parent/new-page/' ), 'A site editor can resolve a new page using native URLs without access to admin settings.' );
+$denied[] = 'edit_post:1'; bad( Target::resolve( $links[1] ), 'target_permission' );
+$denied[] = 'edit_term:11'; bad( Target::resolve( $term_links[11] ), 'target_permission' );
+$revoked_actor = 2; bad( Target::resolve( $links[1] ), 'permission' ); unset( $revoked_actor );
+$denied = [];
 $links[5]=$links[1];bad(Target::resolve($links[1]),'target_ambiguous');unset($links[5]);
 $term=good(Target::resolve($term_links[11]),'Resolve actual term link.');check($term['reference_id']===11 && $term['resource_id']==='taxonomy:product_cat','Taxonomy ownership is native and exact.');
 good(Target::resolve($links[1],null,'nl'),'Single-locale site accepts its own language.');bad(Target::resolve($links[1],null,'en'),'target_language_unsupported');

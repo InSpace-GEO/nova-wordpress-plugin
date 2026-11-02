@@ -1,6 +1,7 @@
 <?php
 /** Real stored-layout compiler/writer through default worker dispatch, with deterministic API and CMS. */
 require __DIR__ . '/stored-layout-writer-unit.php';
+require_once __DIR__ . '/posting-actor-worker-fixture.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-receipt-json.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-posting-worker.php';
 require_once __DIR__ . '/contract-fixture.php';
@@ -18,6 +19,7 @@ class Layout_Delivery_Store {
 }
 class Layout_Delivery_Client {
     public $fixture; public $events = []; public $gets = []; public $lose_receipt = false;
+    public $receipt_to_lose = 'publication_succeeded';
     public function __construct( $fixture ) { $this->fixture = $fixture; }
     public function site_request( $method, $path ) {
         $expected = '/deliveries/' . $this->fixture['snapshot']['id'];
@@ -27,7 +29,7 @@ class Layout_Delivery_Client {
     public function site_request_bytes( $method, $path, $bytes ) {
         check( $method === 'POST' && $path === '/deliveries/' . $this->fixture['snapshot']['id'] . '/events', 'Stored-layout publication keeps the existing event contract.' );
         $event = json_decode( $bytes, true ); $this->events[] = $event;
-        if ( $this->lose_receipt && $event['kind'] === 'publication_succeeded' ) { $this->lose_receipt = false; throw new RuntimeException( 'Receipt acknowledgement lost' ); }
+        if ( $this->lose_receipt && $event['kind'] === $this->receipt_to_lose ) { $this->lose_receipt = false; throw new RuntimeException( 'Receipt acknowledgement lost' ); }
         return [ 'status' => 202, 'raw_body' => json_encode( nova_contract_fixture_event_accept( $bytes ) ) ];
     }
 }
@@ -54,6 +56,22 @@ function delivery_setup( $version = 3, $target_url = null, $publication = 'draft
     return [ $base, $store, $client, $worker ];
 }
 $checks = 0;
+list( $f, $store, $client, $worker ) = delivery_setup();
+$worker = new Nova_Bridge_Suite_Posting_Worker( array_replace( $f['connection'], [ 'actor_user_id' => 2 ] ), $store, $client );
+$client->lose_receipt = true; $client->receipt_to_lose = 'received_complete';
+$pending = ok( $worker->process( $f['job'] ) );
+check( $pending['phase'] === 'event_pending' && 2 === $pending['payload']['actor_user_id'] && ! $inserts, 'The first receipt retains the selected actor before a native post exists.' );
+$pending['state'] = 'running';
+$done = ok( ( new Nova_Bridge_Suite_Posting_Worker( $f['connection'], $store, $client ) )->process( $pending ) );
+check( 'complete' === $done['state'] && get_post( 10 )->post_author === 2 && get_current_user_id() === 1, 'Changing the selected account before replay preserves the original author and restores the surrounding user.' );
+list( $f, $store, $client, $worker ) = delivery_setup();
+$revoked_actor = 1;
+$pending = ok( $worker->process( $f['job'] ) );
+check( 'publishing_user_unavailable' === $pending['last_error'] && ! isset( $pending['payload']['actor_user_id'] ) && ! $inserts && ! $client->events, 'An ineligible actor cannot receive or mutate new work.' );
+unset( $revoked_actor ); $pending['state'] = 'running';
+$worker = new Nova_Bridge_Suite_Posting_Worker( array_replace( $f['connection'], [ 'actor_user_id' => 2 ] ), $store, $client );
+$done = ok( $worker->process( $pending ) );
+check( 'complete' === $done['state'] && get_post( 10 )->post_author === 2, 'Correcting the actor resumes unstarted work on the existing mapping.' );
 list( $f, $store, $client, $worker ) = delivery_setup( 3, null, 'publish', true ); $crash_insert = true;
 $pending = ok( $worker->process( $f['job'] ) );
 check( $pending['state'] === 'ready' && $pending['phase'] === 'applying' && $pending['last_error'] === 'native_commit_reconciliation', 'An interrupted native reservation retains the real worker reconciliation state.' );

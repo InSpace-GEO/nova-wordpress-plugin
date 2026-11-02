@@ -590,7 +590,7 @@ final class Nova_Bridge_Suite_Mapped_Writer {
         } );
     }
 
-    private static function verified_marker( array $plan, array $marker ): array {
+    private static function verified_marker( array $plan, array $marker, bool $read_only = false ): array {
         $record = $marker['record'];
         if ( ( $record['plan_digest'] ?? '' ) !== $plan['plan_digest'] || ( $record['operation_id'] ?? '' ) !== $plan['context']['operation_id'] || ( $record['template_id'] ?? '' ) !== $plan['template_id'] || ( $record['template_revision'] ?? null ) !== $plan['template_revision'] || ( $record['profile_digest'] ?? '' ) !== $plan['profile_digest'] || ( $record['version'] ?? null ) !== $plan['version'] || ! self::same( $record['delivery_identity'] ?? null, $plan['delivery_identity'] ) ) { self::fail( 'ambiguous_marker', 'A durable operation marker names a different plan or snapshot identity.' ); }
         $current = self::snapshot( $marker['post_id'], true );
@@ -609,19 +609,20 @@ final class Nova_Bridge_Suite_Mapped_Writer {
             if ( ! $content_marker || ( $content_marker['record']['operation_id'] ?? null ) !== $record['operation_id'] ) { self::fail( 'marker_conflict', 'A different operation owns the content during publication verification.' ); }
             $record['publication_transition'] = [ 'from' => $record['cms_post_status'], 'to' => $current['post']['post_status'], 'verified_at' => gmdate( 'c' ), 'post_date_gmt' => $current['post']['post_date_gmt'] ?? null ];
             $record['cms_post_status'] = $current['post']['post_status']; $record['expected_state_digest'] = self::state_digest( $current );
+            if ( $read_only ) { return $record; }
             self::save_marker( $marker['post_id'], self::operation_key( $record['operation_id'] ), $record, $marker );
             self::save_marker( $marker['post_id'], $content_key, $record, $content_marker );
             self::save_target_fence( $marker['post_id'], $record, $latest );
         }
         return $record;
     }
-    public static function recover( array $plan, string $operation_id ) {
-        return self::guard( static function () use ( $plan, $operation_id ) {
+    public static function recover( array $plan, string $operation_id, bool $read_only = false ) {
+        return self::guard( static function () use ( $plan, $operation_id, $read_only ) {
             self::assert_plan( $plan, $operation_id ); self::database_capability(); $started = false;
             try {
                 self::begin(); $started = true;
                 $marker = self::marker( self::operation_key( $operation_id ), true );
-                if ( $marker ) { $result = self::verified_marker( $plan, $marker ); }
+                if ( $marker ) { $result = self::verified_marker( $plan, $marker, $read_only ); }
                 else {
                     $fence = self::target_fence( $plan['source_post_id'] );
                     if ( $fence && $fence['record']['operation_id'] === $operation_id ) { self::fail( 'ambiguous_marker', 'The native fence names this operation but its durable operation marker is missing.' ); }
@@ -640,8 +641,8 @@ final class Nova_Bridge_Suite_Mapped_Writer {
             } finally { if ( $started ) { self::rollback(); } }
         } );
     }
-    public static function verify( array $plan, array $result ) {
-        return self::recover( $plan, $result['operation_id'] ?? '' );
+    public static function verify( array $plan, array $result, bool $read_only = false ) {
+        return self::recover( $plan, $result['operation_id'] ?? '', $read_only );
     }
     public static function finish( array $plan, array $result ) {
         return self::guard( static function () use ( $plan, $result ) {

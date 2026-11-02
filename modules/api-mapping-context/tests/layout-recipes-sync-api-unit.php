@@ -13,7 +13,7 @@ class Nova_Bridge_Suite_Posting_Jobs {
     function unlock( $id ) { self::$held = false; }
 }
 $checks = 0;
-$options['nova_bridge_posting_connection'] = [ 'enabled' => true, 'site_id' => '00000000-0000-4000-8000-000000000111', 'base_url' => 'https://posting.fixture.invalid', 'token' => 'fixture-token-not-a-real-secret' ];
+$options['nova_bridge_posting_connection'] = [ 'site_id' => '00000000-0000-4000-8000-000000000111', 'base_url' => 'https://posting.fixture.invalid', 'token' => 'fixture-token-not-a-real-secret', 'webhook_secret' => 'fixture-signing-secret', 'actor_user_id' => 7 ];
 $design = design( 'core', 'static', 'taxonomy:product_cat' );
 $body = save_body( $design, $design['recipe_preset'], $design['sample'], 'taxonomy:product_cat' );
 $saved = data( route( 'save', 'POST', [], $body ) );

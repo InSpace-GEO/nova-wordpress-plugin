@@ -2,6 +2,7 @@
 /** Private connection settings for the site's posting-service plugin credential. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-bridge-suite-posting-url-scope.php';
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-bridge-suite-posting-actor.php';
 
 final class Nova_Bridge_Suite_Posting_Settings {
     public const OPTION = 'nova_bridge_posting_connection';
@@ -19,15 +20,19 @@ final class Nova_Bridge_Suite_Posting_Settings {
 
     public static function connection(): array {
         $value = get_option( self::OPTION, [] );
-        $value = is_array( $value ) ? $value : [];
-        $value = array_merge( [ 'base_url' => '', 'site_id' => '', 'token' => '', 'webhook_secret' => '', 'enabled' => false, 'paused' => true, 'actor_user_id' => 0, 'url_scope_enabled' => false, 'url_scope_excluded_paths' => [] ], $value );
+        return self::effective_connection( is_array( $value ) ? $value : [] );
+    }
+
+    private static function effective_connection( array $value ): array {
+        $value += [ 'base_url' => '', 'site_id' => '', 'token' => '', 'webhook_secret' => '', 'actor_user_id' => 0, 'actor_user_selected' => false, 'url_scope_enabled' => false, 'url_scope_excluded_paths' => [] ];
         foreach ( [ 'base_url' => 'NOVA_POSTING_SERVICE_URL', 'site_id' => 'NOVA_POSTING_SITE_ID', 'token' => 'NOVA_POSTING_TOKEN', 'webhook_secret' => 'NOVA_POSTING_WEBHOOK_SECRET' ] as $key => $constant ) {
             if ( defined( $constant ) ) { $value[ $key ] = (string) constant( $constant ); }
         }
-        $value['enabled'] = ! empty( $value['enabled'] );
         $value['site_id'] = strtolower( $value['site_id'] );
-        $value['paused'] = ! empty( $value['paused'] );
         $value['actor_user_id'] = (int) $value['actor_user_id'];
+        // Keep the connector's existing interface. Local switches from earlier releases no longer control delivery.
+        $value['enabled'] = $value['actor_user_id'] > 0 && is_string( $value['webhook_secret'] ) && '' !== $value['webhook_secret'] && null === ( new Nova_Bridge_Suite_Posting_Client( $value ) )->connection_error();
+        $value['paused'] = false;
         $value['url_scope_enabled'] = ! empty( $value['url_scope_enabled'] );
         return $value;
     }
@@ -49,6 +54,7 @@ final class Nova_Bridge_Suite_Posting_Settings {
         $old = is_array( $old ) ? $old : [];
         if ( ! is_array( $input ) || ! current_user_can( 'manage_options' ) ) { return $old; }
         $next = $old;
+        $next += [ 'url_scope_enabled' => false, 'url_scope_excluded_paths' => [] ];
         foreach ( [ 'base_url', 'site_id' ] as $key ) {
             if ( isset( $input[ $key ] ) && is_string( $input[ $key ] ) ) { $next[ $key ] = trim( $input[ $key ] ); }
         }
@@ -74,27 +80,50 @@ final class Nova_Bridge_Suite_Posting_Settings {
                 $next[ $key ] = $secret;
             }
         }
-        $next['enabled'] = ! empty( $input['enabled'] );
-        $next['paused'] = ! empty( $input['paused'] );
-        $next['actor_user_id'] = get_current_user_id();
-        $next['url_scope_enabled'] = ! empty( $input['url_scope_enabled'] );
-        $exclusions = Nova_Bridge_Suite_Posting_Url_Scope::exclusions( $input['url_scope_excluded_paths'] ?? '' );
-        if ( is_wp_error( $exclusions ) ) {
-            add_settings_error( self::OPTION, 'nova_posting_url_scope', $exclusions->get_error_message() );
-            return $old;
+        if ( array_key_exists( 'actor_user_id', $input ) ) {
+            $actor = filter_var( $input['actor_user_id'], FILTER_VALIDATE_INT, [ 'options' => [ 'min_range' => 1 ] ] );
+            if ( false === $actor || ! Nova_Bridge_Suite_Posting_Actor::eligible( $actor ) ) {
+                add_settings_error( self::OPTION, 'nova_posting_actor', 'Choose a posting user who can publish content on this WordPress site.' );
+                return $old;
+            }
+            $next['actor_user_id'] = $actor;
+            $next['actor_user_selected'] = true;
+        } elseif ( empty( $old['actor_user_id'] ) && ! empty( $input ) ) {
+            $next['actor_user_id'] = Nova_Bridge_Suite_Posting_Actor::default_id();
         }
-        $next['url_scope_excluded_paths'] = $exclusions;
-        // A different service/site must not accidentally inherit permission to publish.
-        if ( ( $old['base_url'] ?? '' ) !== ( $next['base_url'] ?? '' ) || ( $old['site_id'] ?? '' ) !== ( $next['site_id'] ?? '' ) ) {
-            if ( ! empty( $old['site_id'] ) && class_exists( 'Nova_Bridge_Suite_Posting_Jobs' ) ) {
-                $unfinished = Nova_Bridge_Suite_Posting_Jobs::has_unfinished_for_site( $old['site_id'] );
-                if ( false !== $unfinished ) {
-                    add_settings_error( self::OPTION, 'nova_posting_unfinished', 'Finish or reconcile retained deliveries before changing the posting service or site. The existing connection has been retained.' );
+        // The form always posts the textarea, including when the routing checkbox is unchecked.
+        if ( array_key_exists( 'url_scope_excluded_paths', $input ) ) {
+            $exclusions = Nova_Bridge_Suite_Posting_Url_Scope::exclusions( $input['url_scope_excluded_paths'] );
+            if ( is_wp_error( $exclusions ) ) {
+                add_settings_error( self::OPTION, 'nova_posting_url_scope', $exclusions->get_error_message() );
+                return $old;
+            }
+            $next['url_scope_excluded_paths'] = $exclusions;
+            $next['url_scope_enabled'] = ! empty( $input['url_scope_enabled'] );
+        } elseif ( array_key_exists( 'url_scope_enabled', $input ) ) {
+            $next['url_scope_enabled'] = ! empty( $input['url_scope_enabled'] );
+        }
+        $previous = self::effective_connection( $old );
+        $connection = self::effective_connection( $next );
+        $origin_changed = $previous['base_url'] !== $connection['base_url'];
+        $site_changed = $previous['site_id'] !== $connection['site_id'];
+        if ( ( $origin_changed || $site_changed ) && '' !== $previous['site_id'] && class_exists( 'Nova_Bridge_Suite_Posting_Jobs' ) ) {
+            $unfinished = Nova_Bridge_Suite_Posting_Jobs::has_unfinished_for_site( $previous['site_id'] );
+            if ( false !== $unfinished ) {
+                add_settings_error( self::OPTION, 'nova_posting_unfinished', 'Finish or reconcile retained deliveries before changing the posting service or site. The existing connection has been retained.' );
+                return $old;
+            }
+        }
+        if ( ( $origin_changed && '' !== $previous['base_url'] ) || ( $site_changed && '' !== $previous['site_id'] ) ) {
+            foreach ( [ 'token' => 'NOVA_POSTING_TOKEN', 'webhook_secret' => 'NOVA_POSTING_WEBHOOK_SECRET' ] as $key => $constant ) {
+                if ( ! defined( $constant ) && ! empty( $old[ $key ] ) && ( ! is_string( $input[ $key ] ?? null ) || '' === trim( $input[ $key ] ) ) ) {
+                    add_settings_error( self::OPTION, 'nova_posting_destination', 'Enter the credentials issued for the new service or site. Your existing connection has been kept.' );
                     return $old;
                 }
             }
-            $next['paused'] = true;
         }
+        $next['enabled'] = $connection['enabled'];
+        $next['paused'] = false;
         return $next;
     }
 
@@ -111,12 +140,19 @@ final class Nova_Bridge_Suite_Posting_Settings {
             if ( $secret ) { echo '<br><span class="description">' . ( ! empty( $settings[ $key ] ) ? 'A credential is configured. Leave blank to keep it.' : 'No credential configured.' ) . '</span>'; }
             echo '</p>';
         }
-        echo '<p><label><input type="checkbox" name="' . esc_attr( self::OPTION ) . '[enabled]" value="1" ' . checked( $settings['enabled'], true, false ) . '> Enable compatible content delivery</label><br><span class="description">Enables retrieval and verified page changes using a compatible setup. Saving layout rules alone does not enable delivery.</span></p>';
-        echo '<p><label><input type="checkbox" name="' . esc_attr( self::OPTION ) . '[paused]" value="1" ' . checked( $settings['paused'], true, false ) . '> Pause new page changes</label><br><span class="description">Recovery and delivery receipts can continue while paused. Turn the connection off to stop requests.</span></p>';
-        echo '<details><summary>Shared website delivery routing</summary><p><label><input type="checkbox" name="' . esc_attr( self::OPTION ) . '[url_scope_enabled]" value="1" ' . checked( $settings['url_scope_enabled'], true, false ) . '> Only process deliveries belonging to this WordPress installation</label><br><span class="description">For installations sharing a NOVA website identifier. Matches the public site URL: <code>' . esc_html( get_option( 'home', home_url( '/' ) ) ) . '</code>. Other deliveries are skipped locally without sending NOVA a delivery receipt.</span></p>';
-        echo '<p><label for="nova-posting-excluded-paths">Excluded paths, one per line</label><br><textarea class="large-text" rows="4" id="nova-posting-excluded-paths" name="' . esc_attr( self::OPTION ) . '[url_scope_excluded_paths]">' . esc_textarea( implode( "\n", (array) $settings['url_scope_excluded_paths'] ) ) . '</textarea><br><span class="description">Use paths from the domain root, for example /eindhoven. Each exclusion includes its subpaths. The main installation must exclude paths served by the other installations. These settings apply to deliveries that have not started; they do not change mappings or interrupt publication recovery.</span></p></details>';
-        echo '<p>Confirm service compatibility with NOVA before allowing page changes, then verify a controlled test delivery.</p>';
-        echo '<p>Publishing uses the WordPress permissions of the administrator saving these settings. Changing the service or site pauses new mutations until you resume them.</p>';
+        $users = Nova_Bridge_Suite_Posting_Actor::choices( $settings['actor_user_selected'] ? $settings['actor_user_id'] : 0 );
+        // Older releases recorded the last administrator to save, without a user selection.
+        $actor = $settings['actor_user_selected'] ? $settings['actor_user_id'] : Nova_Bridge_Suite_Posting_Actor::default_id( $users );
+        echo '<p><label for="nova-posting-actor">Posting user</label><br><select id="nova-posting-actor" name="' . esc_attr( self::OPTION ) . '[actor_user_id]"' . ( $users ? ' required' : ' disabled' ) . '>';
+        if ( ! isset( $users[ $actor ] ) ) {
+            echo '<option value="" selected>' . ( $users ? 'Choose a posting user' : 'No eligible posting user' ) . '</option>';
+        }
+        foreach ( $users as $id => $name ) {
+            echo '<option value="' . esc_attr( $id ) . '" ' . selected( $id, $actor, false ) . '>' . esc_html( $name ) . '</option>';
+        }
+        echo '</select><br><span class="description">' . ( $users ? 'Choose an account that can publish the content types you map, then save the connection.' : 'Give a user on this site permission to publish content, then select that user here.' ) . '</span></p>';
+        echo '<details><summary>Multi-site WordPress</summary><p><label><input type="checkbox" name="' . esc_attr( self::OPTION ) . '[url_scope_enabled]" value="1" ' . checked( $settings['url_scope_enabled'], true, false ) . '> Only process deliveries belonging to this WordPress installation</label><br><span class="description">Use this when several installations share a NOVA website identifier. This installation handles deliveries under <code>' . esc_html( get_option( 'home', home_url( '/' ) ) ) . '</code>.</span></p>';
+        echo '<p><label for="nova-posting-excluded-paths">Excluded paths, one per line</label><br><textarea class="large-text" rows="4" id="nova-posting-excluded-paths" name="' . esc_attr( self::OPTION ) . '[url_scope_excluded_paths]">' . esc_textarea( implode( "\n", (array) $settings['url_scope_excluded_paths'] ) ) . '</textarea><br><span class="description">Enter paths served by other installations, such as /eindhoven. Each path includes its subpaths.</span></p></details>';
         submit_button( 'Save NOVA connection' );
         echo '</form></details><details class="nova-mapping-advanced"><summary>Delivery status and technical details</summary><p>Ready notification URL: <code>' . esc_html( rest_url( 'nova-bridge/v1/posting/ready' ) ) . '</code></p><div id="nova-posting-status"></div></details>';
     }

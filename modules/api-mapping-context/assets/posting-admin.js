@@ -15,7 +15,7 @@
             try {
                 var result = await call( '/jobs' ); host.replaceChildren();
                 host.appendChild( node( 'h3', 'Publishing and recovery' ) );
-                host.appendChild( node( 'p', ! result.enabled ? 'Connection disabled.' : result.paused ? 'New content changes are paused. Recovery and result delivery can continue.' : 'Content delivery is enabled. Each queued delivery must pass configuration and writer checks before content changes.' ) );
+                host.appendChild( node( 'p', result.enabled ? 'Connection details are configured. Manage delivery in NOVA.' : 'Save the NOVA connection details and posting user to receive deliveries.' ) );
                 host.appendChild( button( 'Refresh publishing status', load ) );
                 var discovery = result.discovery || {};
                 if ( discovery.last_error ) { host.appendChild( node( 'p', 'Discovery issue: ' + String( discovery.last_error ) ) ); }

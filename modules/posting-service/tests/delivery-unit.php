@@ -18,6 +18,7 @@ function wp_remote_retrieve_header( $r, $key ) { return $r['headers'][$key] ?? '
 function wp_generate_uuid4() { static $n = 100; return '11111111-1111-4111-8111-' . sprintf( '%012d', ++$n ); }
 function get_current_user_id() { return $GLOBALS['actor'] ?? 0; }
 function wp_set_current_user( $id ) { $GLOBALS['actor'] = $id; }
+require_once __DIR__ . '/posting-actor-worker-fixture.php';
 function get_post_status( $id ) { return 'publish'; }
 foreach ( [ 'posting-client', 'posting-protocol', 'receipt-json', 'posting-discovery', 'posting-worker' ] as $file ) { require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-' . $file . '.php'; }
 require __DIR__ . '/contract-fixture.php';
@@ -74,10 +75,12 @@ class Contract_Test_Server {
 function delivery_fixture( $patch = [] ) {
     Contract_Test_Writer::reset(); $f = nova_contract_fixture(); $f['connection'] = array_merge( $f['connection'], $patch );
     $s = new Contract_Test_Store(); $server = new Contract_Test_Server( $f ); $GLOBALS['server'] = $server;
+    return [ $f['job'], $s, $server, delivery_worker( $f, $s ) ];
+}
+function delivery_worker( array $f, $s ) {
     $configuration = static function ( $snapshot, $site ) use ( $f ) { return $f['configuration']; };
     $policy = static function () use ( $f ) { return [ 'reference' => [ 'reference_type' => 'post', 'reference_id' => 77 ], 'routing' => [ 'operation' => 'update', 'publication' => 'publish' ] ]; };
-    $w = new Nova_Bridge_Suite_Posting_Worker( $f['connection'], $s, new Nova_Bridge_Suite_Posting_Client( $f['connection'] ), $configuration, 'Contract_Test_Writer', $policy );
-    return [ $f['job'], $s, $server, $w ];
+    return new Nova_Bridge_Suite_Posting_Worker( $f['connection'], $s, new Nova_Bridge_Suite_Posting_Client( $f['connection'] ), $configuration, 'Contract_Test_Writer', $policy );
 }
 function delivery_resume( $job ) { $job['state'] = 'running'; return $job; }
 
@@ -159,6 +162,45 @@ delivery_check( 'complete' === $result['state'] && 1 === Contract_Test_Writer::$
 $result['phase'] = 'attempt_check'; $server->attempt = '00000000-0000-4000-8000-000000000098';
 $result = $worker->process( delivery_resume( $result ) );
 delivery_check( 'complete' === $result['state'] && 1 === Contract_Test_Writer::$apply && count( $result['payload']['prior_attempts'] ) === 2, 'A replacement attempt attests the already verified frozen write without duplicating it.' );
+
+// An actor can leave between the native commit, verification, and the final acknowledgement.
+[ $job, $store, $server, $worker ] = delivery_fixture();
+Contract_Test_Writer::$verify_error = new WP_Error( 'fixture_verification_failed' );
+$committed = $worker->process( $job );
+$f = $server->fixture; $f['connection']['actor_user_id'] = 2; $worker = delivery_worker( $f, $store );
+unset( $committed['payload']['actor_user_id'] ); // Earlier releases pinned only the retained context.
+$GLOBALS['revoked_actor'] = 1; Contract_Test_Writer::$verify_error = null;
+$server->lose = 'publication_succeeded';
+$pending = $worker->process( delivery_resume( $committed ) );
+$complete = $worker->process( delivery_resume( $pending ) );
+delivery_check( 'event_pending' === $pending['phase'] && 'complete' === $complete['state'] && $pending['payload']['event_bytes'] === end( $server->posts ), 'Committed verification and exact pending receipt replay still complete after actor revocation.' );
+$server->attempt = '00000000-0000-4000-8000-000000000099'; $complete['phase'] = 'attempt_check';
+$replacement = $worker->process( delivery_resume( $complete ) );
+delivery_check( 'complete' === $replacement['state'] && 1 === $replacement['payload']['context']['actor_user_id'] && $replacement['payload']['attempt_id'] === $server->attempt, 'A replacement attempt reattests the same verified commitment and author.' );
+delivery_check( 1 === Contract_Test_Writer::$apply && 1 === Contract_Test_Writer::$finish && 0 === Contract_Test_Writer::$recover, 'Verification and final receipt replay after revocation call no mutating writer methods.' );
+Contract_Test_Writer::$verify_error = [ 'post_id' => 77, 'cms_post_status' => 'draft', 'state' => 'cms_committed', 'derived_pending' => true ];
+$server->attempt = $committed['payload']['attempt_id']; $before_posts = count( $server->posts );
+$unfinished = $worker->process( delivery_resume( $committed ) );
+delivery_check( 'blocked' === $unfinished['state'] && count( $server->posts ) === $before_posts && 1 === Contract_Test_Writer::$finish, 'An unfinished derived write cannot finalize or report success after its actor is revoked.' );
+unset( $GLOBALS['revoked_actor'] );
+
+[ $job, $store, $server, $worker ] = delivery_fixture(); Contract_Test_Writer::$plan_error = true;
+$failed = $worker->process( $job ); $failed['phase'] = 'attempt_check';
+$f = $server->fixture; $f['connection']['actor_user_id'] = 2; $new_worker = delivery_worker( $f, $store );
+$GLOBALS['revoked_actor'] = 1; Contract_Test_Writer::$plan_error = false;
+$server->attempt = '00000000-0000-4000-8000-000000000098';
+$replacement = $new_worker->process( delivery_resume( $failed ) );
+delivery_check( 'complete' === $replacement['state'] && 2 === Contract_Test_Writer::$context['actor_user_id'] && 1 === Contract_Test_Writer::$apply, 'A replacement with no retained plan and proven pre-write failure uses the newly selected publisher.' );
+$prior = $replacement['payload']['prior_attempts'][0];
+delivery_check( 1 === $prior['actor_user_id'] && true === $prior['native_absence_proof']['no_native_commit'] && $prior['events'] === $failed['payload']['events'], 'The failed attempt retains its original actor, proof and accepted receipt bytes.' );
+unset( $GLOBALS['revoked_actor'] );
+
+[ $job, $store, $server, $worker ] = delivery_fixture(); Contract_Test_Writer::$crash = true;
+$uncertain = $worker->process( $job ); Contract_Test_Writer::$crash = false;
+$GLOBALS['revoked_actor'] = 1; $f = $server->fixture; $f['connection']['actor_user_id'] = 2;
+$blocked = delivery_worker( $f, $store )->process( delivery_resume( $uncertain ) );
+delivery_check( 'blocked' === $blocked['state'] && 'publishing_user_unavailable' === $blocked['last_error'] && 1 === Contract_Test_Writer::$apply && 0 === Contract_Test_Writer::$recover, 'An uncertain native operation cannot recover or reapply under a replacement author.' );
+unset( $GLOBALS['revoked_actor'] );
 
 foreach ( [ 'event_pending', 'applying' ] as $phase ) {
     [ $job, $store, $server, $worker ] = delivery_fixture(); $store->fail_phase = $phase;

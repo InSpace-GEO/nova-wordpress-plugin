@@ -412,11 +412,20 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( isset( $body['posting_page_type'] ) && ! in_array( $body['posting_page_type'], [ 'service', 'informative', 'category' ], true ) ) { return self::error( 'posting_page_type', 'Choose Service, Informative or Category as the NOVA page type.' ); }
         if ( 'taxonomy:product_cat' === $resource['id'] && isset( $body['posting_page_type'] ) && 'category' !== $body['posting_page_type'] ) { return self::error( 'posting_page_type', 'WooCommerce product categories use the NOVA Category page type.' ); }
         $source = class_exists( 'Nova_Bridge_Suite_Recipe_Visual' ) ? Nova_Bridge_Suite_Recipe_Visual::validate_source( $body, $recipe, $resource ) : null; if ( is_wp_error( $source ) ) { return $source; }
-        $content = $body['content'] ?? null; if ( ! is_array( $content ) || ! is_string( $body['preview_receipt'] ?? null ) || ! hash_equals( self::receipt( $recipe, $content ), $body['preview_receipt'] ) ) { return self::error( 'preview', 'Preview the current template and example before saving.', 409 ); }
-        $compiled = self::compile( $recipe, $content, 'save:' . Nova_Bridge_Suite_Recipe_Engine::digest( $recipe ) ); if ( is_wp_error( $compiled ) ) { return $compiled; }
+        $content = $body['content'] ?? [];
+        if ( ! is_array( $content ) || ( $content && Nova_Bridge_Suite_Recipe_Engine::list_array( $content ) ) ) { return self::error( 'sample', 'Provide sample draft values as an object.' ); }
+        // Older editors send a receipt for the exact recipe and content they reviewed.
+        if ( array_key_exists( 'preview_receipt', $body ) && ( ! is_string( $body['preview_receipt'] ) || ! hash_equals( self::receipt( $recipe, $content ), $body['preview_receipt'] ) ) ) {
+            return self::error( 'preview', 'The reviewed template or example changed before saving.', 409 );
+        }
+        $schema = Nova_Bridge_Suite_Recipe_Engine::content_schema( $recipe ); if ( is_wp_error( $schema ) ) { return $schema; }
+        if ( isset( $recipe['custom_fields'] ) ) {
+            $custom = Nova_Bridge_Suite_Recipe_Engine::content_schema( $recipe['custom_fields'] ); if ( is_wp_error( $custom ) ) { return $custom; }
+            $schema = Nova_Bridge_Suite_Recipe_Engine::merge_content_schemas( $schema, $custom ); if ( is_wp_error( $schema ) ) { return $schema; }
+        }
         $id = $body['id'] ?? wp_generate_uuid4(); $expected = $body['expected_revision'] ?? null; $label = $body['label'] ?? '';
         if ( ! self::uuid( $id ) || ! is_int( $expected ) || $expected < 0 || ! is_string( $label ) || '' === trim( $label ) || strlen( $label ) > 200 ) { return self::error( 'identity', 'Name the template and supply its saved revision.' ); }
-        $saved = self::mutate( self::OPTION, static function ( array $state ) use ( $body, $resource, $recipe, $compiled, $content, $id, $expected, $label, $source ) {
+        $saved = self::mutate( self::OPTION, static function ( array $state ) use ( $body, $resource, $recipe, $schema, $content, $id, $expected, $label, $source ) {
             $history = $state['profiles'][$id] ?? []; $latest = $history ? max( array_keys( $history ) ) : 0;
             $current_default = $state['defaults'][$resource['id']] ?? null; $expected_default = $body['expected_default'] ?? null;
             $identity = static function ( $entry ) { return is_array( $entry ) ? [ 'id' => $entry['id'] ?? '', 'revision' => $entry['revision'] ?? 0 ] : null; };
@@ -424,7 +433,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
             if ( $latest !== $expected || ( $history && $history[$latest]['resource_id'] !== $resource['id'] ) ) { return self::error( 'conflict', 'This template changed elsewhere or belongs to another destination. Reload before saving.', 409 ); }
             if ( $history && ! empty( $history[$latest]['source_reference'] ) && ! $source ) { return self::error( 'reference', 'Keep the verified example identity, or capture a new design explicitly before updating this template.', 409 ); }
             if ( count( $history ) >= 50 || ( ! $history && count( $state['profiles'] ) >= 100 ) ) { return self::error( 'history', 'The retained template history reached its limit. No history was removed.', 409 ); }
-            $record = [ 'id' => $id, 'revision' => $latest + 1, 'resource_id' => $resource['id'], 'label' => sanitize_text_field( $label ), 'mode' => $recipe['mode'], 'builder' => $recipe['builder'], 'recipe' => $recipe, 'seal' => $body['seal'], 'acf_seal' => $body['acf_seal'] ?? '', 'content_schema' => $compiled['content_schema'], 'sample' => $content, 'created_at' => gmdate( 'c' ), 'created_by' => get_current_user_id() ];
+            $record = [ 'id' => $id, 'revision' => $latest + 1, 'resource_id' => $resource['id'], 'label' => sanitize_text_field( $label ), 'mode' => $recipe['mode'], 'builder' => $recipe['builder'], 'recipe' => $recipe, 'seal' => $body['seal'], 'acf_seal' => $body['acf_seal'] ?? '', 'content_schema' => $schema, 'sample' => $content, 'created_at' => gmdate( 'c' ), 'created_by' => get_current_user_id() ];
             $fallback_type = self::posting_page_type( $resource['id'] );
             if ( null !== $fallback_type ) { $previous_type = ( $history[$latest]['resource_id'] ?? '' ) === $resource['id'] ? ( $history[$latest]['posting_page_type'] ?? null ) : null; $record['posting_page_type'] = $body['posting_page_type'] ?? $previous_type ?? $fallback_type; }
             if ( $source ) { $record['source_reference'] = $source; $record['source_receipt'] = $body['source_receipt']; }

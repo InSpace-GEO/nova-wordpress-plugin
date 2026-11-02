@@ -66,7 +66,7 @@ final class Nova_Bridge_Suite_Mapping_Sync {
     public static function activate_response( $request ) { return self::run_response( $request, true ); }
     private static function run_response( $request, bool $activate ) {
         $permission = self::permission( $request ); if ( is_wp_error( $permission ) ) { return $permission; }
-        $connection = self::connection(); if ( empty( $connection['enabled'] ) ) { return self::error( 'connection_disabled', 'Enable the site connection before publishing-template setup.', 503 ); }
+        $connection = self::connection(); if ( empty( $connection['enabled'] ) ) { return self::error( 'connection_disabled', 'Complete the NOVA connection details before setting up publishing templates.', 503 ); }
         $input = $request->get_json_params();
         if ( ! is_array( $input ) || ! is_string( $input['expected_revision'] ?? null ) ) { return self::error( 'revision', 'Supply the saved local draft revision.', 400 ); }
         $draft = null;
@@ -220,7 +220,7 @@ final class Nova_Bridge_Suite_Mapping_Sync {
     public static function template_default_response( $request ) { return self::setting_response( $request, true ); }
     private static function setting_response( $request, bool $defaults ) {
         $permission = self::permission( $request ); if ( is_wp_error( $permission ) ) { return $permission; }
-        $connection = self::connection(); if ( empty( $connection['enabled'] ) ) { return self::error( 'connection_disabled', 'Enable the site connection before setting up publishing templates.', 503 ); }
+        $connection = self::connection(); if ( empty( $connection['enabled'] ) ) { return self::error( 'connection_disabled', 'Complete the NOVA connection details before setting up publishing templates.', 503 ); }
         $write = 'POST' === $request->get_method(); $input = $write ? $request->get_json_params() : $request->get_params();
         if ( ! is_array( $input ) || ! in_array( $input['reference_type'] ?? null, [ 'post', 'term' ], true ) || ! ctype_digit( (string) ( $input['reference_id'] ?? '' ) ) || (int) $input['reference_id'] < 1 ) { return self::error( 'reference', 'Supply the concrete WordPress reference.', 400 ); }
         if ( ! $defaults && ! Nova_Bridge_Suite_Posting_Client::id( $input['url_id'] ?? null ) ) { return self::error( 'url_id', 'Enter a trusted NOVA URL ID, not a WordPress post ID.', 400 ); }

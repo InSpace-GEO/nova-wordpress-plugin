@@ -1,6 +1,7 @@
 <?php
 /** Local native-document capture and creation blueprints. This adapter never writes CMS content. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/editorial-post-types.php';
 
 final class Nova_Bridge_Suite_Document_Mapping {
     public const FORMAT = 'nova-document-mapping/v1';
@@ -85,10 +86,7 @@ final class Nova_Bridge_Suite_Document_Mapping {
     /** Diagnostics distinguish incomplete evidence from proven-unused auxiliary archives. */
     public static function excluded_resources(): array { if ( ! current_user_can( 'manage_options' ) ) { return []; } self::catalog(); return array_values( self::$excluded_taxonomies ); }
     private static function editorial_type( $type ): bool {
-        $name = $type->name ?? '';
-        return preg_match( '/^[a-z0-9_-]{1,32}$/D', $name ) && ! empty( $type->public ) && ! empty( $type->show_ui ) && ! empty( $type->show_in_rest )
-            && ! in_array( $name, [ 'attachment', 'revision', 'nav_menu_item', 'custom_css', 'customize_changeset', 'user_request', 'wp_block', 'wp_template', 'wp_template_part', 'wp_global_styles', 'wp_navigation', 'wp_font_family', 'wp_font_face', 'product_variation', 'shop_order', 'shop_order_refund', 'shop_coupon', 'shop_webhook', 'shop_subscription' ], true )
-            && ! preg_match( '/^(?:acf|acfe|elementor|wc)[_-]|^e-/', $name );
+        return nova_bridge_suite_is_editorial_post_type( $type ) && ! empty( $type->show_in_rest );
     }
     private static function editorial_taxonomy( $taxonomy, array $types ): bool {
         $name = $taxonomy->name ?? '';

@@ -12,7 +12,7 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
 
     /** Serialize editor saves and retries. A lost PUT acknowledgement must be reconciled first. */
     public static function sync_editor( array $connection, callable $load, bool $saving = false, $client = null, $locks = null ) {
-        if ( ! current_user_can( 'manage_options' ) || empty( $connection['enabled'] ) ) { return self::error( 'permission', 'Enable the posting connection and sign in as an administrator before synchronizing.' ); }
+        if ( ! current_user_can( 'manage_options' ) || empty( $connection['enabled'] ) ) { return self::error( 'permission', 'Sign in as an administrator and complete the NOVA connection details before synchronizing.' ); }
         $client = $client ?: new Nova_Bridge_Suite_Posting_Client( $connection );
         $invalid = $client->connection_error(); if ( is_wp_error( $invalid ) ) { return $invalid; }
         $key = self::key( 'editor', $client->site_id() );

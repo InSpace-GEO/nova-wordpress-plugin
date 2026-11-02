@@ -24,6 +24,7 @@ namespace NOVA_Mapping_Elementor {
     }
 }
 namespace {
+require_once __DIR__ . '/posting-actor-worker-fixture.php';
 define( 'ABSPATH', __DIR__ . '/' ); define( 'OBJECT', 'OBJECT' ); define( 'ELEMENTOR_VERSION', '3.30.3' ); define( 'NOVA_BRIDGE_SUITE_VERSION', '3.0.0' );
 $wp_version = '6.8';
 class WP_Error {

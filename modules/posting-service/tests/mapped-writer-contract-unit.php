@@ -126,6 +126,9 @@ check( $wpdb->data === $before, 'Retired operations cannot mutate an example or 
 
 $publication = nova_writer_fixture( 7, 'fixture-layout', 'update', 'human-publication' ); $wpdb = new Writer_Contract_DB( $publication['snapshot'] ); $publication_plan = contract_plan( $publication ); $draft_result = contract_complete( $publication_plan );
 $wpdb->update( $wpdb->posts, [ 'post_status' => 'publish', 'post_date' => '2026-10-02 14:00:00', 'post_date_gmt' => '2026-10-02 12:00:00', 'post_modified' => '2026-10-02 14:00:00', 'post_modified_gmt' => '2026-10-02 12:00:00' ], [ 'ID' => 7 ] );
+$before = $wpdb->data;
+$observed = contract_result( Nova_Bridge_Suite_Mapped_Writer::verify( $publication_plan, $draft_result, true ) );
+check( $observed['cms_post_status'] === 'publish' && $wpdb->data === $before, 'Read-only verification after revocation observes human publication without updating native fences or markers.' );
 $published_result = contract_result( Nova_Bridge_Suite_Mapped_Writer::finish( $publication_plan, $draft_result ) );
 check( $published_result['cms_post_status'] === 'publish' && $published_result['publication_transition']['from'] === 'draft', 'Verified status/date-only human publication updates durable outcome evidence without replaying content.' );
 check( contract_result( Nova_Bridge_Suite_Mapped_Writer::verify( $publication_plan, $published_result ) )['cms_post_status'] === 'publish', 'Publication transition evidence remains recoverable.' );

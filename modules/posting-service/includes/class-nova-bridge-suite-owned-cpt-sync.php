@@ -153,7 +153,7 @@ final class Nova_Bridge_Suite_Owned_CPT_Sync {
 
     /** Synchronize only this owned type, preserving all other site templates and defaults. */
     public static function synchronize( array $connection, string $post_type, string $page_type, $client = null, bool $select_default = true ) {
-        if ( empty( $connection['enabled'] ) ) { return self::error( 'connection', 'The posting connection is disabled.' ); }
+        if ( empty( $connection['enabled'] ) ) { return self::error( 'connection', 'Complete the NOVA connection details before synchronizing.' ); }
         $built = self::build( $post_type, $page_type ); if ( is_wp_error( $built ) ) { return $built; }
         $client = $client ?: new Nova_Bridge_Suite_Posting_Client( $connection );
         $invalid = $client->connection_error(); if ( is_wp_error( $invalid ) ) { return $invalid; }

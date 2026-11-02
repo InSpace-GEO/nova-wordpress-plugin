@@ -154,8 +154,8 @@ final class Nova_Bridge_Suite_Layout_Setup_Admin {
         if ( ! current_user_can( 'manage_options' ) ) { return; }
         $connection = Nova_Bridge_Suite_Posting_Settings::connection();
         echo '<section class="nova-connection-intro"><p class="nova-brand-kicker">OPTIONAL / SHARED SETUP</p><h2>NOVA connection</h2><p>A connection lets this website retrieve compatible content from NOVA. It is separate from choosing how that content becomes a page.</p>';
-        echo '<p class="nova-layout-connection-state">' . esc_html( ! $connection['enabled'] ? 'Service connection is off. Local layout setup and test drafts are available.' : ( $connection['paused'] ? 'New content changes are paused. Recovery and result delivery can continue.' : 'Service connection is enabled. Each delivery still needs an approved compatible setup.' ) ) . '</p>';
-        echo '<p>Saving layout rules does not switch this connection on. Review service compatibility and your layout setup before enabling automatic delivery.</p><a href="' . esc_url( self::url( 'layouts' ) ) . '">Back to layouts</a></section>';
+        echo '<p class="nova-layout-connection-state">' . esc_html( $connection['enabled'] ? 'Connection details are configured. Manage delivery in NOVA.' : 'Save your NOVA connection details and posting user below to receive deliveries. You can set up layouts and create test drafts before connecting.' ) . '</p>';
+        echo '<a href="' . esc_url( self::url( 'layouts' ) ) . '">Back to layouts</a></section>';
         Nova_Bridge_Suite_Posting_Settings::render();
     }
 }

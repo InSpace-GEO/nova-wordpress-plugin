@@ -1,6 +1,7 @@
 <?php
 /** Local exact URL ownership and editorial object resolution; never fetches a URL. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-posting-actor.php';
 final class Nova_Bridge_Suite_Mapped_Content_Target {
     private const BATCH = 250;
     private const MAX_OBJECTS = 10000;
@@ -102,13 +103,29 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         $occupied = self::resolve( $url ); if ( ! is_wp_error( $occupied ) ) { return self::error( 'target_exists', 'The planned URL already belongs to an existing native item.' ); } if ( 'nova_mapped_target_not_found' !== $occupied->get_error_code() ) { return $occupied; }
         return [ 'slug' => $slug, 'parent' => $parent, 'target_url' => $wanted['identity'] ] + ( null !== $language ? [ 'language' => $language, 'native_language' => $native_language ] : [] );
     }
+    private static function routing_resources() {
+        if ( current_user_can( 'manage_options' ) ) {
+            return array_filter( Nova_Bridge_Suite_Document_Mapping::resources(), static function ( $resource ) {
+                return ! empty( $resource['can_inspect_existing'] ) && empty( $resource['coming_soon'] ) && 'available' === ( $resource['availability'] ?? '' );
+            } );
+        }
+        if ( ! Nova_Bridge_Suite_Posting_Actor::eligible( get_current_user_id() ) ) { return self::error( 'permission', 'The configured publishing user cannot inspect site URLs.', 403 ); }
+        // Delivery needs native URLs for collision detection, including items the actor cannot
+        // edit. The administrator's mapping catalog also exposes field metadata and stays private.
+        $types = array_filter( get_post_types( [ 'public' => true, 'show_ui' => true ], 'objects' ), 'nova_bridge_suite_is_editorial_post_type' );
+        $resources = [];
+        foreach ( [ 'post_type' => array_keys( $types ), 'taxonomy' => get_taxonomies( [ 'public' => true, 'show_ui' => true ] ) ] as $kind => $names ) {
+            foreach ( $names as $name ) { $resources[] = [ 'type' => $kind, $kind => $name, 'id' => $kind . ':' . $name ]; }
+        }
+        return $resources;
+    }
+
     /** Enumerate actual native links, preserving hierarchy, taxonomy and language. */
     public static function resolve( string $url, ?string $resource_hint = null, ?string $language = null ) {
-        if ( ! current_user_can( 'manage_options' ) ) { return self::error( 'permission', 'The configured mapping actor cannot inspect site URLs.', 403 ); }
         $wanted = self::owned_url( $url ); if ( is_wp_error( $wanted ) ) { return $wanted; }
-        $matches = []; $inspected = 0; $resources = Nova_Bridge_Suite_Document_Mapping::resources();
+        $matches = []; $inspected = 0; $resources = self::routing_resources();
+        if ( is_wp_error( $resources ) ) { return $resources; }
         foreach ( $resources as $resource ) {
-            if ( empty( $resource['can_inspect_existing'] ) || ! empty( $resource['coming_soon'] ) || ( $resource['availability'] ?? '' ) !== 'available' ) { continue; }
             $term = 'taxonomy' === $resource['type']; $name = $resource[$term ? 'taxonomy' : 'post_type'];
             for ( $offset = 0; ; $offset += self::BATCH ) {
                 $ids = $term ? get_terms( [ 'taxonomy' => $name, 'hide_empty' => false, 'fields' => 'ids', 'number' => self::BATCH, 'offset' => $offset, 'orderby' => 'term_id', 'order' => 'ASC', 'suppress_filter' => true, 'lang' => '' ] ) : get_posts( [ 'post_type' => $name, 'post_status' => [ 'publish', 'draft', 'private', 'pending', 'future' ], 'fields' => 'ids', 'numberposts' => self::BATCH, 'posts_per_page' => self::BATCH, 'offset' => $offset, 'orderby' => 'ID', 'order' => 'ASC', 'suppress_filters' => true, 'no_found_rows' => true ] );

@@ -33,7 +33,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
     }
 
     public static function sync_editor( array $connection, callable $load, bool $saving = false, string $recipe_id = '', $client = null, $locks = null, string $recover_template_id = '', ?array $replace_default = null ) {
-        if ( ! current_user_can( 'manage_options' ) || empty( $connection['enabled'] ) ) { return self::error( 'permission', 'Enable the posting connection and sign in as an administrator before synchronizing.' ); }
+        if ( ! current_user_can( 'manage_options' ) || empty( $connection['enabled'] ) ) { return self::error( 'permission', 'Sign in as an administrator and complete the NOVA connection details before synchronizing.' ); }
         if ( null !== $replace_default && ( $saving || ! Nova_Bridge_Suite_Posting_Protocol::uuid( $replace_default['template_id'] ?? null ) || ! is_int( $replace_default['defaults_revision'] ?? null ) || $replace_default['defaults_revision'] < 1 || ! in_array( $replace_default['page_type'] ?? '', [ 'service', 'informative', 'category' ], true ) ) ) { return self::error( 'default_replacement', 'Review the saved template and the current default before replacing it.' ); }
         $client = $client ?: new Nova_Bridge_Suite_Posting_Client( $connection );
         $invalid = $client->connection_error(); if ( is_wp_error( $invalid ) ) { return $invalid; }

@@ -44,11 +44,18 @@ $posts[11]->post_content='<p>Changed while mapping.</p>';
 visual_ok( is_wp_error(Nova_Bridge_Suite_Recipe_Visual::validate_source($body,$recipe,$resource)), 'Changed source refuses an outdated mapping save.' );
 $stale=Nova_Bridge_Suite_Recipe_Visual::enrich($design,$resource,0,$body['source_reference'],$body['source_receipt']);
 visual_ok( $stale['visual_preview']['status']==='stale' && !isset($stale['visual_preview']['url']), 'A stale example never receives misleading clickable provenance.' );
+$save = $body + [
+    'id' => wp_generate_uuid4(), 'expected_revision' => 0, 'expected_default' => Nova_Bridge_Suite_Layout_Recipes::defaults()['post_type:page'] ?? null,
+    'resource_id' => 'post_type:page', 'label' => 'Visual example', 'seal' => $design['seal'],
+];
+rejected( Nova_Bridge_Suite_Layout_Recipes::save( new RecipeRequest( [], $save ) ), 409, 'Direct save accepted a source that changed after capture.' );
+visual_ok( serialize( $options ) === $settings_before && $writes === $writes_before, 'A rejected direct save changed settings or a native item.' );
 $posts[11]->post_content='<p>Original source.</p>';
-$preview=visual_result(Nova_Bridge_Suite_Layout_Recipes::preview(new RecipeRequest([],['recipe'=>$recipe,'seal'=>$design['seal'],'input'=>['content'=>['custom'=>['intro_123'=>'<p>Review introduction.</p>']]]])));
-$save=['id'=>wp_generate_uuid4(),'expected_revision'=>0,'expected_default'=>Nova_Bridge_Suite_Layout_Recipes::defaults()['post_type:page']??null,'resource_id'=>'post_type:page','label'=>'Visual example','recipe'=>$recipe,'seal'=>$design['seal'],'content'=>['custom'=>['intro_123'=>'<p>Review introduction.</p>']],'preview_receipt'=>$preview['preview_receipt'],'source_reference'=>$design['source_reference'],'source_receipt'=>$design['source_receipt']];
+$forged = $save; $forged['source_receipt'] = 'forged';
+rejected( Nova_Bridge_Suite_Layout_Recipes::save( new RecipeRequest( [], $forged ) ), 409, 'Direct save accepted an invalid source receipt.' );
 $saved=visual_result(Nova_Bridge_Suite_Layout_Recipes::save(new RecipeRequest([],$save)));
 visual_ok( $saved['source_reference']['reference_id']===11 && $saved['source_receipt']===$design['source_receipt'], 'Source evidence is retained with immutable revision.' );
+visual_ok( serialize( $posts[11] ) === $source_before && $writes === $writes_before, 'Direct save modified the original source.' );
 $profile=visual_result(Nova_Bridge_Suite_Layout_Recipes::profile(new RecipeRequest(['id'=>$saved['id']])));
 visual_ok( $profile['design']['visual_preview']['status']==='available' && $profile['design']['visual_preview']['session_id']!==$design['visual_preview']['session_id'], 'Reload issues a fresh canvas session for the same certified source.' );
 $recipe['bindings'][0]['id']='nova_role_custom_123';$recipe['bindings'][0]['instructions']='';

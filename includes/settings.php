@@ -3,9 +3,9 @@ defined( 'ABSPATH' ) || exit;
 
 function nova_bridge_suite_module_definitions(): array {
     return [
-        'custom_post_types' => [ 'label' => 'NOVA Blog', 'path' => 'modules/cpt/quarantined-cpt.php' ],
-        'service_page_cpt' => [ 'label' => 'NOVA Service Pages', 'path' => 'modules/service-page-cpt/service-page-cpt.php' ],
-        'woocommerce_rich_text' => [ 'label' => 'WooCommerce category content below products', 'path' => 'modules/woocommerce/wc-content-below-products.php' ],
+        'custom_post_types' => [ 'label' => 'NOVA Blog CPT', 'path' => 'modules/cpt/quarantined-cpt.php' ],
+        'service_page_cpt' => [ 'label' => 'NOVA Service CPT', 'path' => 'modules/service-page-cpt/service-page-cpt.php' ],
+        'woocommerce_rich_text' => [ 'label' => 'WooCommerce Rich Text', 'path' => 'modules/woocommerce/wc-content-below-products.php' ],
     ];
 }
 function nova_bridge_suite_default_settings(): array {
@@ -232,7 +232,7 @@ function nova_bridge_suite_render_settings_page(): void {
             return;
         endif;
         ?>
-        <p>Enable the content types and fields this site uses.</p>
+        <p>Enable the optional modules you want to use</p>
         <form method="post" action="options.php">
             <?php settings_fields( 'nova_wordpress_modules' ); ?>
             <input type="hidden" name="<?php echo esc_attr( NOVA_BRIDGE_SUITE_OPTION ); ?>[_submitted]" value="1">
