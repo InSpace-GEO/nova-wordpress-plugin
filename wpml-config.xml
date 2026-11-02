@@ -1,0 +1,85 @@
+<wpml-config>
+	<custom-types>
+		<custom-type translate="1">blog</custom-type>
+		<custom-type translate="1">service_page</custom-type>
+	</custom-types>
+	<custom-fields>
+		<custom-field action="translate">blog_intro</custom-field>
+		<custom-field action="translate">blog_key_takeaways</custom-field>
+		<custom-field action="copy">blog_toc_disable</custom-field>
+		<custom-field action="translate">blog_part_1</custom-field>
+		<custom-field action="translate">blog_cta_title</custom-field>
+		<custom-field action="translate">blog_cta_copy</custom-field>
+		<custom-field action="translate">blog_cta_button_label</custom-field>
+		<custom-field action="translate">blog_cta_button_url</custom-field>
+		<custom-field action="copy">blog_cta_disable</custom-field>
+		<custom-field action="translate">blog_part_2</custom-field>
+		<custom-field action="translate">blog_faqs</custom-field>
+		<custom-field action="copy" type="post-ids">blog_related_posts</custom-field>
+		<custom-field action="translate">blog_cta_after_related_title</custom-field>
+		<custom-field action="translate">blog_cta_after_related_copy</custom-field>
+		<custom-field action="translate">blog_cta_after_related_button_label</custom-field>
+		<custom-field action="translate">blog_cta_after_related_button_url</custom-field>
+		<custom-field action="copy">blog_cta_after_related_disable</custom-field>
+		<custom-field action="translate">sp_hero_eyebrow</custom-field>
+		<custom-field action="translate">sp_hero_title</custom-field>
+		<custom-field action="translate">sp_hero_copy</custom-field>
+		<custom-field action="translate">sp_hero_primary_label</custom-field>
+		<custom-field action="translate">sp_hero_primary_url</custom-field>
+		<custom-field action="translate">sp_hero_secondary_label</custom-field>
+		<custom-field action="translate">sp_hero_secondary_url</custom-field>
+		<custom-field action="translate">sp_intro</custom-field>
+		<custom-field action="translate">sp_main_1</custom-field>
+		<custom-field action="translate">sp_main_2</custom-field>
+		<custom-field action="translate">sp_main_3</custom-field>
+		<custom-field action="translate">sp_table</custom-field>
+		<custom-field action="copy" type="post-ids" sub-type="attachment">sp_image_1</custom-field>
+		<custom-field action="copy" type="post-ids" sub-type="attachment">sp_image_2</custom-field>
+		<custom-field action="translate">sp_sidebar_title</custom-field>
+		<custom-field action="translate">sp_sidebar_copy</custom-field>
+		<custom-field action="translate">sp_sidebar_primary_label</custom-field>
+		<custom-field action="translate">sp_sidebar_primary_url</custom-field>
+		<custom-field action="translate">sp_sidebar_secondary_label</custom-field>
+		<custom-field action="translate">sp_sidebar_secondary_url</custom-field>
+		<custom-field action="translate">sp_cta_title</custom-field>
+		<custom-field action="translate">sp_cta_bullets</custom-field>
+		<custom-field action="translate">sp_cta_button_label</custom-field>
+		<custom-field action="translate">sp_cta_button_url</custom-field>
+		<custom-field action="translate">sp_cta_more_text</custom-field>
+		<custom-field action="translate">sp_cta_more_url</custom-field>
+		<custom-field action="translate">sp_extra_copy</custom-field>
+		<custom-field action="translate">sp_tab_1_title</custom-field>
+		<custom-field action="translate">sp_tab_1_content</custom-field>
+		<custom-field action="translate">sp_tab_2_title</custom-field>
+		<custom-field action="translate">sp_tab_2_content</custom-field>
+		<custom-field action="translate">sp_tab_3_title</custom-field>
+		<custom-field action="translate">sp_tab_3_content</custom-field>
+		<custom-field action="translate">sp_faq</custom-field>
+		<custom-field action="copy" type="post-ids" sub-type="post">sp_related_posts</custom-field>
+	</custom-fields>
+	<custom-fields-texts>
+		<key name="blog_key_takeaways">
+			<key name="*" />
+		</key>
+		<key name="blog_faqs">
+			<key name="*">
+				<key name="question" />
+				<key name="answer" />
+			</key>
+		</key>
+		<key name="sp_table">
+			<key name="*">
+				<key name="*" />
+			</key>
+		</key>
+		<key name="sp_cta_bullets">
+			<key name="*" />
+		</key>
+		<key name="sp_faq">
+			<key name="*">
+				<key name="question" />
+				<key name="answer" />
+			</key>
+		</key>
+	</custom-fields-texts>
+</wpml-config>
