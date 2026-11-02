@@ -51,6 +51,8 @@ foreach ( [ 'service_page', 'blog', 'core', 'gutenberg' ] as $provider ) {
         $p = $plan( $content ); $result = $checked( $writer::apply( $p, $p['operation_id'] ) ); $checked( $writer::verify( $p, $result ) ); return $result;
     };
     $a = $save( $make( 'en-US', 1, $provider . '-english' ) );
+    $collision = $make( 'nl-NL', 2, $provider . '-english' ); $original_title = get_post( $a['post_id'] )->post_title;
+    $assert( is_wp_error( $writer::policy( $collision, $configuration ) ) && is_wp_error( $writer::plan( $collision, $configuration, [ 'operation_id' => wp_generate_uuid4() ] ) ) && get_post( $a['post_id'] )->post_title === $original_title, $provider . ': a second locale cannot adopt the same native URL' );
     $b = $save( $make( 'nl-NL', 1, $provider . '-dutch' ) );
     $assert( $a['post_id'] !== $b['post_id'] && get_post_status( $a['post_id'] ) === 'publish' && get_post_status( $b['post_id'] ) === 'publish', $provider . ': same URL ID, two locales, distinct published IDs' );
     $b_title = get_post( $b['post_id'] )->post_title;
@@ -67,15 +69,37 @@ foreach ( [ 'service_page', 'blog', 'core', 'gutenberg' ] as $provider ) {
     $a4 = $save( $make( 'en-US', 4, $provider . '-english' ) );
     $assert( $a4['post_id'] === $a['post_id'], $provider . ': migrated record takes precedence over legacy version' );
 
+    if ( ! $stored ) {
+        $adopt = $make( 'en-US', 1, $provider . '-adopted', '44' );
+        $adopted_id = $checked( wp_insert_post( [ 'post_type' => $provider, 'post_status' => 'publish', 'post_title' => $adopt['destination_values'][Nova_Bridge_Suite_Writing_Adapter::field_id( '/title' )], 'post_name' => $provider . '-adopted-' . $suffix, 'post_content_filtered' => 'Unrelated native data' ], true ) );
+        update_post_meta( $adopted_id, $provider === 'blog' ? 'blog_intro' : 'sp_intro', $adopt['destination_values'][Nova_Bridge_Suite_Writing_Adapter::field_id( $target )] );
+        $competing = $adopt; $competing['language'] = 'nl-NL'; $competing['content_item_id'] = '202';
+        $adoption_plan = $plan( $adopt ); $competing_plan = $plan( $competing );
+        $assert( $adoption_plan['target_post_id'] === $adopted_id && $competing_plan['target_post_id'] === $adopted_id, $provider . ': two plans can inspect a genuinely unowned existing native page' );
+        $adopted = $checked( $writer::apply( $adoption_plan, $adoption_plan['operation_id'] ) );
+        $assert( $adopted['post_id'] === $adopted_id && get_post( $adopted_id )->post_content_filtered === 'Unrelated native data', $provider . ': first adoption preserves the existing ID and unrelated native marker data' );
+        $assert( is_wp_error( $writer::apply( $competing_plan, $competing_plan['operation_id'] ) ) && get_post( $adopted_id )->post_title === $adopt['destination_values'][Nova_Bridge_Suite_Writing_Adapter::field_id( '/title' )], $provider . ': an already-planned competing locale cannot write after the first native claim' );
+    }
+
     // Interrupt after WordPress persisted the reservation but before the ID reply.
     $pending = $plan( $make( 'en-US', 1, $provider . '-pending', '43' ) );
+    $competing_pending = ! $stored ? $plan( $make( 'nl-NL', 1, $provider . '-pending', '43' ) ) : null;
     $marker = $writer::FORMAT . ':' . $pending['operation_id'] . ':' . $pending['plan_digest'];
     $lost = static function ( $id, $post, $update ) use ( $marker ) { if ( ! $update && $post->post_content_filtered === $marker ) { throw new RuntimeException( 'Disposable lost insert acknowledgement' ); } };
     add_action( 'wp_insert_post', $lost, PHP_INT_MAX, 3 );
     try { $interrupted = $writer::apply( $pending, $pending['operation_id'] ); } finally { remove_action( 'wp_insert_post', $lost, PHP_INT_MAX ); }
     $assert( is_wp_error( $interrupted ), $provider . ': lost insert acknowledgement remains uncertain' );
+    if ( $competing_pending ) {
+        $blocked = $writer::apply( $competing_pending, $competing_pending['operation_id'] );
+        global $wpdb; $same_path = $wpdb->get_col( $wpdb->prepare( "SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_parent = %d AND post_name = %s", $provider, $pending['target']['parent'], $pending['target']['slug'] ) );
+        $assert( is_wp_error( $blocked ) && count( $same_path ) === 1, $provider . ': an already-planned competing creation inserts no second native draft' );
+    }
     $pending_local = $prefix . hash( 'sha256', $site . ':43:en-us' ); $pending_legacy = $prefix . hash( 'sha256', $site . ':43' );
     $old_pending = get_option( $pending_local ); update_option( $pending_legacy, $old_pending, false ); delete_option( $pending_local );
+    if ( ! $stored ) {
+        $pending_collision = $make( 'nl-NL', 2, $provider . '-pending', '43' );
+        $assert( $old_pending['post_id'] === 0 && is_wp_error( $writer::plan( $pending_collision, $configuration, [ 'operation_id' => wp_generate_uuid4() ] ) ), $provider . ': another locale cannot adopt a legacy reservation whose ID reply was lost' );
+    }
     $replacement = $make( 'en-US', 2, $provider . '-pending', '43' );
     $assert( is_wp_error( $writer::plan( $replacement, $configuration, [ 'operation_id' => wp_generate_uuid4() ] ) ), $provider . ': unfinished matching legacy operation blocks replacement' );
     $other = $save( $make( 'nl-NL', 1, $provider . '-pending-dutch', '43' ) );

@@ -11,12 +11,22 @@ cannot adopt its native page. Malformed legacy identities require reconciliation
 Operation journals, reservation recovery, native language routing and target URL
 locks retain their existing behavior.
 
+Owned CPTs retain a private native owner marker when a page is created or first
+adopted. Another locale cannot adopt that same native URL, including through an
+already-planned operation with identical fitted values. A bounded check of the
+exact post type, parent and slug rejects owned draft reservations hidden by draft
+permalinks; creation repeats that check under the target URL lock before insert.
+Unowned existing CPTs remain adoptable, and their unrelated native marker data is
+preserved. The owner marker does not change frozen plan or native snapshot bytes.
+
 The disposable WordPress 7.1.4/MariaDB proof in
-`modules/posting-service/tests/locale-associations-wordpress.php` passed 36 checks
+`modules/posting-service/tests/locale-associations-wordpress.php` passed 50 checks
 using registered Service/Blog CPTs and the stored-layout core/Gutenberg providers.
 It published two locales with one URL ID, updated each independently, upgraded a
 legacy association without duplication, and recovered a lost insert reply while
-preserving the frozen operation plan and digest. The script requires the dedicated
+preserving the frozen operation plan and digest. Same-URL locale collisions,
+competing adoption plans, and competing creation plans produced no overwrite or
+second reserved draft. The script requires the dedicated
 `https://bridge-locale.test` installation and `NOVA_DISPOSABLE_WORDPRESS=1`; it
 retains its disposable records for inspection. Elementor locale behavior is
 covered by the local writer fixtures; this proof does not install Elementor or a
