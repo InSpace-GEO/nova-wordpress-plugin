@@ -70,6 +70,14 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         }
         return $saved;
     }
+    /** Draft permalinks may hide an owned reservation from canonical URL resolution. */
+    private static function assert_unreserved( string $type, array $target ): void {
+        global $wpdb;
+        foreach ( [ 'posts', 'postmeta' ] as $table ) { if ( ! isset( $wpdb->$table ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->$table ) ) { self::fail( 'storage', 'Native ownership storage is unavailable.' ); } }
+        $owned = $wpdb->get_var( $wpdb->prepare( 'SELECT p.ID FROM `' . $wpdb->posts . '` p WHERE p.post_type = %s AND p.post_parent = %d AND p.post_name = %s AND p.post_status <> %s AND (p.post_content_filtered LIKE %s OR EXISTS (SELECT 1 FROM `' . $wpdb->postmeta . '` m WHERE m.post_id = p.ID AND m.meta_key = %s)) LIMIT 1', $type, (int) $target['parent'], $target['slug'], 'trash', self::FORMAT . ':%', self::OWNER ) );
+        if ( ! empty( $wpdb->last_error ) ) { self::fail( 'storage', 'Native ownership could not be inspected.' ); }
+        if ( $owned ) { self::fail( 'ownership', 'This native path has an owned reservation. Reconcile the original operation before creating another item.' ); }
+    }
     private static function target( array $content, array $configuration, string $type ): array {
         $association = self::association( $content ); $url = self::target_url( $content['url'] ?? '' ); $resource = 'post_type:' . $type;
         if ( $association ) {
@@ -82,11 +90,13 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url, $resource );
         if ( is_wp_error( $found ) ) {
             if ( $found->get_error_code() !== 'nova_mapped_target_not_found' ) { self::checked( $found ); }
-            return [ 'post_id' => 0, 'target' => self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( $resource, $url, $content['language'] ?? '' ) ), 'association' => null ];
+            $target = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( $resource, $url, $content['language'] ?? '' ) );
+            self::assert_unreserved( $type, $target );
+            return [ 'post_id' => 0, 'target' => $target, 'association' => null ];
         }
         $id = (int) $found['reference_id']; $post = get_post( $id );
         if ( $found['reference_type'] !== 'post' || ! $post || $post->post_type !== $type || ! current_user_can( 'edit_post', $id ) || ! in_array( $post->post_status, [ 'draft', 'publish' ], true ) ) { self::fail( 'target', 'The exact URL must identify an editable draft or published page of the mapped type.' ); }
-        if ( '' !== get_post_meta( $id, self::OWNER, true ) ) { self::fail( 'ownership', 'This existing page already has a stored-layout owner. Reconcile its retained association before replacing it.' ); }
+        if ( '' !== get_post_meta( $id, self::OWNER, true ) || 0 === strpos( (string) $post->post_content_filtered, self::FORMAT . ':' ) ) { self::fail( 'ownership', 'This existing page already has a stored-layout owner or reservation. Reconcile its retained association before replacing it.' ); }
         return [ 'post_id' => $id, 'target' => self::checked( Nova_Bridge_Suite_Stored_Layout_Language::existing( $resource, $id, $url ) ), 'association' => null ];
     }
     private static function locked( array $plan, callable $work ) {
@@ -279,6 +289,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                     if ( $found ) { $record['post_id'] = $found; $record['state'] = 'reserved'; self::checkpoint( $key, $record ); }
                     elseif ( $record['state'] === 'creating' ) { self::fail( 'create_unknown', 'An uncertain creation has no unique reservation. Inspect it before trying again.' ); }
                     else {
+                        self::assert_unreserved( $plan['post_type'], $plan['target'] );
                         self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( 'post_type:' . $plan['post_type'], $plan['target']['target_url'], $plan['delivery_identity']['language'] ) );
                         self::checkpoint( self::association_key( $plan['delivery_identity'] ), $plan['delivery_identity'] + [ 'state' => 'pending', 'operation_id' => $operation, 'post_id' => 0 ] );
                         $record['state'] = 'creating'; self::checkpoint( $key, $record ); $marker = self::reservation_marker( $plan );
