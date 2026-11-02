@@ -41,6 +41,7 @@ function check_locale_associations( string $writer, callable $reset, callable $f
     check( is_wp_error( $plan( 'en-us', '501', 'article', 205 ) ), 'Stale content remains blocked within its canonical locale.' );
 
     $reset(); $first = $save( 'en-US', '501', 'article', 211 ); $key = $legacy(); $retained = $GLOBALS['options'][$key];
+    check( is_wp_error( $plan( 'nl-NL', '502', 'article', 210 ) ), 'Another locale cannot rediscover and adopt the legacy page at the same native URL.' );
     $second = $save( 'nl-NL', '501', 'translated', 212 );
     check( $second['post_id'] !== $first['post_id'] && $GLOBALS['options'][$key] === $retained, 'Another locale never adopts or changes the legacy association.' );
     $updated = $save( 'EN_us', '502', 'article', 213 );
