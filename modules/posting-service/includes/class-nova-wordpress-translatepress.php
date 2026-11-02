@@ -56,14 +56,14 @@ final class Nova_WordPress_TranslatePress {
         return class_exists( 'TRP_IN_Seo_Pack' );
     }
 
-    private static function source( int $id ) {
+    private static function source( int $id, bool $document ) {
         $post = get_post( $id );
         if ( ! $post || $post->post_status === 'trash' ) {
             return new WP_Error( 'nova_trp_missing_source', 'Source post not found.', [ 'status' => 404 ] );
         }
         $type = get_post_type_object( $post->post_type );
         // WordPress's built-in page type uses page routing despite publicly_queryable=false.
-        if ( ! $type || ! $type->public || ( ! $type->publicly_queryable && $post->post_type !== 'page' ) || $post->post_type === 'attachment' || ( ( get_post_meta( $id, '_elementor_edit_mode', true ) === 'builder' ||
+        if ( ! $type || ! $type->public || ( ! $type->publicly_queryable && $post->post_type !== 'page' ) || $post->post_type === 'attachment' || ( $document && ( get_post_meta( $id, '_elementor_edit_mode', true ) === 'builder' ||
             get_post_meta( $id, '_elementor_data', true ) || get_post_meta( $id, '_fl_builder_enabled', true ) ||
             get_post_meta( $id, '_et_pb_use_builder', true ) === 'on' || get_post_meta( $id, '_wpb_vc_js_status', true ) ||
             get_post_meta( $id, '_breakdance_data', true ) ) ) ) {
@@ -166,7 +166,7 @@ final class Nova_WordPress_TranslatePress {
     }
 
     public static function save( int $id, array $input ) {
-        $post = self::source( $id );
+        $post = self::source( $id, isset( $input['content'] ) || ! empty( $input['custom_fields'] ) );
         if ( is_wp_error( $post ) ) { return $post; }
         if ( ! self::translation_allowed( $post ) ) {
             return new WP_Error( 'nova_trp_source_excluded', 'TranslatePress excludes this source URL from translation.', [ 'status' => 409 ] );

@@ -1,6 +1,7 @@
 <?php
 /** Authenticated, schema-gated editorial transport, independent of show_in_rest. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
 
 final class Nova_Bridge_Suite_Content_Transport {
 	private static $bootstrapped = false;
@@ -39,10 +40,11 @@ final class Nova_Bridge_Suite_Content_Transport {
 	public static function field_catalog( string $post_type, int $post_id = 0, string $template = '' ): array {
 		$catalog = [ 'acf' => [], 'meta' => [] ];
 		if ( ! self::supports_post_type( $post_type ) ) { return $catalog; }
-		$catalog['acf'] = self::acf_fields( $post_type, $post_id, $template );
+		$claimed = [];
+		$catalog['acf'] = self::acf_fields( $post_type, $post_id, $template, $claimed );
 		$registrations = array_merge( get_registered_meta_keys( 'post' ), get_registered_meta_keys( 'post', $post_type ) );
 		foreach ( $registrations as $key => $registration ) {
-			if ( self::safe_key( $key ) && is_array( $registration ) && ! empty( $registration['single'] ) && ! isset( $catalog['acf'][ $key ] )
+			if ( self::safe_key( $key ) && is_array( $registration ) && ! empty( $registration['single'] ) && ! isset( $claimed[ strtolower( $key ) ] )
 				&& ( ! empty( $registration['show_in_rest'] ) || ! empty( $registration['description'] ) ) ) {
 				$catalog['meta'][ $key ] = $registration;
 			}
@@ -51,30 +53,29 @@ final class Nova_Bridge_Suite_Content_Transport {
 	}
 
 	public static function safe_key( $key ): bool {
-		return is_string( $key ) && '' !== $key && strlen( $key ) <= 191 && '_' !== $key[0]
-			&& ! preg_match( '/[.\[\]\/\\\\\x00-\x20]|(?:password|passwd|secret|token|credential|api[_-]?key|private[_-]?key|session|nonce)/i', $key )
-			&& ! in_array( $key, [ 'acf', 'wpbakery' ], true );
+		return Nova_Bridge_Suite_Layout_Custom_Fields::safe_key( $key );
 	}
 
 	/** ACF/SCF's location engine chooses the actual screen, including template conditions. */
-	private static function acf_fields( string $post_type, int $post_id, string $template ): array {
+	private static function acf_fields( string $post_type, int $post_id, string $template, array &$claimed = [] ): array {
 		$screen = [ 'post_type' => $post_type, 'post_id' => $post_id ];
 		if ( '' !== $template ) { $screen['page_template'] = $template; $screen['post_template'] = $template; }
-        return self::acf_schema_for_screen( $screen );
+        return self::acf_schema_for_screen( $screen, $claimed );
     }
 
     /** Shared declared ACF allowlist for post and taxonomy recipe screens. */
-    public static function acf_schema_for_screen( array $screen ): array {
+    public static function acf_schema_for_screen( array $screen, array &$claimed = [] ): array {
         if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) || ! function_exists( 'update_field' ) || ! function_exists( 'get_field' ) ) { return []; }
 		$fields = [];
 		try {
 			foreach ( (array) acf_get_field_groups( $screen ) as $group ) {
 				if ( isset( $group['active'] ) && ! $group['active'] ) { continue; }
 				foreach ( (array) acf_get_fields( $group ) as $field ) {
-					if ( ! is_array( $field ) || ! self::safe_acf_field( $field ) ) { continue; }
-					$name = $field['name'];
+					if ( ! is_array( $field ) || ! self::safe_key( $field['name'] ?? '' ) ) { continue; }
+					$name = $field['name']; $claimed[ strtolower( $name ) ] = true;
+					if ( ! self::safe_acf_field( $field ) ) { continue; }
 					// Conflicting definitions are ambiguous; never choose one by registration order.
-					if ( isset( $fields[ $name ] ) && $fields[ $name ]['key'] !== $field['key'] ) { $fields[ $name ] = false; continue; }
+					if ( array_key_exists( $name, $fields ) && ( false === $fields[$name] || $fields[$name]['key'] !== $field['key'] ) ) { $fields[ $name ] = false; continue; }
 					if ( ! array_key_exists( $name, $fields ) ) { $fields[ $name ] = $field; }
 				}
 			}
@@ -321,7 +322,7 @@ final class Nova_Bridge_Suite_Content_Transport {
 		return $out;
 	}
 
-	public static function write_fields( WP_Post $post, array $payload ) {
+	public static function write_fields( WP_Post $post, array $payload, bool $unslashed_acf_input = false ) {
 		// Re-check object-scoped permissions after a create; an ID now exists.
 		foreach ( $payload['meta'] as $key => $value ) { if ( ! current_user_can( 'edit_post_meta', $post->ID, $key ) ) { return self::error( 'Meta authorization denied: ' . $key, 403 ); } }
 		foreach ( $payload['acf'] as $name => $entry ) { if ( ! self::can_write_acf( $post->post_type, $post->ID, $name ) ) { return self::error( 'ACF authorization denied: ' . $name, 403 ); } }
@@ -331,7 +332,9 @@ final class Nova_Bridge_Suite_Content_Transport {
 		}
 		foreach ( $payload['acf'] as $name => $entry ) {
 			// Field keys initialize references correctly even for new group/repeater/flexible values.
-			update_field( $entry['field']['key'], $entry['value'], $post->ID );
+			// ACF passes the value on to update_metadata(), which expects slashed input.
+			$value = $unslashed_acf_input ? wp_slash( $entry['value'] ) : $entry['value'];
+			update_field( $entry['field']['key'], $value, $post->ID );
 			if ( function_exists( 'acf_flush_value_cache' ) ) { acf_flush_value_cache( $post->ID, $name ); }
 			$stored = get_field( $entry['field']['key'], $post->ID, false );
 			if ( ! self::acf_value_matches( $entry['value'], $stored, $entry['field'] ) ) { return self::error( 'ACF did not retain the supplied value for ' . $name . '. A field save filter or database error may have rejected it.', 500 ); }

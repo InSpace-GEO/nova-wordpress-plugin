@@ -1,5 +1,18 @@
 # Release verification
 
+## 1.0.5
+
+We tested the installable ZIP on isolated WordPress 7.1.2 with ACF Pro 6.8.0.1. For each provider we saved a fixed page layout using the editor’s capture and save endpoints, selected an ACF field and a registered WordPress REST string field, then sent fitted values through the plugin’s publishing writer. The posting-service transport was simulated. The WordPress plugins, storage, and public HTTP requests were real.
+
+| Provider | Languages | Result |
+| --- | --- | --- |
+| WPML 4.9.5 | German and English | German arrived first on the English-primary site. Both native pages kept their IDs, reciprocal translation links and independent field values through both updates. |
+| Polylang 3.8.5 | Dutch and French | Both pages rendered their mapped fields and kept their reciprocal links. The lab initially returned 404 for the French URL after enabling language directories. Refreshing WordPress permalinks registered the French route. The same plugin ZIP then passed. |
+| TranslatePress 3.3.7 with Personal | Dutch and German | Both URLs rendered the exact ACF rich text and registered metadata from one native post. Updating the original preserved the current translation and updating the translation preserved the original. |
+| Weglot 6.4.3 | English and German | Both public URLs retained the exact fitted text and rich markup. Replaying each delivery reused the same native post and an unmapped field kept its original value. |
+
+All four providers passed four creates or updates and seven anonymous, nonredirecting HTTP page checks apiece. The fixtures and saved test mappings were removed. All 100 local test suites passed. The ZIP contains 149 runtime files and its SHA-256 is `e60d2146b495071b8908e4484ffc5c3b85d047a77100c84038b143a9d97b8d41`.
+
 ## 1.0.4
 
 All 98 local suites passed. The installable ZIP contains 146 runtime files; its SHA-256 is `9108e5edeafe3ac3020c7ee5459d5f8f9ee69011cf21e4c06786ef918fcde061`.

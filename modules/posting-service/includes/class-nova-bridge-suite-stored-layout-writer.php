@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-provider.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
 require_once __DIR__ . '/class-nova-bridge-suite-translation-source.php';
+require_once __DIR__ . '/class-nova-bridge-suite-stored-custom-fields.php';
 
 final class Nova_Bridge_Suite_Stored_Layout_Writer_Failure extends RuntimeException {
     public $reason;
@@ -192,6 +193,14 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             // apply/recovery checks; do not require the previous success's whole-page digest.
             $plan = [ 'format' => self::FORMAT, 'operation_id' => $operation, 'context' => $context, 'site_id' => $content['site_id'], 'template_id' => $configuration['template']['id'], 'template_revision' => $configuration['template']['revision'], 'profile_digest' => $configuration['profile_digest'], 'layout_digest' => $compiled['layout_digest'], 'post_type' => $type, 'payload' => $payload, 'post_fields' => $post_fields, 'target' => $target, 'target_post_id' => $target_id, 'desired_status' => $status, 'provider' => $provider, 'native_before' => $before, 'association_before' => $association, 'delivery_identity' => array_intersect_key( $content, array_flip( [ 'site_id', 'url_id', 'content_item_id', 'content_item_version_id', 'version_number', 'source_sha256', 'language' ] ) ) ];
             if ( 'nova.stored-recipe/v1' === ( $local['stored_layout']['format'] ?? '' ) || 'elementor' !== $builder ) { $plan['builder'] = $builder; }
+            if ( ! empty( $compiled['custom_fields'] ) ) {
+                $template = (string) ( $payload['template'] ?? $local['stored_layout']['blueprint']['template'] ?? '' );
+                $plan['custom_template'] = $template;
+                $plan['custom_fields'] = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::with_context( $target, static function () use ( $type, $target_id, $template, $compiled ) {
+                    return Nova_Bridge_Suite_Stored_Custom_Fields::prepare( $type, $target_id, $template, $compiled['custom_fields'] );
+                } ) );
+                $plan['custom_before'] = $target_id ? self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::snapshot( $target_id, $plan['custom_fields'], true ) ) : [];
+            }
             self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, $target_id ) );
             if ( strlen( wp_json_encode( $plan ) ) > 786432 ) { self::fail( 'plan_size', 'This layout exceeds the recoverable native journal size.' ); }
             $plan['plan_digest'] = self::digest( $plan ); return $plan;
@@ -266,6 +275,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         $id = (int) $record['post_id']; $state = self::check_content( $plan, $id ); self::check_url( $plan, $id );
         if ( $state['status'] !== $plan['desired_status'] ) { self::fail( 'publication', 'The retained page has not reached the intended native publication state.' ); }
         self::checked( Nova_Bridge_Suite_Translation_Source::link( $plan, $id ) );
+        if ( isset( $plan['custom_fields'] ) ) { self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::finish( $plan, $id, [], false ) ); }
         $record['state'] = 'committed'; $record['native_digest'] = self::digest( $state ); self::checkpoint( self::operation_key( $plan['operation_id'] ), $record );
         $association = $plan['delivery_identity'] + [ 'state' => 'committed', 'post_id' => $id, 'target' => $plan['target'], 'template_id' => $plan['template_id'], 'template_revision' => $plan['template_revision'], 'profile_digest' => $plan['profile_digest'], 'layout_digest' => $plan['layout_digest'], 'native_digest' => $record['native_digest'], 'operation_id' => $plan['operation_id'], 'creation_operation' => self::owner( $plan )['creation_operation'] ];
         if ( isset( $plan['payload']['theme_presentation'] ) ) { $association['theme_presentation'] = $plan['payload']['theme_presentation']; }
@@ -304,7 +314,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                     }
                 }
                 $id = (int) $record['post_id']; if ( ! current_user_can( 'edit_post', $id ) ) { self::fail( 'permission', 'The configured actor cannot edit the retained page.' ); }
-                $saved = in_array( $record['state'], [ 'saving', 'saved', 'publishing' ], true );
+                $saved = in_array( $record['state'], [ 'saving', 'fields', 'saved', 'publishing' ], true );
                 if ( $plan['target_post_id'] || $saved ) { self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, $id ) ); }
                 if ( $record['state'] === 'saving' && self::pending_featured( $plan, $id ) ) {
                     $media = self::checked( Nova_Bridge_Suite_Native_Media::resolve( $plan['builder'] ?? 'elementor', $id, $plan['payload'], $operation, false ) );
@@ -313,6 +323,13 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 if ( $saved && $record['state'] === 'saving' && $plan['target_post_id'] ) { $saved = self::existing_save_witnessed( $plan, $id ); }
                 if ( $saved ) { self::check_content( $plan, $id ); }
                 else {
+                    if ( isset( $plan['custom_fields'] ) ) {
+                        $fields = self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::prepare( $plan['post_type'], $id, $plan['custom_template'], $plan['custom_fields'] ) );
+                        if ( $fields !== $plan['custom_fields'] ) { self::fail( 'custom_changed', 'The native custom-field schema changed after planning.' ); }
+                        $current = self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::snapshot( $id, $fields, true ) );
+                        if ( $plan['target_post_id'] && $current !== $plan['custom_before'] ) { self::fail( 'custom_changed', 'A mapped custom field changed after planning.' ); }
+                        if ( ! isset( $record['custom_before'] ) ) { $record['custom_before'] = $current; }
+                    }
                     $state = self::plan_state( $plan, $id );
                     if ( $plan['target_post_id'] ) {
                         $before = $plan['native_before']; $claimed = $before; $claimed['owner'] = self::owner( $plan );
@@ -335,6 +352,11 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                     self::checked( Nova_Bridge_Suite_Stored_Layout_Provider::apply( $plan['builder'] ?? 'elementor', $id, $plan['payload'], $plan['post_fields'], $operation ) );
                     self::check_content( $plan, $id );
                 }
+                if ( isset( $plan['custom_fields'] ) ) {
+                    $write = ! in_array( $record['state'], [ 'saved', 'publishing' ], true );
+                    if ( $write && 'fields' !== $record['state'] ) { $record['state'] = 'fields'; self::checkpoint( $key, $record ); }
+                    self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::finish( $plan, $id, $record['custom_before'], $write ) );
+                }
                 $record['state'] = 'saved'; self::checkpoint( $key, $record ); self::check_url( $plan, $id );
                 if ( get_post_status( $id ) !== $plan['desired_status'] ) {
                     if ( ! in_array( get_post_status( $id ), [ 'draft', 'publish' ], true ) || wp_unique_post_slug( $plan['target']['slug'], $id, $plan['desired_status'], $plan['post_type'], $plan['target']['parent'] ) !== $plan['target']['slug'] ) { self::fail( 'publication', 'The page status or planned slug changed before publication.' ); }
@@ -345,6 +367,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         } );
     }
     private static function verify_record( array $plan, array $record ): array {
+        if ( isset( $plan['custom_fields'] ) ) { self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::finish( $plan, (int) $record['post_id'], [], false ) ); }
         $state = self::check_content( $plan, (int) $record['post_id'] ); self::check_url( $plan, (int) $record['post_id'] );
         if ( ! self::native_digest_matches( $state, $record['native_digest'] ?? '' ) || $state['status'] !== $plan['desired_status'] ) { self::fail( 'human_changed', 'The generated page changed after its verified save.' ); }
         return self::result( $record );
@@ -354,6 +377,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             self::assert_plan( $plan, $operation ); return self::locked( $plan, static function () use ( $plan, $operation ) {
                 $record = self::option( self::operation_key( $operation ) );
                 if ( ! $record ) {
+                    if ( $plan['target_post_id'] && isset( $plan['custom_fields'] ) && self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::snapshot( $plan['target_post_id'], $plan['custom_fields'], true ) ) !== $plan['custom_before'] ) { self::fail( 'custom_changed', 'A mapped custom field changed after planning.' ); }
                     if ( $plan['target_post_id'] && self::same_native_state( self::plan_state( $plan, $plan['target_post_id'] ), $plan['native_before'] ) && self::association( $plan['delivery_identity'] ) === $plan['association_before'] ) { return [ 'state' => 'not_committed', 'no_native_commit' => true, 'safe_to_apply' => true ]; }
                     if ( self::reserved_post( $plan ) || $plan['target_post_id'] ) { self::fail( 'orphaned_native', 'Native evidence exists without its journal. No second page will be created.' ); }
                     return [ 'state' => 'not_committed', 'no_native_commit' => true, 'safe_to_apply' => true ];
@@ -361,6 +385,10 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 if ( ( $record['plan_digest'] ?? '' ) !== $plan['plan_digest'] ) { self::fail( 'operation_reused', 'The retained operation belongs to a different plan.' ); }
                 if ( 'committed' === $record['state'] ) { self::verify_record( $plan, $record ); return self::complete( $plan, $record ); }
                 $id = (int) ( $record['post_id'] ?: self::reserved_post( $plan ) );
+                if ( $id && isset( $plan['custom_fields'] ) && in_array( $record['state'], [ 'saving', 'fields' ], true ) ) {
+                    // Reconcile the builder save and any partially written custom fields under the same publication lock.
+                    return [ 'state' => 'not_committed', 'no_native_commit' => false, 'safe_to_apply' => true, 'post_id' => $id ];
+                }
                 if ( $id && in_array( $record['state'], [ 'saving', 'saved', 'publishing' ], true ) ) {
                     if ( $record['state'] === 'saving' && self::pending_featured( $plan, $id ) ) { return [ 'state' => 'not_committed', 'no_native_commit' => false, 'safe_to_apply' => true, 'post_id' => $id ]; }
                     if ( $record['state'] === 'saving' && $plan['target_post_id'] && ! self::existing_save_witnessed( $plan, $id ) ) { return [ 'state' => 'not_committed', 'no_native_commit' => false, 'safe_to_apply' => true, 'post_id' => $id ]; }

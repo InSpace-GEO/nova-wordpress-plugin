@@ -13,7 +13,9 @@ final class Nova_Bridge_Suite_Stored_Layout {
     public static function supports_recipe( array $record ): bool {
         $recipe = $record['recipe'] ?? [];
         $support = self::publishing_support( $record['resource_id'] ?? '', $record['builder'] ?? $recipe['builder'] ?? '', $recipe['mode'] ?? $record['mode'] ?? 'static' );
-        return ! empty( $support['supported'] ) && empty( $recipe['regions'] ) && empty( $recipe['custom_fields'] );
+        if ( empty( $support['supported'] ) || ! empty( $recipe['regions'] ) ) { return false; }
+        try { Nova_Bridge_Suite_Layout_Custom_Fields::selections( $recipe ); return true; }
+        catch ( InvalidArgumentException $error ) { return false; }
     }
     public static function assert_independent( string $builder, array $blueprint ): void {
         if ( 'elementor' === $builder ) { self::independent( $blueprint ); }

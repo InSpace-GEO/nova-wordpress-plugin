@@ -1,6 +1,7 @@
 <?php
 /** The code-free shell exposes local controls only and does not load native content. */
 define( 'ABSPATH', __DIR__ );
+define( 'NOVA_BRIDGE_SUITE_VERSION', 'fixture-version' );
 define( 'NOVA_BRIDGE_SUITE_PLUGIN_FILE', dirname( __DIR__, 3 ) . '/nova-bridge-suite.php' );
 $administrator = true; $actions = []; $filters = []; $styles = []; $scripts = []; $localized = []; $checks = 0;
 function current_user_can( $capability ) { global $administrator; return $administrator && 'manage_options' === $capability; }
@@ -9,7 +10,7 @@ function add_filter( $name, $callback, $priority = 10 ) { global $filters; $filt
 function __( $value, $domain = '' ) { return $value; }
 function plugin_dir_url( $file ) { return 'https://site.example/wp-content/plugins/nova-bridge-suite/'; }
 function wp_enqueue_style( $handle, $url, $dependencies, $version ) { global $styles; $styles[$handle] = $url; }
-function wp_enqueue_script( $handle, $url, $dependencies, $version, $footer ) { global $scripts; $scripts[$handle] = $url; }
+function wp_enqueue_script( $handle, $url, $dependencies, $version, $footer ) { global $scripts; check( str_starts_with( $version, NOVA_BRIDGE_SUITE_VERSION . '-' ), 'The layout script cache key must change across releases even for identical ZIP file times' ); $scripts[$handle] = $url; }
 function wp_localize_script( $handle, $name, $value ) { global $localized; $localized[$name] = $value; }
 function esc_url_raw( $value ) { return $value; }
 function rest_url( $path ) { return 'https://site.example/wp-json/' . $path; }

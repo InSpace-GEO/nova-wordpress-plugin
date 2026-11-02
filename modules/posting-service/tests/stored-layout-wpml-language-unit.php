@@ -46,6 +46,8 @@ function do_action( $key, $value ) {
     if ( $key === 'wpml_switch_language' ) { $GLOBALS['current'] = $value; }
     if ( $key === 'wpml_set_element_language_details' ) {
         ++$GLOBALS['assignments'];
+        // WPML_Set_Language::change_translation_of keeps the old group for a self-translation.
+        if ( $value['source_language_code'] === $value['language_code'] ) { return; }
         $GLOBALS['details'][$value['element_id']] = [ 'trid' => $value['trid'] ?: $value['element_id'], 'language_code' => $value['language_code'], 'source_language_code' => $value['source_language_code'] ];
     }
 }
@@ -104,6 +106,17 @@ wpml_check( $assignments === 2 && $details[20]['trid'] === 100 && $details[20]['
 $details[20]['trid'] = 200; $details[30] = [ 'trid'=>200, 'language_code'=>'de-at' ];
 wpml_check( is_wp_error( Language::check_sibling( 20, $target, 10 ) ) && $assignments === 2, 'Existing unrelated translations block before content replacement' );
 wpml_check( is_wp_error( Language::link_sibling( 20, $target, 10 ) ) && $assignments === 2, 'Never split another translation group to adopt a page' );
+$english = good( Language::creation( 'post_type:post', 'https://en.site.test/new-article/', 'en-US' ) );
+// The German Elementor post was created first. WPML recorded its source as English before an English post existed.
+$posts[40] = clone $posts[10]; $details[40] = [ 'trid' => 400, 'language_code' => 'de', 'source_language_code' => 'en' ];
+$posts[41] = clone $posts[10]; $details[41] = [ 'trid' => 401, 'language_code' => 'en', 'source_language_code' => null ];
+$details[42] = [ 'trid' => 400, 'language_code' => 'de-at', 'source_language_code' => 'en' ];
+wpml_check( is_wp_error( Language::check_sibling( 0, $english, 40 ) ) && $assignments === 2, 'Preflight preserves an existing group before reserving a new post' );
+unset( $details[42] );
+good( Language::link_sibling( 41, $english, 40 ) );
+wpml_check( $details[40]['trid'] === 401 && $details[41]['trid'] === 401 && $details[41]['source_language_code'] === null && $details[40]['source_language_code'] === 'en', 'The lone German translation joins the later English original without a cycle' );
+good( Language::link_sibling( 41, $english, 40 ) );
+wpml_check( $assignments === 3, 'Relinking the restored original is idempotent' );
 $homes['de'] = 'https://de.site.test/shop/';
 wpml_check( is_wp_error( Language::verify( 'post_type:post', 20, $target ) ), 'Frozen target cannot move when the configured language home changes' );
 $installation = 'https://example.test/shop';
