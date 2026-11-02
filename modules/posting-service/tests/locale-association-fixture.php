@@ -49,11 +49,12 @@ function check_locale_associations( string $writer, callable $reset, callable $f
     $updated = $save( 'en-US', '503', 'article', 214 );
     check( $updated['post_id'] === $first['post_id'] && $GLOBALS['inserts'] === 2, 'The migrated locale association takes precedence over its retained legacy version.' );
 
-    foreach ( [ 'scalar', 'language', 'site_id', 'url_id' ] as $invalid ) {
+    foreach ( [ 'scalar', 'language', 'invalid_locale', 'site_id', 'url_id' ] as $invalid ) {
         $reset(); $save( 'en-US', '501', 'article', 221 ); $key = $legacy();
         if ( $invalid === 'scalar' ) { $GLOBALS['options'][$key] = 'corrupt'; }
+        elseif ( $invalid === 'invalid_locale' ) { $GLOBALS['options'][$key]['language'] = 'not a locale'; }
         else { unset( $GLOBALS['options'][$key][$invalid] ); }
-        check( is_wp_error( $plan( 'en-US', '502', 'article', 222 ) ) && $GLOBALS['inserts'] === 1, 'Malformed legacy ' . $invalid . ' requires reconciliation.' );
+        check( is_wp_error( $plan( 'nl-NL', '502', 'translated', 222 ) ) && $GLOBALS['inserts'] === 1, 'Malformed legacy ' . $invalid . ' requires reconciliation.' );
     }
 
     $reset(); $old = ok( $plan( 'en-US', '501', 'article', 231 ) ); $GLOBALS['crash_insert'] = true;
