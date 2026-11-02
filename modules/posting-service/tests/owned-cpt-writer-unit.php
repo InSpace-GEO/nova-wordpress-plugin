@@ -75,6 +75,43 @@ $p = ok( Nova_Bridge_Suite_Owned_CPT_Writer::plan( $content, $config, [ 'operati
 $crash_save = true; Nova_Bridge_Suite_Owned_CPT_Writer::apply( $p, uuid( 1 ) ); $denied_caps = [ 'edit_post' ];
 check( is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::recover( $p, uuid( 1 ) ) ) && '' === get_post_meta( 10, '_seopress_titles_desc' ), 'Recovery cannot finish native SEO writes after target-edit permission is revoked.' );
 $denied_caps = [];
+foreach ( [ 'service_page', 'blog' ] as $type ) {
+    foreach ( [ 'created', 'adopted', 'pending_legacy' ] as $case ) {
+        reset_fake(); [ $english, $cfg ] = fixture( $type ); $english['language'] = 'en-US';
+        if ( $case === 'adopted' ) { $posts[23] = (object) [ 'ID' => 23, 'post_type' => $type, 'post_status' => 'publish', 'post_title' => 'Unowned page', 'post_name' => 'article', 'post_parent' => 0, 'post_content_filtered' => '' ]; }
+        $first = ok( Nova_Bridge_Suite_Owned_CPT_Writer::plan( $english, $cfg, [ 'operation_id' => uuid( 301 ) ] ) );
+        if ( $case === 'pending_legacy' ) { $crash_insert = true; check( is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $first, uuid( 301 ) ) ), 'Insert acknowledgement can be lost before the reservation ID is journaled.' ); }
+        else { $saved = ok( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $first, uuid( 301 ) ) ); }
+        if ( $case === 'adopted' ) { check( $saved['post_id'] === 23 && $inserts === 0, 'A genuinely unowned existing CPT remains adoptable.' ); }
+        if ( $case === 'pending_legacy' ) {
+            $localized = 'nova_cpt_url_' . hash( 'sha256', $english['site_id'] . ':42:en-us' );
+            $legacy = 'nova_cpt_url_' . hash( 'sha256', $english['site_id'] . ':42' );
+            $options[$legacy] = $options[$localized]; unset( $options[$localized] );
+            check( $options[$legacy]['post_id'] === 0, 'Legacy pending association has no returned native ID.' );
+        }
+        $before_posts = serialize( $posts ); $before_meta = serialize( $meta ); $before_saves = $saves;
+        [ $dutch ] = fixture( $type, '502' ); $dutch['language'] = 'nl-NL'; $dutch['content_item_id'] = '202';
+        check( is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::policy( $dutch, $cfg ) ) && is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::plan( $dutch, $cfg, [ 'operation_id' => uuid( 302 ) ] ) ), $case . ': another locale cannot adopt the same native URL.' );
+        check( serialize( $posts ) === $before_posts && serialize( $meta ) === $before_meta && $saves === $before_saves, 'Rejected cross-locale adoption leaves native content and ownership unchanged.' );
+        if ( $case === 'pending_legacy' ) {
+            $proof = ok( Nova_Bridge_Suite_Owned_CPT_Writer::recover( $first, uuid( 301 ) ) );
+            $saved = $proof['state'] === 'not_committed' ? ok( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $first, uuid( 301 ) ) ) : $proof;
+            check( $inserts === 1 && $saved['post_id'] === 10 && $options['nova_cpt_operation_' . hash( 'sha256', uuid( 301 ) )]['plan'] === $first, 'The original frozen legacy operation still recovers its one reservation.' );
+        }
+        [ $alias ] = fixture( $type, '502' ); $alias['language'] = 'EN_us';
+        $next = ok( Nova_Bridge_Suite_Owned_CPT_Writer::plan( $alias, $cfg, [ 'operation_id' => uuid( 303 ) ] ) );
+        check( ok( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $next, uuid( 303 ) ) )['post_id'] === $saved['post_id'], 'Canonical aliases retain the native owner for later versions.' );
+    }
+    reset_fake(); [ $english, $cfg ] = fixture( $type ); $english['language'] = 'en-US';
+    $intro = $type === 'blog' ? 'blog_intro' : 'sp_intro';
+    $posts[23] = (object) [ 'ID' => 23, 'post_type' => $type, 'post_status' => 'publish', 'post_title' => 'My title 501', 'post_name' => 'article', 'post_parent' => 0, 'post_content_filtered' => 'unrelated native data' ];
+    $meta[23][$intro] = '<p>Fresh content 501</p>';
+    $dutch = $english; $dutch['language'] = 'nl-NL'; $dutch['content_item_id'] = '202';
+    $a = ok( Nova_Bridge_Suite_Owned_CPT_Writer::plan( $english, $cfg, [ 'operation_id' => uuid( 311 ) ] ) );
+    $b = ok( Nova_Bridge_Suite_Owned_CPT_Writer::plan( $dutch, $cfg, [ 'operation_id' => uuid( 312 ) ] ) );
+    ok( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $a, uuid( 311 ) ) ); $before_saves = $saves;
+    check( is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $b, uuid( 312 ) ) ) && $saves === $before_saves && $posts[23]->post_content_filtered === 'unrelated native data', 'A competing locale plan cannot overwrite a newly claimed native page even when all fitted values match.' );
+}
 require_once __DIR__ . '/locale-association-fixture.php';
 foreach ( [ 'service_page', 'blog' ] as $type ) {
     check_locale_associations( Nova_Bridge_Suite_Owned_CPT_Writer::class, 'reset_fake', static function ( $version ) use ( $type ) { return fixture( $type, $version ); }, 'uuid', 'nova_cpt_url_' );
