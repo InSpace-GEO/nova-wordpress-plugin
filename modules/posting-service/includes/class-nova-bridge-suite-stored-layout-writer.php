@@ -43,7 +43,11 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         if ( self::option( $key ) !== $value ) { self::fail( 'storage', 'Native progress could not be retained. Reconcile this operation before retrying.' ); }
     }
     private static function operation_key( string $id ): string { return 'nova_layout_operation_' . hash( 'sha256', $id ); }
-    private static function association_key( string $site, string $url ): string { return 'nova_layout_page_' . hash( 'sha256', $site . ':' . $url ); }
+    private static function locale( $value ): string {
+        if ( ! is_string( $value ) || ! preg_match( '/^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/iD', $value ) ) { self::fail( 'association', 'The retained page association needs a verified delivery language.' ); }
+        return strtolower( str_replace( '_', '-', $value ) );
+    }
+    private static function association_key( array $identity ): string { return 'nova_layout_page_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . self::locale( $identity['language'] ?? null ) ); }
     /** Resolve a site-relative path without changing the authenticated snapshot. */
     private static function target_url( $url ) {
         if ( ! is_string( $url ) || '' === $url || 0 === strpos( $url, '//' ) || preg_match( '/^[a-z][a-z0-9+.-]*:/i', $url ) || in_array( $url[0], [ '?', '#' ], true ) ) { return $url; }
@@ -56,14 +60,20 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     private static function decimal( $id ): bool { return is_string( $id ) && 1 === preg_match( '/^[1-9][0-9]{0,18}$/D', $id ); }
     private static function compare( string $a, string $b ): int { return strlen( $a ) <=> strlen( $b ) ?: strcmp( $a, $b ); }
     private static function association( array $identity ): ?array {
-        $saved = self::option( self::association_key( $identity['site_id'], $identity['url_id'] ) );
+        $saved = self::option( self::association_key( $identity ) ); $legacy = null === $saved;
+        // Retain pre-locale records and journals; only their own locale may reuse them.
+        if ( $legacy ) { $saved = self::option( 'nova_layout_page_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] ) ); }
         if ( null !== $saved && ( ! is_array( $saved ) || ( $saved['site_id'] ?? null ) !== $identity['site_id'] || ( $saved['url_id'] ?? null ) !== $identity['url_id'] ) ) { self::fail( 'association', 'The retained page association requires reconciliation.' ); }
+        if ( null !== $saved && self::locale( $saved['language'] ?? null ) !== self::locale( $identity['language'] ?? null ) ) {
+            if ( $legacy ) { return null; }
+            self::fail( 'association', 'The retained page association belongs to another delivery language.' );
+        }
         return $saved;
     }
     private static function target( array $content, array $configuration, string $type ): array {
         $association = self::association( $content ); $url = self::target_url( $content['url'] ?? '' ); $resource = 'post_type:' . $type;
         if ( $association ) {
-            if ( ! in_array( $association['state'] ?? '', [ 'committed', 'retired' ], true ) || ( $association['template_id'] ?? '' ) !== $configuration['template']['id'] || ( $association['language'] ?? '' ) !== $content['language'] || ( $association['content_item_id'] ?? '' ) !== $content['content_item_id'] || self::compare( $content['content_item_version_id'], $association['content_item_version_id'] ?? '0' ) <= 0 ) { self::fail( 'association', 'This URL belongs to another mapping, content item, language or unfinished/newer delivery.' ); }
+            if ( ! in_array( $association['state'] ?? '', [ 'committed', 'retired' ], true ) || ( $association['template_id'] ?? '' ) !== $configuration['template']['id'] || ( $association['content_item_id'] ?? '' ) !== $content['content_item_id'] || self::compare( $content['content_item_version_id'], $association['content_item_version_id'] ?? '0' ) <= 0 ) { self::fail( 'association', 'This URL belongs to another mapping, content item, language or unfinished/newer delivery.' ); }
             $wanted = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ) );
             if ( $wanted['identity'] !== $association['target']['target_url'] ) { self::fail( 'url_changed', 'A retained page cannot be moved to a different delivery URL.' ); }
             return [ 'post_id' => (int) $association['post_id'], 'target' => $association['target'], 'association' => $association ];
@@ -251,7 +261,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         self::retain_provider_scope( $association, $plan );
         $current = self::association( $plan['delivery_identity'] );
         if ( $current !== $association && $current !== $plan['association_before'] && ( $current['operation_id'] ?? '' ) !== $plan['operation_id'] ) { self::fail( 'association_changed', 'Another operation acquired this page association.' ); }
-        self::checkpoint( self::association_key( $plan['site_id'], $plan['delivery_identity']['url_id'] ), $association ); return self::result( $record );
+        self::checkpoint( self::association_key( $plan['delivery_identity'] ), $association ); return self::result( $record );
     }
     public static function apply( array $plan, string $operation ) {
         return self::guard( static function () use ( $plan, $operation ) {
@@ -270,7 +280,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                     elseif ( $record['state'] === 'creating' ) { self::fail( 'create_unknown', 'An uncertain creation has no unique reservation. Inspect it before trying again.' ); }
                     else {
                         self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( 'post_type:' . $plan['post_type'], $plan['target']['target_url'], $plan['delivery_identity']['language'] ) );
-                        self::checkpoint( self::association_key( $plan['site_id'], $plan['delivery_identity']['url_id'] ), $plan['delivery_identity'] + [ 'state' => 'pending', 'operation_id' => $operation, 'post_id' => 0 ] );
+                        self::checkpoint( self::association_key( $plan['delivery_identity'] ), $plan['delivery_identity'] + [ 'state' => 'pending', 'operation_id' => $operation, 'post_id' => 0 ] );
                         $record['state'] = 'creating'; self::checkpoint( $key, $record ); $marker = self::reservation_marker( $plan );
                         $protect = static function ( $data, $postarr, $raw ) use ( $marker ) { if ( ( $raw['post_content_filtered'] ?? null ) === $marker ) { $data['post_content_filtered'] = $marker; } return $data; };
                         add_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX, 3 );
@@ -370,7 +380,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 $association = $plan['delivery_identity'] + [ 'state' => 'retired', 'post_id' => $id, 'target' => $plan['target'], 'template_id' => $plan['template_id'], 'native_digest' => self::digest( $state ), 'operation_id' => $operation, 'creation_operation' => self::owner( $plan )['creation_operation'] ];
                 foreach ( [ 'theme_presentation', 'elementor_document_settings' ] as $key ) { if ( isset( $plan['payload'][$key] ) ) { $association[$key] = $plan['payload'][$key]; } }
                 self::retain_provider_scope( $association, $plan );
-                self::checkpoint( self::association_key( $plan['site_id'], $plan['delivery_identity']['url_id'] ), $association );
+                self::checkpoint( self::association_key( $plan['delivery_identity'] ), $association );
                 return [ 'state' => 'retired', 'post_id' => $id, 'native_digest' => $association['native_digest'] ];
             } );
         } );

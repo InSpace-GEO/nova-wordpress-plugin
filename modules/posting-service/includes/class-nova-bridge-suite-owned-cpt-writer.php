@@ -13,8 +13,23 @@ final class Nova_Bridge_Suite_Owned_CPT_Writer {
     private static function option( string $key ) { wp_cache_delete( $key, 'options' ); return get_option( $key, null ); }
     private static function checkpoint( string $key, array $value ): void { if ( strlen( wp_json_encode( $value ) ) > 2097152 ) { self::fail( 'journal_size', 'The native operation exceeds its journal limit.' ); } if ( null === self::option( $key ) ) { add_option( $key, $value, '', false ); } else { update_option( $key, $value, false ); } if ( self::option( $key ) !== $value ) { self::fail( 'storage', 'Native progress could not be retained.' ); } }
     private static function opkey( string $operation ): string { return 'nova_cpt_operation_' . hash( 'sha256', $operation ); }
-    private static function assoc_key( array $identity ): string { return 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] ); }
-    private static function assoc( array $identity ): ?array { $v = self::option( self::assoc_key( $identity ) ); if ( null !== $v && ( ! is_array( $v ) || ( $v['site_id'] ?? null ) !== $identity['site_id'] || ( $v['url_id'] ?? null ) !== $identity['url_id'] ) ) { self::fail( 'association', 'The native URL association needs reconciliation.' ); } return $v; }
+    private static function locale( $value ): string {
+        if ( ! is_string( $value ) || ! preg_match( '/^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/iD', $value ) ) { self::fail( 'association', 'The native URL association needs a verified delivery language.' ); }
+        return strtolower( str_replace( '_', '-', $value ) );
+    }
+    private static function legacy_key( array $identity ): string { return 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] ); }
+    private static function assoc_key( array $identity ): string { return 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . self::locale( $identity['language'] ?? null ) ); }
+    private static function assoc( array $identity ): ?array {
+        $v = self::option( self::assoc_key( $identity ) ); $legacy = null === $v;
+        // Keep legacy data intact so retained operation plans can still recover it.
+        if ( $legacy ) { $v = self::option( self::legacy_key( $identity ) ); }
+        if ( null !== $v && ( ! is_array( $v ) || ( $v['site_id'] ?? null ) !== $identity['site_id'] || ( $v['url_id'] ?? null ) !== $identity['url_id'] ) ) { self::fail( 'association', 'The native URL association needs reconciliation.' ); }
+        if ( null !== $v && self::locale( $v['language'] ?? null ) !== self::locale( $identity['language'] ?? null ) ) {
+            if ( $legacy ) { return null; }
+            self::fail( 'association', 'The native URL association belongs to another delivery language.' );
+        }
+        return $v;
+    }
     private static function config( array $content, array $configuration ): array {
         $local = $configuration['local'] ?? []; $template = $configuration['template'] ?? [];
         if ( ( $configuration['mode'] ?? '' ) !== 'owned_cpt_v3' || ( $content['kind'] ?? '' ) !== 'adaptation.delivery' || ( $content['schema_version'] ?? null ) !== 2 || ( $template['definition']['version'] ?? null ) !== 3 || self::digest( $template ) !== self::digest( $content['configuration'] ?? null ) || self::digest( $local ) !== ( $configuration['profile_digest'] ?? '' ) || ( $configuration['site_id'] ?? null ) !== ( $content['site_id'] ?? null ) || ! Nova_Bridge_Suite_Posting_Protocol::uuid( $content['site_id'] ?? null ) ) { self::fail( 'configuration', 'The delivery does not match its approved native CPT profile.' ); }
@@ -43,6 +58,8 @@ final class Nova_Bridge_Suite_Owned_CPT_Writer {
         $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url, $resource );
         if ( is_wp_error( $found ) ) { if ( 'nova_mapped_target_not_found' !== $found->get_error_code() ) { self::checked( $found ); } return [ 'id' => 0, 'target' => self::checked( Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url ) ), 'association' => null ]; }
         $id = (int) $found['reference_id']; $post = get_post( $id ); if ( ! $post || $post->post_type !== $type ) { self::fail( 'target', 'The resolved native item has a different post type.' ); }
+        $legacy = self::option( self::legacy_key( $content ) );
+        if ( is_array( $legacy ) && (int) ( $legacy['post_id'] ?? 0 ) === $id && self::locale( $legacy['language'] ?? null ) !== self::locale( $content['language'] ?? null ) ) { self::fail( 'association', 'This native item belongs to another legacy delivery language.' ); }
         return [ 'id' => $id, 'target' => [ 'slug' => $post->post_name, 'parent' => (int) $post->post_parent, 'target_url' => $found['requested_url'] ], 'association' => null ];
     }
     public static function policy( array $content, array $configuration ) { return self::guard( static function () use ( $content, $configuration ) { $local = self::config( $content, $configuration ); $target = self::target( $content, $local ); $publication = $local['routing']['publication']; return [ 'mode' => 'owned_cpt_v3', 'reference' => [ 'reference_type' => 'post', 'reference_id' => $target['id'] ], 'routing' => [ 'operation' => $target['id'] ? 'update' : 'create', 'publication' => ! $target['id'] && 'preserve' === $publication ? 'draft' : $publication ] ]; } ); }
