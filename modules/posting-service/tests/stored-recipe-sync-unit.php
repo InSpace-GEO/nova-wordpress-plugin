@@ -5,7 +5,14 @@ function current_user_can( ...$args ) { return true; }
 function sanitize_text_field( $value ) { return trim( strip_tags( $value ) ); }
 function wp_kses_post( $value ) { return $value; }
 function wp_strip_all_tags( $value ) { return strip_tags( $value ); }
-function get_post( $id ) { throw new RuntimeException( 'The example page is deleted; synchronization must use the stored layout.' ); }
+function get_post( $id ) {
+    if ( 4121 !== $id ) { throw new RuntimeException( 'The example page is deleted; synchronization must use the stored layout.' ); }
+    return $GLOBALS['loop_item'] ?? null;
+}
+function get_post_meta( $id, $key, $single ) {
+    if ( 4121 !== $id || '_elementor_template_type' !== $key ) { throw new RuntimeException( 'Unexpected native metadata lookup.' ); }
+    return 'loop-item';
+}
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-mapping-drafts.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-recipe-sync.php';
@@ -24,7 +31,15 @@ function stored_sync( $client, $connection, $recover = '', ?array $replace_defau
 $connection += [ 'enabled' => true, 'actor_user_id' => 7 ];
 $recipe_id = '33333333-3333-4333-8333-333333333333'; $template_id = '44444444-4444-4444-8444-444444444444';
 $record = [ 'id' => $recipe_id, 'revision' => 1, 'resource_id' => 'post_type:page', 'builder' => 'elementor', 'mode' => 'static', 'posting_page_type' => 'service', 'label' => 'Service creation', 'recipe' => [ 'builder' => 'elementor', 'mode' => 'static', 'instructions' => 'Put the introductory content in the hero.', 'regions' => [], 'blueprint' => [ 'document' => [ [ 'id' => 'abc1234', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Example heading', 'header_size' => 'h1', 'opacity' => 0.75, 'title_color' => '#123abc' ], 'elements' => [] ] ], 'meta' => [ 'background_color' => '#ddeeff' ], 'template' => 'elementor_canvas' ], 'bindings' => [ [ 'id' => 'hero', 'target' => '/document/0/settings/title', 'source' => '/hero_title', 'format' => 'text', 'label' => 'Hero heading', 'required' => true, 'instructions' => 'Choose the main service heading.' ] ] ] ];
+$record['recipe']['blueprint']['document'][] = [
+    'id' => '39516939', 'elType' => 'widget', 'widgetType' => 'loop-carousel',
+    'settings' => [ 'template_id' => '4121' ], 'elements' => [],
+];
 Nova_Bridge_Suite_Layout_Recipes::$record = $record;
+$client = new QueueClient( $connection );
+$unavailable = stored_ok( stored_sync( $client, $connection ) );
+check( $unavailable['local_only'] && empty( $client->calls ), 'An unavailable Loop Item leaves the revision local before any posting-service request.' );
+$GLOBALS['loop_item'] = (object) [ 'post_type' => 'elementor_library', 'post_status' => 'publish', 'post_password' => '' ];
 $local = stored_ok( Nova_Bridge_Suite_Stored_Layout::from_recipe( $record ) );
 $input = stored_ok( Nova_Bridge_Suite_Writing_Adapter::template_input( $local ) );
 check( $input['definition']['version'] === 3 && $input['mapping']['version'] === 3, 'Visual field purposes project to V3.' );
@@ -33,7 +48,6 @@ $remote = array_merge( $input, [ 'id' => $template_id, 'revision' => 1, 'retired
 $other_id = '66666666-6666-4666-8666-666666666666';
 $defaults = [ 'revision' => 1, 'defaults' => [ 'informative' => $other_id ] ];
 $selected_defaults = [ 'revision' => 2, 'defaults' => [ 'informative' => $other_id, 'service' => $template_id ] ];
-$client = new QueueClient( $connection );
 $client->queue = [ [ 'GET', '/template-defaults', reply( $defaults ) ], [ 'POST', '/templates', reply( $remote, 201 ) ], [ 'GET', '/templates/' . $template_id, reply( $remote ) ], [ 'PUT', '/template-defaults', reply( $selected_defaults ) ], [ 'GET', '/template-defaults', reply( $selected_defaults ) ] ];
 $result = stored_ok( stored_sync( $client, $connection ) );
 check( $result['posting_sync']['verified'] && $result['posting_sync']['default_selected'] && $result['posting_sync']['defaults_revision'] === 2 && $result['posting_sync']['page_type'] === 'service' && !$result['local_only'] && $result['posting_sync']['recipe_revision'] === 1, 'Editor receives matching verified saved revision only after reading back its Service default.' );

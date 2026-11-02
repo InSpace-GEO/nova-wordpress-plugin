@@ -25,8 +25,14 @@ function esc_html( $value ) { return htmlspecialchars( (string) $value, ENT_QUOT
 function current_user_can( ...$args ) { return true; }
 function get_post_type_object( $type ) { return (object) [ 'cap' => (object) [ 'create_posts' => 'edit_posts', 'edit_posts' => 'edit_posts' ] ]; }
 function no_live_io(): void { ++$GLOBALS['live_io_attempts']; throw new RuntimeException( 'Saved recipe compilation must not read an example, write data, or call HTTP.' ); }
-function get_post( ...$args ) { no_live_io(); }
-function get_post_meta( ...$args ) { no_live_io(); }
+function get_post( $id ) {
+    if ( isset( $GLOBALS['loop_fixture'] ) && 4121 === (int) $id ) { return $GLOBALS['loop_fixture']['post']; }
+    no_live_io();
+}
+function get_post_meta( $id, $key, $single ) {
+    if ( isset( $GLOBALS['loop_fixture'] ) && 4121 === (int) $id && '_elementor_template_type' === $key && $single ) { return $GLOBALS['loop_fixture']['type']; }
+    no_live_io();
+}
 function metadata_exists( ...$args ) { no_live_io(); }
 function get_page_template_slug( ...$args ) { no_live_io(); }
 function get_option( ...$args ) { no_live_io(); }
@@ -95,6 +101,58 @@ foreach ( [ 'post', 'case_study' ] as $type ) {
     $wrong = $draft; $wrong['routing']['post_type'] = 'page';
     check( is_wp_error( Layout::compile( $wrong, $values, 'wrong-destination' ) ), 'A changed destination cannot silently replace the selected native post type' );
 }
+
+$public_loop_item = [ 'ID' => 4121, 'post_type' => 'elementor_library', 'post_status' => 'publish', 'post_password' => '' ];
+$loop_fixture = [ 'post' => (object) $public_loop_item, 'type' => 'loop-item' ];
+
+// Elementor stores the Loop Carousel on LSG's Waardebepaling example with this string ID.
+$loop_saved = record( 'elementor', 'page', $elementor, [ binding( $headline, 'text', 'Map only the section heading.' ) ] );
+$loop_widget = [ 'id' => '39516939', 'elType' => 'widget', 'widgetType' => 'loop-carousel', 'elements' => [],
+    'settings' => [ 'template_id' => '4121', 'post_query_post_type' => 'post', 'post_query_orderby' => 'date', 'slides_to_show' => '3' ] ];
+$loop_saved['recipe']['blueprint']['document'][0]['elements'][] = $loop_widget;
+foreach ( [ 'loop-carousel' => '4121', 'loop-grid' => 4121 ] as $widget_type => $template_id ) {
+    $example = $loop_saved;
+    $example['recipe']['blueprint']['document'][0]['elements'][2]['widgetType'] = $widget_type;
+    $expected_settings = $loop_widget['settings'];
+    $expected_settings['template_id'] = $template_id;
+    $example['recipe']['blueprint']['document'][0]['elements'][2]['settings'] = $expected_settings;
+    $loop_draft = good( Layout::from_recipe( $example ), 'An untouched native ' . $widget_type . ' can accompany a mapped heading' );
+    check( count( $loop_draft['fields'] ) === 2 && isset( $loop_draft['fields']['/title'], $loop_draft['fields'][$headline] ), 'Loop query and card template are not mapper destinations' );
+    $loop_compiled = good( Layout::compile( $loop_draft, fitted( [ '/title' => 'New service', $headline => 'New heading' ] ), 'new-service' ), 'Compile the saved layout without the source page or a query for matching posts' );
+    $widgets = $loop_compiled['writer_payload']['elementor_data'][0]['elements'];
+    check( 'New heading' === $widgets[0]['settings']['title'] && $widgets[2]['widgetType'] === $widget_type && $widgets[2]['settings'] === $expected_settings && [] === $widgets[2]['elements'], 'Compile fills the heading and retains the live loop and its exact native settings' );
+    $example['recipe']['bindings'][] = binding( '/document/0/elements/2/settings/template_id', 'text', 'Change the loop template.' );
+    check( is_wp_error( Layout::from_recipe( $example ) ), 'Mapping instructions cannot replace the native loop template ID' );
+}
+foreach ( [
+    'missing' => [ 'post' => null, 'type' => 'loop-item' ],
+    'ordinary post' => [ 'post' => (object) array_merge( $public_loop_item, [ 'post_type' => 'post' ] ), 'type' => 'loop-item' ],
+    'different Elementor library type' => [ 'post' => (object) $public_loop_item, 'type' => 'section' ],
+    'draft' => [ 'post' => (object) array_merge( $public_loop_item, [ 'post_status' => 'draft' ] ), 'type' => 'loop-item' ],
+    'password-protected' => [ 'post' => (object) array_merge( $public_loop_item, [ 'post_password' => 'protected' ] ), 'type' => 'loop-item' ],
+] as $reason => $loop_fixture ) {
+    check( is_wp_error( Layout::from_recipe( $loop_saved ) ), 'Do not sync a ' . $reason . ' loop item' );
+}
+check( is_wp_error( Layout::compile( $loop_draft, fitted( [ '/title' => 'New service', $headline => 'New heading' ] ), 'blocked-loop' ) ), 'A previously approved loop item cannot be used once password-protected' );
+$loop_fixture = [ 'post' => (object) $public_loop_item, 'type' => 'loop-item' ];
+foreach ( [
+    'unrecognized nested template ID' => [ 'extension' => [ 'template_id' => '4121' ] ],
+    'widget-shaped data inside settings' => [ 'extension' => $loop_widget ],
+    'dynamic loop template selection' => [ '__dynamic__' => [ 'template_id' => '[elementor-tag name="template-selector"]' ] ],
+    'template shortcode' => [ 'caption' => '[elementor-template id="4121"]' ],
+    'inline dynamic tag' => [ 'caption' => '[elementor-tag name="post-title"]' ],
+] as $reason => $extra ) {
+    $bad = $loop_saved;
+    $bad['recipe']['blueprint']['document'][0]['elements'][2]['settings'] += $extra;
+    check( is_wp_error( Layout::from_recipe( $bad ) ), 'A valid loop ID does not permit ' . $reason . ' in the same widget' );
+}
+$bad = $loop_saved;
+$bad['recipe']['blueprint']['document'][0]['elements'][2]['settings']['template_id'] = '4121other';
+check( is_wp_error( Layout::from_recipe( $bad ) ), 'A malformed ID cannot silently resolve to the published loop item' );
+$bad = $loop_saved;
+$bad['recipe']['blueprint']['document'][0]['elements'][0]['settings']['template_id'] = 4121;
+check( is_wp_error( Layout::from_recipe( $bad ) ), 'The published loop item is still prohibited in an unrelated widget' );
+unset( $loop_fixture );
 
 $dynamic_elementor = $elementor;
 $dynamic_elementor['document'][0]['settings']['__dynamic__'] = [ 'background_image' => '[elementor-tag name="post-featured-image" settings="%7B%7D"]' ];
@@ -173,5 +231,5 @@ check( $blocks[0]['attrs'] === $gutenberg['document'][0]['attrs'] && $blocks[0][
 check( $blocks[0]['innerBlocks'][0]['innerHTML'] === '<h2 class="wp-block-heading retained-heading">New block heading</h2>', 'Gutenberg binds a plain heading while retaining its native heading wrapper' );
 check( $blocks[0]['innerBlocks'][1]['innerHTML'] === '<p>New first paragraph.</p><p>New second paragraph.</p>', 'Gutenberg rich content replaces the target body in source order' );
 check( $compiled['writer_payload']['meta']['retained_design'] === $gutenberg['meta']['retained_design'] && $compiled['writer_payload']['meta']['_wp_page_template'] === 'templates/full-width.php', 'Gutenberg retains native design metadata and page template' );
-check( $live_io_attempts === 0, 'Every projection and compilation stayed source independent and performed no database or HTTP operation' );
+check( $live_io_attempts === 0, 'No source or query-result reads, writes, or HTTP requests occurred; the only lookups allowed were for the declared local Loop Item' );
 echo 'PASS ' . $checks . " generic stored-recipe layout assertions\n";

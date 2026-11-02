@@ -44,23 +44,44 @@ final class Nova_Bridge_Suite_Stored_Layout {
         } );
     }
 
+    private static function check_loop_item( $id ): void {
+        if ( ( ! is_string( $id ) && ! is_int( $id ) ) || (int) $id < 1 || (string) (int) $id !== (string) $id ) {
+            self::fail( 'Choose a saved Elementor Loop Item for the Loop Carousel or Loop Grid.' );
+        }
+        $post = get_post( (int) $id );
+        if ( ! $post || 'elementor_library' !== $post->post_type || 'publish' !== $post->post_status || '' !== $post->post_password || 'loop-item' !== get_post_meta( (int) $id, '_elementor_template_type', true ) ) {
+            self::fail( 'Elementor Loop Item ' . (int) $id . ' must be a published, publicly readable Loop Item on this site.' );
+        }
+    }
+
     private static function independent( array $blueprint ): void {
-        $scan = static function ( $value, string $key = '', bool $settings = false, bool $dynamic = false, int $depth = 0 ) use ( &$scan ) {
+        $scan = static function ( $value, string $key = '', bool $settings = false, bool $dynamic = false, string $location = 'blueprint' ) use ( &$scan ) {
             if ( '__dynamic__' === $key ) {
                 if ( ! $settings || ! is_array( $value ) ) { self::fail( 'Native dynamic controls must remain a settings map.' ); }
                 // Retain native bindings for the destination post; never resolve them against the example.
                 // Only string expressions receive this exception, not arbitrary hidden native structure.
                 foreach ( $value as $control => $expression ) {
                     if ( ! is_string( $control ) || '' === $control || ! is_string( $expression ) ) { self::fail( 'Native dynamic controls must contain named string expressions.' ); }
-                    $scan( $expression, $control, true, true, $depth + 1 );
+                    $scan( $expression, $control, true, true, '' );
                 }
                 return;
             }
             if ( is_array( $value ) ) {
                 if ( in_array( $value['widgetType'] ?? '', [ 'global', 'template', 'shortcode' ], true ) || ! empty( $value['templateID'] ) ) { self::fail( 'Inline global/template widgets and shortcodes before saving; a creation mapping must contain its complete native layout.' ); }
+                if ( 'node' === $location && 'widget' === ( $value['elType'] ?? '' ) && in_array( $value['widgetType'] ?? '', [ 'loop-carousel', 'loop-grid' ], true ) && ! empty( $value['settings']['template_id'] ) ) {
+                    self::check_loop_item( $value['settings']['template_id'] );
+                    // Skip only this verified control in the scan copy. The saved widget keeps its live card template and query.
+                    unset( $value['settings']['template_id'] );
+                }
                 foreach ( $value as $name => $child ) {
-                    $native_settings = $settings || ( 'settings' === $name && isset( $value['id'], $value['elType'] ) ) || ( 0 === $depth && 'meta' === $name );
-                    $scan( $child, (string) $name, $native_settings, false, $depth + 1 );
+                    $native_settings = $settings || ( 'settings' === $name && isset( $value['id'], $value['elType'] ) ) || ( 'blueprint' === $location && 'meta' === $name );
+                    $next = '';
+                    if ( ( 'blueprint' === $location && 'document' === $name ) || ( 'node' === $location && 'elements' === $name ) ) {
+                        $next = 'nodes';
+                    } elseif ( 'nodes' === $location && is_int( $name ) ) {
+                        $next = 'node';
+                    }
+                    $scan( $child, (string) $name, $native_settings, false, $next );
                 }
             } elseif ( is_string( $value ) && 'custom_css' === $key && preg_match( '/(?:\.elementor-(?:page-)?[0-9]+\b|\[data-elementor-id\s*=)/', $value ) ) { self::fail( 'Custom CSS targets a specific page ID. Use Elementor selector or widget selectors before saving an independent creation layout.' ); }
             elseif ( is_string( $value ) && ( preg_match( '/\[elementor-template\b/i', $value ) || ( ! $dynamic && preg_match( '/\[elementor-tag\b/i', $value ) ) || ( in_array( $key, [ 'template_id', 'loop_template_id' ], true ) && '' !== $value && '0' !== $value ) ) ) { self::fail( 'The layout still references an external native template or an inline dynamic tag. Keep native tags in their protected control settings; inline external templates before saving.' ); }
@@ -121,7 +142,7 @@ final class Nova_Bridge_Suite_Stored_Layout {
         return $layout;
     }
 
-    /** Pure validation: no current example, native reader or source fingerprint is consulted. */
+    /** Recheck the saved layout and its shared Loop Items without opening the example page. */
     public static function validate( array $draft ) {
         if ( ( $draft['stored_layout']['format'] ?? '' ) === 'nova.stored-recipe/v1' ) {
             require_once __DIR__ . '/class-nova-bridge-suite-stored-recipe-layout.php';
