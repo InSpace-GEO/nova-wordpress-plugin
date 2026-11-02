@@ -1,6 +1,7 @@
 """Build a deterministic installable ZIP from the runtime files in this checkout."""
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import re
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
@@ -27,6 +28,12 @@ def build(root, output):
     with ZipFile(archive) as check:
         if check.testzip() is not None:
             raise ValueError("Damaged release archive")
+    manifest = {
+        "version": version,
+        "requires": re.search(r"^ \* Requires at least: ([\d.]+)$", entry, re.MULTILINE).group(1),
+        "requires_php": re.search(r"^ \* Requires PHP: ([\d.]+)$", entry, re.MULTILINE).group(1),
+    }
+    (output / "wordpress-update.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
     return archive
 
 

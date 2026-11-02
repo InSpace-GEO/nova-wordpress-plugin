@@ -109,7 +109,11 @@ reset_native(); $posts[30] = $p; $meta[30]['_elementor_edit_mode'] = 'builder'; 
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $config, [ 'operation_id' => op( 1 ) ] ) ) && $saves === 0, 'A content-field provider cannot report success while another builder still owns rendering.' );
 reset_native(); $denied = [ 'create_post' ]; check( ! Nova_Bridge_Suite_Stored_Layout_Provider::support( 'core', 'post' )['supported'], 'Native creation capabilities are enforced independently of destination names.' );
 $denied = []; $editor_unavailable = true; check( ! Nova_Bridge_Suite_Stored_Layout_Provider::support( 'gutenberg', 'portfolio' )['supported'], 'A registered destination without content support gives an explicit unavailable reason.' );
-$editor_unavailable = false; $unsupported = Nova_Bridge_Suite_Stored_Layout_Provider::support( 'divi4', 'post' ); check( ! $unsupported['supported'] && strpos( $unsupported['reason'], 'known-ID' ) !== false, 'Compile/draft support alone does not falsely advertise recoverable publication.' );
+$editor_unavailable = false;
+foreach ( [ 'divi4', 'divi5' ] as $native_builder ) {
+    $unsupported = Nova_Bridge_Suite_Stored_Layout_Provider::support( $native_builder, 'post' );
+    check( ! $unsupported['supported'] && strpos( $unsupported['reason'], 'known-ID' ) !== false, 'Compile/draft support does not advertise recoverable publication for ' . $native_builder );
+}
 foreach ( [ 'core', 'gutenberg' ] as $fallback ) {
     reset_native(); $p->post_content = '<!-- wp:divi/placeholder /-->'; $posts[30] = $p;
     [ $content, $config ] = fixture( $fallback );

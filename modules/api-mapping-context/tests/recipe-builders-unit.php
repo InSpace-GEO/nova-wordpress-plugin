@@ -14,14 +14,15 @@ class WP_REST_Response { private $data; public function __construct( $data, $sta
 class WP_REST_Request { private $route; private $body = ''; private $headers = []; public function __construct( $method, $route ) { $this->route = $route; } public function set_header( $key, $value ) { $this->headers[$key] = $value; } public function set_body( $value ) { $this->body = $value; } public function get_body() { return $this->body; } public function get_json_params() { return json_decode( $this->body, true ); } public function get_route() { return $this->route; } public function get_param( $key ) { return $this->get_json_params()[$key] ?? null; } }
 function is_wp_error( $value ) { return $value instanceof WP_Error; }
 function wp_json_encode( $value, $flags = 0 ) { return json_encode( $value, $flags ); }
-function apply_filters( $hook, $value ) { return $value; }
+function apply_filters( $hook, $value ) { return 'block_parser_class' === $hook && ! empty( $GLOBALS['render_parser'] ) ? $GLOBALS['render_parser'] : $value; }
 function esc_attr( $value ) { return htmlspecialchars( (string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' ); }
 function esc_html( $value ) { return esc_attr( $value ); }
 function wp_kses_post( $value ) { return preg_replace( '/<script\b[^>]*>[\s\S]*?<\/script>/i', '', $value ); }
 function wp_strip_all_tags( $value ) { return strip_tags( $value ); }
 function sanitize_key( $value ) { return preg_replace( '/[^a-z0-9_-]/', '', strtolower( $value ) ); }
 function maybe_unserialize( $value ) { return $value; }
-function current_user_can() { return true; }
+function current_user_can( $capability ) { return ! in_array( $capability, $GLOBALS['recipe_denied'] ?? [], true ); }
+function et_builder_enabled_for_post_type( $type ) { return ! in_array( $type, $GLOBALS['divi_disabled_types'] ?? [], true ); }
 function get_post_type_object( $type ) { return (object) [ 'cap' => (object) [ 'edit_posts' => 'edit_posts', 'create_posts' => 'edit_posts' ] ]; }
 function get_post( $id ) { return $GLOBALS['recipe_posts'][ $id ] ?? null; }
 function get_post_meta( $id, $key = '', $single = false ) { $meta = $GLOBALS['recipe_meta'][ $id ] ?? []; return '' === $key ? array_map( static function ( $value ) { return [ $value ]; }, $meta ) : ( $meta[ $key ] ?? '' ); }
@@ -60,7 +61,7 @@ function recipe_for( $builder, $artifact, $mode = 'mixed' ) { return [ 'format' 
 $input = [ 'title' => 'A real title', 'intro' => '<p>A real introduction.</p>', 'body' => '<p>Whole article.</p><p>Second paragraph.</p>',
     'sections' => [ [ 'title' => 'First section', 'body' => '<p>First paragraph.</p><p>Another paragraph.</p>' ], [ 'title' => 'Second section', 'body' => '<table><tbody><tr><td>Kept table</td></tr></tbody></table>' ] ],
     'faqs' => [ [ 'question' => 'First question?', 'answer' => '<p>First answer.</p>' ], [ 'question' => 'Second question?', 'answer' => '<p>Second answer.</p>' ] ] ];
-foreach ( [ 'gutenberg', 'wpbakery', 'avada', 'divi4', 'beaver', 'breakdance' ] as $builder ) {
+foreach ( [ 'gutenberg', 'wpbakery', 'avada', 'divi4', 'divi5', 'beaver', 'breakdance' ] as $builder ) {
     $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( $builder );
     $artifact = recipe_ok( $adapter->starter(), $builder . ' starter' );
     $recipe = recipe_for( $builder, $artifact );
@@ -120,12 +121,24 @@ $bd_final = recipe_ok( $breakdance->finalize( $bd_repeated, 'retained-style' ), 
 $bd_decoded = Nova_Mapping_Breakdance_Document::decode_breakdance_tree( $bd_final['native_document'] );
 recipe_assert( '#123456' === $bd_decoded['root']['children'][1]['data']['properties']['design']['future_breakpoint']['color'], 'Breakdance preserves unknown responsive style envelopes' );
 
+$divi5 = Nova_Bridge_Suite_Recipe_Builders::adapter( 'divi5' );
+$d5 = $divi5->starter( 'static' )['blueprint'];
+$d5_heading = $divi5->fields( $d5 )[0];
+recipe_assert( 'Example heading' === $d5_heading['value'] && 'text' === $d5_heading['format'] && $d5_heading['writable'], 'Divi Heading stores plain text; Divi owns its rendered heading tag' );
+$d5_responsive = $d5;
+$title_pointer = substr( $d5_heading['target'], 0, -strlen( '/desktop/value' ) );
+$variants = Nova_Bridge_Suite_Recipe_Engine::get( $d5_responsive, $title_pointer );
+$variants['tabletWide'] = [ 'value' => 'Tablet-only heading' ];
+Nova_Bridge_Suite_Recipe_Engine::put( $d5_responsive, $title_pointer, $variants );
+$responsive_titles = array_column( $divi5->fields( $d5_responsive ), 'value' );
+recipe_assert( in_array( 'Example heading', $responsive_titles, true ) && in_array( 'Tablet-only heading', $responsive_titles, true ), 'Additional native breakpoints keep desktop and tablet-wide controls available' );
+Nova_Bridge_Suite_Recipe_Engine::put( $d5_responsive, $d5_heading['target'], '@ET-DC@linked-field@' );
+recipe_assert( ! $divi5->fields( $d5_responsive )[0]['writable'], 'Legacy dynamic content stays owned by Divi' );
+$d5['document'][0]['attrs']['locked'] = [ 'desktop' => [ 'value' => 'on' ] ];
+recipe_assert( is_wp_error( $divi5->validate_binding( $d5, [ 'target' => $d5_heading['target'], 'format' => 'text' ] ) ), 'Native Divi 5 protected ancestors cannot be filled through descendant pointers' );
+
 $divi_block = '<!-- wp:divi/placeholder /-->';
 $GLOBALS['recipe_posts'][9050] = (object) [ 'ID' => 9050, 'post_type' => 'page', 'post_content' => $divi_block ];
-recipe_assert( ! in_array( 'divi5', Nova_Bridge_Suite_Recipe_Builders::BUILDERS, true ), 'Divi 5 is absent from the catalog and engine registration' );
-recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Builders::starter( 'divi5' ) ), 'Divi 5 starter is unavailable' );
-recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Builders::capture( 'divi5', 9050 ) ) && is_wp_error( Nova_Bridge_Suite_Recipe_Builders::capture( 'gutenberg', 9050 ) ), 'Divi block layouts cannot be captured as Divi 5 or Gutenberg' );
-recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Builders::write_draft( 'divi5', [], [ 'title' => 'Unsupported' ] ) ), 'A stale Divi 5 draft request is rejected' );
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-recipe-core.php';
 $writes_before = $GLOBALS['native_fixture_writes'] ?? 0;
 recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Core::write_draft( [ 'content' => $divi_block ], [ 'post_type' => 'page', 'title' => 'Unsupported' ] ) ), 'The core draft entry point rejects native Divi 5 content' );
@@ -133,6 +146,31 @@ recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Builders::write_draft( 'gut
 recipe_assert( $writes_before === ( $GLOBALS['native_fixture_writes'] ?? 0 ), 'Rejected draft requests do not insert a page' );
 $mislabelled = [ 'document' => parse_blocks( '<!-- wp:group -->' . $divi_block . '<!-- /wp:group -->' ) ];
 recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Builders::adapter( 'gutenberg' )->validate_blueprint( $mislabelled ) ), 'Imported nested Divi block cannot be treated as a Gutenberg recipe' );
+
+// Divi filters parse_blocks() for rendering and expands reusable/global references. Storage capture must bypass that filter.
+class Fixture_Divi_Frontend_Parser extends WP_Block_Parser {
+    public function parse( $document ) { throw new RuntimeException( 'Frontend parser used for storage capture' ); }
+}
+$divi_source = '<!-- wp:divi/section --><!-- wp:divi/row --><!-- wp:divi/column {"module":{"advanced":{"type":{"desktop":{"value":"4_4"}}}}} --><!-- wp:divi/heading {"title":{"innerContent":{"desktop":{"value":"Original title"}}}} /--><!-- wp:divi/global-layout {"globalModuleId":123} /--><!-- /wp:divi/column --><!-- /wp:divi/row --><!-- /wp:divi/section -->';
+$GLOBALS['recipe_posts'][9051] = (object) [ 'ID' => 9051, 'post_type' => 'page', 'post_content' => $divi_source ];
+$GLOBALS['render_parser'] = 'Fixture_Divi_Frontend_Parser';
+$captured_divi = recipe_ok( $divi5->capture( 9051 ), 'Capture an unwrapped Divi page using stored blocks' );
+unset( $GLOBALS['render_parser'], $GLOBALS['recipe_posts'][9051] );
+$captured_heading = $captured_divi['fields'][0];
+$bound_divi = recipe_ok( $divi5->bind( $captured_divi['blueprint'], [ 'target' => $captured_heading['target'], 'format' => 'text' ], 'Replacement title' ), 'Bind the captured Divi heading without its source' );
+$final_divi = recipe_ok( $divi5->finalize( $bound_divi, 'source-free' ), 'Compile native Divi without source' );
+recipe_assert( str_replace( 'Original title', 'Replacement title', $divi_source ) === $final_divi['native_document'], 'Unwrapped layout, grid settings and external global reference survive binding unchanged' );
+recipe_assert( $divi_source . $divi_source === nova_mapping_divi5_validate_create_document( $divi_source . $divi_source ), 'Multiple native section roots are accepted' );
+foreach ( [
+    '<!-- wp:group /-->',
+    '<!-- wp:divi/section --><!-- wp:paragraph /--><!-- /wp:divi/section -->',
+    '<!-- wp:divi/section --><!-- /wp:divi/row -->',
+    '<!-- wp:divi/section {"broken":} /-->',
+    '<!-- wp:divi/section -->',
+    'foreign content' . $divi_source,
+] as $invalid_divi ) {
+    recipe_assert( is_wp_error( nova_mapping_divi5_validate_create_document( $invalid_divi ) ), 'Mixed or malformed content cannot be saved as a native Divi layout' );
+}
 
 $wpb = Nova_Bridge_Suite_Recipe_Builders::adapter( 'wpbakery' );
 $raw = 'prefix [vc_row css=".vc_custom_123{color:#123456}" unknown="preserved"][vc_column][vc_column_text]<p>Original.</p>[/vc_column_text][/vc_column][/vc_row] suffix';
@@ -156,7 +194,7 @@ recipe_assert( is_wp_error( nova_mapping_gut_validate_native_document( '<!-- wp:
 require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-layout-recipes.php';
 $decorate = new ReflectionMethod( Nova_Bridge_Suite_Layout_Recipes::class, 'decorate_design' ); if ( PHP_VERSION_ID < 80100 ) { $decorate->setAccessible( true ); }
 $reviewed = new ReflectionMethod( Nova_Bridge_Suite_Layout_Recipes::class, 'reviewed' ); if ( PHP_VERSION_ID < 80100 ) { $reviewed->setAccessible( true ); }
-foreach ( [ 'gutenberg', 'wpbakery', 'avada', 'divi4', 'beaver', 'breakdance' ] as $builder ) {
+foreach ( [ 'gutenberg', 'wpbakery', 'avada', 'divi4', 'divi5', 'beaver', 'breakdance' ] as $builder ) {
     foreach ( [ 'static', 'mixed', 'rules' ] as $mode ) {
         $artifact = recipe_ok( Nova_Bridge_Suite_Recipe_Builders::adapter( $builder )->starter( $mode ), $builder . ' ' . $mode . ' controller starter' );
         $design = $decorate->invoke( null, $builder, $mode, $artifact );
@@ -178,6 +216,7 @@ recipe_assert( $gutenberg_compiled['writer_payload']['native_document'] === get_
 function field_target( array $fields, string $target ): array { foreach ( $fields as $field ) { if ( $field['target'] === $target ) { return $field; } } return []; }
 $carrier_cases = [
     [ '<p>Plain content</p>', [], [] ],
+    [ '', [ '_et_pb_use_divi_5' => 'on', '_et_pb_use_builder' => 'on' ], [ 'divi5' ] ],
     [ '<p>Public projection</p>', [ '_aviaLayoutBuilder_active' => 'active' ], [ 'enfold' ] ],
     [ '[av_section][av_textblock]Saved native layout[/av_textblock][/av_section]', [], [ 'enfold' ] ],
     [ '<p>Switched back to the default editor.</p>', [ '_aviaLayoutBuilder_active' => '', '_aviaLayoutBuilderCleanData' => '[av_textblock]Previous layout[/av_textblock]' ], [] ],
@@ -227,11 +266,16 @@ recipe_assert( ! field_target( $breakdance->fields( $bd_button ), '/document/0/d
 // The adapters must write source-free drafts without loading a legacy bridge or REST controller.
 define( 'WPB_VC_VERSION', 'fixture' );
 define( 'FUSION_BUILDER_VERSION', 'fixture' );
-define( 'ET_BUILDER_VERSION', '4.27.7' );
+$divi_version = getenv( 'NOVA_DIVI_UNIT_VERSION' ) ?: '5.18.1';
+define( 'ET_BUILDER_VERSION', $divi_version );
+$active_divi = 5 === (int) $divi_version ? 'divi5' : 'divi4';
+$inactive_divi = 'divi5' === $active_divi ? 'divi4' : 'divi5';
+recipe_assert( Nova_Bridge_Suite_Recipe_Builders::adapter( $active_divi )->metadata()['available'], 'Active Divi major can author a draft' );
+recipe_assert( ! Nova_Bridge_Suite_Recipe_Builders::adapter( $inactive_divi )->metadata()['available'], 'Inactive Divi major cannot author a draft' );
 define( '__BREAKDANCE_VERSION', '2.8.0' );
 recipe_assert( '2.8.0' === $breakdance->metadata()['version'] && $breakdance->metadata()['available'], 'Recognizes the version constant published by Breakdance 2.8.0' );
 if ( ! class_exists( 'FLBuilderModel' ) ) { class FLBuilderModel {} }
-foreach ( [ 'wpbakery', 'avada', 'divi4', 'beaver', 'breakdance' ] as $provider ) {
+foreach ( [ 'wpbakery', 'avada', $active_divi, 'beaver', 'breakdance' ] as $provider ) {
     $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( $provider );
     $snapshot = recipe_ok( $adapter->starter( 'static' ), "$provider blueprint" );
     $payload = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( recipe_for( $provider, $snapshot, 'static' ), $input, 'isolated-draft' ), "$provider compiled native document" )['writer_payload'];
@@ -239,5 +283,17 @@ foreach ( [ 'wpbakery', 'avada', 'divi4', 'beaver', 'breakdance' ] as $provider 
     $draft = recipe_ok( $adapter->write_draft( $payload, [ 'post_type' => 'page', 'title' => $native_title ] ), "$provider direct draft write/readback" );
     recipe_assert( $before + 1 === $GLOBALS['native_fixture_writes'] && $native_title === get_post( $draft['post_id'] )->post_title, "$provider creates exactly one draft preserving title" );
     recipe_assert( serialize( $GLOBALS['recipe_posts'][1] ) === $source_before, "$provider leaves reference untouched" );
+    if ( 'divi5' === $provider ) {
+        $GLOBALS['divi_disabled_types'] = [ 'portfolio' ];
+        recipe_assert( ! $adapter->metadata( 'portfolio' )['available'] && is_wp_error( $adapter->write_draft( $payload, [ 'post_type' => 'portfolio', 'title' => 'Disabled' ] ) ), 'A destination disabled in Divi cannot be advertised or written as an editable Divi draft' );
+        unset( $GLOBALS['divi_disabled_types'] );
+        $GLOBALS['recipe_denied'] = [ 'unfiltered_html' ];
+        recipe_assert( ! $adapter->metadata()['draft'] && is_wp_error( $adapter->write_draft( $payload, [ 'post_type' => 'page', 'title' => 'Denied' ] ) ), 'Unfiltered Divi content requires the corresponding WordPress capability' );
+        unset( $GLOBALS['recipe_denied'] );
+        $draft_id = $draft['post_id'];
+        recipe_assert( 'on' === get_post_meta( $draft_id, '_et_pb_use_divi_5', true ) && 'on' === get_post_meta( $draft_id, '_et_pb_use_builder', true ) && 'off' === get_post_meta( $draft_id, '_et_pb_show_page_creation', true ), 'The draft opens directly in Divi 5 with all native editor flags' );
+        delete_post_meta( $draft_id, '_et_pb_use_divi_5' );
+        recipe_assert( is_wp_error( $adapter->verify_saved( $draft_id, $payload ) ), 'Readback rejects missing Divi 5 editor activation' );
+    }
 }
 echo 'PASS: ' . $assertions . " native adapter assertions (real WordPress parser/serializers; no provider rendering simulated).\n";

@@ -3997,7 +3997,6 @@ final class Nova_Bridge_Suite_Content_Context {
 			}
 
 			foreach ( Nova_Bridge_Suite_Recipe_Builders::native_carriers( $post ) as $builder ) {
-				if ( 'divi5' === $builder ) { continue; }
 				$examples[] = [
 					'post_id'   => (int) $post->ID,
 					'title'     => '' !== trim( (string) $post->post_title ) ? (string) $post->post_title : sprintf( __( 'Untitled #%d', 'nova-bridge-suite' ), $post->ID ),

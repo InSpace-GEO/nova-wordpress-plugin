@@ -18,6 +18,12 @@ foreach ( nova_bridge_suite_module_definitions() as $key => $module ) {
     }
 }
 add_action( 'update_option_' . NOVA_BRIDGE_SUITE_OPTION, 'nova_bridge_suite_settings_updated', 10, 3 );
+// The Blog module checks the previous version at init 98 when upgrading an active plugin.
+add_action( 'init', static function () {
+    if ( NOVA_BRIDGE_SUITE_VERSION !== get_option( NOVA_BRIDGE_SUITE_VERSION_OPTION ) ) {
+        update_option( NOVA_BRIDGE_SUITE_VERSION_OPTION, NOVA_BRIDGE_SUITE_VERSION );
+    }
+}, 99 );
 add_filter( 'woocommerce_taxonomy_args_product_cat', static function ( $args ) { $args['show_in_rest'] = true; return $args; } );
 
 function nova_bridge_suite_get_managed_blog_post_types(): array {

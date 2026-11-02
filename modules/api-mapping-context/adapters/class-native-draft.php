@@ -29,6 +29,13 @@ final class Nova_Native_Layout_Draft {
             case 'gutenberg':
                 $post['post_content'] = nova_mapping_gut_validate_native_document( $payload['native_document'] ?? null );
                 break;
+            case 'divi5':
+                if ( ! current_user_can( 'unfiltered_html' ) ) { return new WP_Error( 'nova_mapping_divi5_forbidden', 'Native Divi documents require unfiltered HTML permission.' ); }
+                $post['post_content'] = nova_mapping_divi5_validate_create_document( $layout['native_document'] ?? '' );
+                $meta['_et_pb_use_divi_5'] = 'on';
+                $meta['_et_pb_use_builder'] = 'on';
+                $meta['_et_pb_show_page_creation'] = 'off';
+                break;
             case 'divi4':
             case 'wpbakery':
             case 'avada':
