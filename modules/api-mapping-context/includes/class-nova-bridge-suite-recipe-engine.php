@@ -2,6 +2,7 @@
 /** Pure, bounded compilation of sealed native layout recipes. No CMS writes occur here. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-recipe-native-media.php';
+require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
 
 final class Nova_Bridge_Suite_Recipe_Failure extends RuntimeException {
     public $error;
@@ -77,7 +78,11 @@ final class Nova_Bridge_Suite_Recipe_Engine {
     public static function validate( array $recipe ) {
         return self::guard( static function () use ( $recipe ) {
             self::json( $recipe );
-            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
+            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
+            if ( array_key_exists( 'posting_fields', $recipe ) ) {
+                if ( 'static' !== $recipe['mode'] || 'acf' === $recipe['builder'] ) { self::fail( 'Use a fixed native post layout to map editorial custom fields during delivery.' ); }
+                Nova_Bridge_Suite_Layout_Custom_Fields::selections( $recipe );
+            }
             self::metadata( $recipe ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
             $checked = self::checked( $adapter->validate_blueprint( $recipe['blueprint'] ) );
             if ( ! is_array( $checked ) || self::digest( $checked ) !== self::digest( $recipe['blueprint'] ) ) { self::fail( 'Native validation must not flatten or silently replace the sealed blueprint.' ); }

@@ -301,14 +301,26 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         if ( empty( $source['trid'] ) ) { return self::error( 'WPML did not identify the translation group.' ); }
         $existing = (int) apply_filters( 'wpml_object_id', $sibling_id, $type, false, $code );
         if ( $existing && $existing !== $id ) { return self::error( 'The translation group already identifies a different post.' ); }
+        $original = ( $source['source_language_code'] ?? null ) ?: $source_code;
+        if ( ! $existing && $original === $code ) {
+            $siblings = apply_filters( 'wpml_get_element_translations', null, $source['trid'], 'post_' . $type );
+            if ( ! is_array( $siblings ) || count( $siblings ) !== 1 ) { return self::error( 'WPML cannot move a translation with other linked posts into a different group.' ); }
+        }
         if ( ! $id ) { return true; }
         $current = self::wpml_details( $id, $type );
         if ( empty( $current['trid'] ) ) { return self::error( 'WPML did not identify the translation group.' ); }
         if ( (int) $source['trid'] === (int) $current['trid'] ) { return true; }
         $members = apply_filters( 'wpml_get_element_translations', null, $current['trid'], 'post_' . $type );
         if ( ! is_array( $members ) || count( $members ) !== 1 ) { return self::error( 'The post already belongs to another translation group.' ); }
+        $link = [ 'element_id' => $id, 'element_type' => 'post_' . $type, 'trid' => (int) $source['trid'], 'language_code' => $code, 'source_language_code' => $original ];
+        if ( $original === $code ) {
+            // WPML can mark a lone first delivery as a translation of an original that has not arrived yet.
+            // Attach that translation to the incoming original's group. Passing its own language to WPML is a no-op.
+            if ( ! empty( $current['source_language_code'] ) ) { return self::error( 'WPML did not identify the incoming post as the translation group’s original.' ); }
+            $link = [ 'element_id' => $sibling_id, 'element_type' => 'post_' . $type, 'trid' => (int) $current['trid'], 'language_code' => $source_code, 'source_language_code' => $code ];
+        }
         if ( ! $save ) { return true; }
-        do_action( 'wpml_set_element_language_details', [ 'element_id' => $id, 'element_type' => 'post_' . $type, 'trid' => (int) $source['trid'], 'language_code' => $code, 'source_language_code' => ( $source['source_language_code'] ?? null ) ?: $source_code ] );
+        do_action( 'wpml_set_element_language_details', $link );
         return (int) apply_filters( 'wpml_object_id', $sibling_id, $type, false, $code ) === $id && (int) apply_filters( 'wpml_object_id', $id, $type, false, $source_code ) === $sibling_id ? true : self::error( 'WPML did not confirm the translation group.' );
     }
 }

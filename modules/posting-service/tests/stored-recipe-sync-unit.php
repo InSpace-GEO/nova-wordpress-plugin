@@ -35,6 +35,11 @@ $record['recipe']['blueprint']['document'][] = [
     'id' => '39516939', 'elType' => 'widget', 'widgetType' => 'loop-carousel',
     'settings' => [ 'template_id' => '4121' ], 'elements' => [],
 ];
+$intro_path = '/@nova/custom-fields/acf/editorial_intro';
+$record['recipe']['posting_fields'][$intro_path] = [
+    'provider' => 'acf', 'name' => 'editorial_intro', 'key' => 'field_client_intro', 'type' => 'textarea',
+    'label' => 'Editorial intro', 'instructions' => 'Use the opening lines in the delivery language.', 'required' => false,
+];
 Nova_Bridge_Suite_Layout_Recipes::$record = $record;
 $client = new QueueClient( $connection );
 $unavailable = stored_ok( stored_sync( $client, $connection ) );
@@ -44,6 +49,7 @@ $local = stored_ok( Nova_Bridge_Suite_Stored_Layout::from_recipe( $record ) );
 $input = stored_ok( Nova_Bridge_Suite_Writing_Adapter::template_input( $local ) );
 check( $input['definition']['version'] === 3 && $input['mapping']['version'] === 3, 'Visual field purposes project to V3.' );
 check( strpos( json_encode( $input ), '#123abc' ) === false && strpos( json_encode( $input ), 'abc1234' ) === false, 'Native styling and widget IDs stay in WordPress.' );
+check( strpos( json_encode( $input ), 'field_client_intro' ) === false && strpos( json_encode( $input ), 'Use the opening lines in the delivery language.' ) !== false, 'The mapper receives custom field instructions while its native ACF key stays in WordPress.' );
 $remote = array_merge( $input, [ 'id' => $template_id, 'revision' => 1, 'retired_at' => null, 'created_at' => '2026-10-26T12:00:00Z', 'updated_at' => '2026-10-26T12:00:00Z' ] );
 $other_id = '66666666-6666-4666-8666-666666666666';
 $defaults = [ 'revision' => 1, 'defaults' => [ 'informative' => $other_id ] ];
@@ -59,6 +65,15 @@ check( Nova_Bridge_Suite_Stored_Recipe_Sync::saved_status( array_replace( $conne
 $frozen = array_intersect_key( $remote, array_flip( [ 'id', 'revision', 'name', 'page_type', 'definition', 'mapping' ] ) );
 $profile = stored_ok( Nova_Bridge_Suite_Mapping_Sync::configuration_for_snapshot( [ 'site_id' => $site, 'configuration' => $frozen ], $site ) );
 check( $profile['mode'] === 'stored_layout_v3' && $profile['local']['stored_layout']['blueprint']['document'][0]['settings']['opacity'] === 0.75, 'Approved profile retains creation mode and fractional styling.' );
+$intro_id = Nova_Bridge_Suite_Writing_Adapter::field_id( $intro_path );
+$visible_ids = array_column( $remote['definition']['fields'], 'id' );
+check( in_array( $intro_id, $visible_ids, true ) && $profile['local']['stored_layout']['bindings'][$intro_path]['key'] === 'field_client_intro', 'An approved remote field ID resolves to the sealed local ACF key after reloading the delivery profile.' );
+$fitted = [ Nova_Bridge_Suite_Writing_Adapter::field_id( '/title' ) => 'Service', Nova_Bridge_Suite_Writing_Adapter::field_id( '/document/0/settings/title' ) => 'Service heading' ];
+foreach ( [ 'English introduction', 'Deutsche Einleitung' ] as $intro ) {
+    $values = stored_ok( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $profile['local'], $fitted + [ $intro_id => $intro ] ) );
+    check( $values[$intro_path] === $intro, 'A localized delivery resolves the same field ID to the correct destination.' );
+}
+check( ! array_key_exists( $intro_path, stored_ok( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $profile['local'], $fitted ) ) ), 'An omitted optional custom field is absent after loading the approved profile.' );
 check( Nova_Bridge_Suite_Mapping_Sync::destination_enabled( $site ), 'V3 discovery enabled after exact local approval.' );
 $client->queue = [ [ 'GET', '/template-defaults', reply( $selected_defaults ) ], [ 'GET', '/templates/' . $template_id, reply( $remote ) ], [ 'GET', '/template-defaults', reply( $selected_defaults ) ] ];
 stored_ok( stored_sync( $client, $connection ) );

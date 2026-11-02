@@ -36,6 +36,24 @@ function canvasEvent(t,type,extra={}){const frame=t.host.all().find(item=>item.t
 function categoryDesign(){const original=visualDesign(),source_reference={...original.source_reference,resource_id:'taxonomy:product_cat',reference_type:'term',reference_id:18,title:'Floor categories',builder:'core',url:'https://site.example/product-category/floors/'};const fields=[{target:'/document/title',label:'Category title',format:'text',kind:'heading',value:'Floor categories',control:'name'},{target:'/document/description',label:'Top category content',format:'html',kind:'category_body',value:'<p>Original top content.</p>',control:'description'},{target:'/document/bottom_content',label:'Bottom category content',format:'html',kind:'category_body',value:'<h2>Original bottom heading</h2><p>Bottom body.</p>',control:'bottom_content'}].map((field,index)=>({...field,field_id:'category_'+index,writable:true,context:'taxonomy',current_value:field.value,example:field.value.replace(/<[^>]+>/g,''),locator:{strategy:'core',reference_id:18,reference_type:'term',control_path:[field.control]}})),blueprint={document:{title:fields[0].value,description:fields[1].value,bottom_content:fields[2].value}};return {...original,builder:'core',fields,blueprint,source_reference,preview_fields:clone(fields),visual_preview:{...original.visual_preview,reference_id:18,reference_type:'term',url:source_reference.url+'?nova_recipe_canvas=test'},recipe_preset:{format:'nova-layout-recipe/v1',builder:'core',mode:'mixed',blueprint:clone(blueprint),bindings:[],regions:[],instructions:''},excluded_fields:[],declared_term_fields:{}};}
 async function categoryMounted(settings={}){const current=categoryDesign(),choices=clone(catalog);choices.resources[1].targets=[{reference_id:18,title:current.source_reference.title,url:current.source_reference.url}];return mounted({config:{resourceId:'taxonomy:product_cat',...(settings.config||{})},request:async(path,payload)=>{if(settings.request){const value=await settings.request(path,payload,current,choices);if(value!==undefined)return value;}if(path==='/catalog')return clone(choices);if(path==='/design')return clone(current);throw Error('Unexpected '+path);}});}
 (async()=>{
+ await test('fixed native layout can save just one selected registered field',async()=>{
+  const path='/@nova/custom-fields/acf/card_heading', credit='/@nova/custom-fields/meta/credit_line';
+  const field={provider:'acf',name:'card_heading',key:'field_card_heading',type:'text',label:'Card heading',instructions:''};
+  const t=await visualMounted({request:async(route,payload,example)=>{
+   if(route==='/design')return {...clone(example),posting_field_choices:{[path]:field,[credit]:{provider:'meta',name:'credit_line',key:'credit_line',type:'string',label:'Credit line',instructions:''}}};
+  }});
+  t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
+  assert.equal(t.controller.state.recipe.posting_fields,undefined);
+  const box=controlFor(t,'Card heading');box.checked=true;box.events.change();
+  const note=controlFor(t,'Instructions for Card heading');note.value='Use the lead headline.';note.events.input();
+  const required=controlFor(t,'Require a value for Card heading');required.checked=true;required.events.change();
+  assert(!controlFor(t,'Credit line').checked); assert.deepEqual(t.controller.state.recipe.bindings,[]);
+  t.controller.next();await t.controller.save();
+  const payload=t.calls.find(call=>call.path==='/save').payload;
+  assert.deepEqual(payload.recipe.posting_fields,{[path]:{...field,instructions:note.value,required:true}});
+  assert(t.host.textContent.includes('1 editorial custom field'));assert.equal(t.controller.state.error,false);
+  t.controller.go(3);const deselect=controlFor(t,'Card heading');deselect.checked=false;deselect.events.change();assert.equal(t.controller.state.recipe.posting_fields,undefined);
+ });
  await test('Elementor heading format defaults to text and can correct retained HTML without changing targets or style',async()=>{
   const t=await visualMounted({request:async(path,payload,current)=>{if(path==='/design'){Object.assign(current.fields[0],{format:'text',allowed_formats:['text','html'],element_type:'heading'});return current;}}});
   t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);choosePurpose(t,'title');

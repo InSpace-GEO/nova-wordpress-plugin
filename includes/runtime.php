@@ -9,12 +9,18 @@ Nova_Bridge_Suite_WPML_Support::bootstrap();
 
 // Weglot serves localized views of the original. Its container is available after plugins_loaded.
 add_action( 'plugins_loaded', static function () {
-    if ( class_exists( 'TRP_Translate_Press' ) ) {
+    $trp = class_exists( 'TRP_Translate_Press' );
+    $weglot_active = function_exists( 'weglot_get_service' );
+    if ( $trp || $weglot_active ) {
+        require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-bridge-suite-translation-writer.php';
+        require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-wordpress-localized-fields.php';
+        add_action( 'wp', [ 'Nova_WordPress_Localized_Fields', 'on_request' ] );
+    }
+    if ( $trp ) {
         require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-wordpress-translatepress-renderer.php';
         add_action( 'wp', [ 'Nova_WordPress_TranslatePress_Renderer', 'on_request' ] );
     }
-    if ( ! function_exists( 'weglot_get_service' ) ) { return; }
-    require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-bridge-suite-translation-writer.php';
+    if ( ! $weglot_active ) { return; }
     require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-wordpress-weglot-renderer.php';
     $weglot = new Nova_WordPress_Weglot();
     ( new Nova_WordPress_Weglot_Renderer( $weglot, $weglot ) )->hooks();

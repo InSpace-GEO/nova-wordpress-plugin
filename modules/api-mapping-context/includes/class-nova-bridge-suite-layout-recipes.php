@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
 /** Local versioned templates, sealed native blueprints and draft translation. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -225,7 +226,8 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         elseif ( 'core' === $builder ) { $design = Nova_Bridge_Suite_Recipe_Core::design( $resource, $id, $mode, $declared_term_fields ); }
         else { $design = $id ? Nova_Bridge_Suite_Recipe_Builders::capture( $builder, $id ) : Nova_Bridge_Suite_Recipe_Builders::starter( $builder, $mode ); }
         if ( is_wp_error( $design ) ) { return $design; } $design = Nova_Bridge_Suite_Recipe_Native_Media::describe( $design, $resource['id'] ); $design = self::decorate_design( $builder, $mode, $design );
-        if ( 'acf' !== $builder && ( ! empty( $resource['post_type'] ) || 'taxonomy' === $resource['type'] ) ) {
+        // Fixed post deliveries use a selective registration catalogue. Avoid capturing unrelated ACF example data.
+        if ( 'acf' !== $builder && ( ( 'static' !== $mode && ! empty( $resource['post_type'] ) ) || 'taxonomy' === $resource['type'] ) ) {
             $custom = Nova_Bridge_Suite_Recipe_ACF::companion_design( $resource['post_type'] ?? '', $id, (string) ( $design['blueprint']['template'] ?? '' ), $resource['taxonomy'] ?? '' );
             if ( is_wp_error( $custom ) ) { return $custom; }
             if ( is_array( $custom ) ) { $design['custom_fields_design'] = self::decorate_design( 'acf', $mode, $custom ); }
@@ -235,10 +237,18 @@ final class Nova_Bridge_Suite_Layout_Recipes {
             if ( isset( $design['custom_fields_design'] ) ) { $design['custom_fields_design']['recipe_preset']['bindings'] = []; $design['custom_fields_design']['recipe_preset']['regions'] = []; $design['custom_fields_design']['sample'] = new stdClass(); }
         }
         if ( class_exists( 'Nova_Bridge_Suite_Recipe_Visual' ) ) { $design = Nova_Bridge_Suite_Recipe_Visual::enrich( $design, $resource, $id ); }
+        $design = self::field_choices( $design, $resource['id'], $mode, $id );
         $design = self::presentation_choices( $design, $resource, $id );
         return self::response( $design );
     }
-    /** Candidate values are signed, but none are included until explicitly selected. */
+    /** Expose registrations for selection without reading custom-field values from the example. */
+    private static function field_choices( array $design, string $resource, string $mode, int $example ): array {
+        if ( 'static' === $mode && 0 === strpos( $resource, 'post_type:' ) && 'acf' !== ( $design['builder'] ?? '' ) ) {
+            $design['posting_field_choices'] = Nova_Bridge_Suite_Layout_Custom_Fields::catalog( substr( $resource, 10 ), (string) ( $design['blueprint']['template'] ?? '' ), $example, Nova_Bridge_Suite_Layout_Custom_Fields::retained_meta( $design ) );
+        }
+        return $design;
+    }
+
     private static function presentation_choices( array $design, array $resource, int $id ): array {
         if ( 'elementor' !== $design['builder'] || ! $id || empty( $resource['post_type'] ) || ! class_exists( 'Nova_Bridge_Suite_Theme_Presentation' ) ) { return $design; }
         $inventory = Nova_Bridge_Suite_Theme_Presentation::candidates( $id );
@@ -269,6 +279,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $result = self::decorate_design( 'elementor', $mode, $result );
         $result = Nova_Bridge_Suite_Recipe_Visual::enrich( $result, $resource, $source['reference_id'] );
         if ( ( $result['visual_preview']['status'] ?? '' ) === 'stale' ) { return self::error( 'presentation', 'The example settings changed. Capture the design again before selecting them.', 409 ); }
+        $result = self::field_choices( $result, $resource['id'], $mode, $source['reference_id'] );
         return self::response( self::presentation_choices( $result, $resource, $source['reference_id'] ) );
     }
     /** Read-only, explicit capture of one reusable UX Block into a sealed native layout. */
@@ -292,7 +303,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $result['recipe_preset']['bindings'] = []; $result['recipe_preset']['regions'] = []; $result['sample'] = new stdClass();
         $result = Nova_Bridge_Suite_Recipe_Visual::enrich( $result, $resource, $source['reference_id'] ?? 0 );
         if ( ( $result['visual_preview']['status'] ?? '' ) === 'stale' ) { return self::error( 'reusable_block', 'The example changed while capturing this UX Block. Capture the design again before continuing.', 409 ); }
-        return self::response( $result );
+        return self::response( self::field_choices( $result, $resource['id'], $mode, $source['reference_id'] ) );
     }
     public static function region( $request ) {
         $body = self::body( $request ); if ( is_wp_error( $body ) ) { return $body; } $design = $body['design'] ?? []; $builder = $design['builder'] ?? '';
@@ -412,6 +423,11 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( isset( $body['posting_page_type'] ) && ! in_array( $body['posting_page_type'], [ 'service', 'informative', 'category' ], true ) ) { return self::error( 'posting_page_type', 'Choose Service, Informative or Category as the NOVA page type.' ); }
         if ( 'taxonomy:product_cat' === $resource['id'] && isset( $body['posting_page_type'] ) && 'category' !== $body['posting_page_type'] ) { return self::error( 'posting_page_type', 'WooCommerce product categories use the NOVA Category page type.' ); }
         $source = class_exists( 'Nova_Bridge_Suite_Recipe_Visual' ) ? Nova_Bridge_Suite_Recipe_Visual::validate_source( $body, $recipe, $resource ) : null; if ( is_wp_error( $source ) ) { return $source; }
+        if ( ! empty( $recipe['posting_fields'] ) ) {
+            if ( 'static' !== $recipe['mode'] || empty( $resource['post_type'] ) || 'acf' === $recipe['builder'] ) { return self::error( 'posting_fields', 'Use fixed editorial custom fields on a native post layout.' ); }
+            $registered = Nova_Bridge_Suite_Layout_Custom_Fields::verify_registration( $recipe, $resource['post_type'], (int) ( $source['reference_id'] ?? 0 ) );
+            if ( is_wp_error( $registered ) ) { return $registered; }
+        }
         $content = $body['content'] ?? [];
         if ( ! is_array( $content ) || ( $content && Nova_Bridge_Suite_Recipe_Engine::list_array( $content ) ) ) { return self::error( 'sample', 'Provide sample draft values as an object.' ); }
         // Older editors send a receipt for the exact recipe and content they reviewed.
@@ -455,6 +471,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( class_exists( 'Nova_Bridge_Suite_Recipe_Visual' ) ) { $resource = self::resource( $record['resource_id'] ); if ( ! is_wp_error( $resource ) ) { $design = Nova_Bridge_Suite_Recipe_Visual::enrich( $design, $resource, 0, $record['source_reference'] ?? null, $record['source_receipt'] ?? '' ); } } $record['design'] = $design;
         if ( ! empty( $record['source_reference']['reference_id'] ) && isset( $resource ) && ! is_wp_error( $resource ) && ( $record['design']['visual_preview']['status'] ?? '' ) === 'available' ) { $record['design'] = self::presentation_choices( $record['design'], $resource, $record['source_reference']['reference_id'] ); }
         if ( isset( $record['recipe']['custom_fields'] ) ) { $custom = $record['recipe']['custom_fields']; $record['custom_fields_design'] = self::decorate_design( 'acf', $custom['mode'], [ 'blueprint' => $custom['blueprint'] ] + Nova_Bridge_Suite_Recipe_ACF::describe( $custom['blueprint'] ) ); }
+        $record['design'] = self::field_choices( $record['design'], $record['resource_id'], $record['mode'], 0 );
         return $record;
     }
     public static function profile( $request ) { $record = self::record( (string) $request->get_param( 'id' ) ); return self::response( is_wp_error( $record ) ? $record : self::public_record( $record ) ); }

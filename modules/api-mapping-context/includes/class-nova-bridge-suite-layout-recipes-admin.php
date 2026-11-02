@@ -17,8 +17,8 @@ final class Nova_Bridge_Suite_Layout_Recipes_Admin {
         if ( false === strpos( $hook, 'nova-settings' ) || ! current_user_can( 'manage_options' ) ) { return; }
         $directory = __DIR__ . '/../assets/';
         $base = plugin_dir_url( NOVA_BRIDGE_SUITE_PLUGIN_FILE ) . 'modules/api-mapping-context/assets/';
-        wp_enqueue_style( 'nova-layout-recipes', $base . 'layout-recipes.css', [], (string) filemtime( $directory . 'layout-recipes.css' ) );
-        wp_enqueue_script( 'nova-layout-recipes', $base . 'layout-recipes.js', [], (string) filemtime( $directory . 'layout-recipes.js' ), true );
+        wp_enqueue_style( 'nova-layout-recipes', $base . 'layout-recipes.css', [], NOVA_BRIDGE_SUITE_VERSION . '-' . filemtime( $directory . 'layout-recipes.css' ) );
+        wp_enqueue_script( 'nova-layout-recipes', $base . 'layout-recipes.js', [], NOVA_BRIDGE_SUITE_VERSION . '-' . filemtime( $directory . 'layout-recipes.js' ), true );
         wp_localize_script( 'nova-layout-recipes', 'NovaLayoutRecipes', [
             'url' => esc_url_raw( rest_url( 'nova-bridge/v1/mapping/layout-recipes' ) ),
             'nonce' => wp_create_nonce( 'wp_rest' ),

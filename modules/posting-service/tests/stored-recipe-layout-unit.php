@@ -48,6 +48,7 @@ require $core . '/class-wp-block-parser.php';
 require $core . '/blocks.php';
 require dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-mapping-drafts.php';
 require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-writing-adapter.php';
+require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-posting-protocol.php';
 require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout.php';
 use Nova_Bridge_Suite_Stored_Layout as Layout;
 use Nova_Bridge_Suite_Writing_Adapter as Writing;
@@ -217,6 +218,29 @@ $extra_title = $values; $extra_title[Writing::field_id( '/title' )] = 'Unconfigu
 check( is_wp_error( Layout::compile( $draft, $extra_title, 'core-extra-title' ) ), 'An unconfigured synthetic title cannot silently override the instructed native title' );
 $wrong = $saved; $wrong['recipe']['blueprint']['post_type'] = 'page';
 check( is_wp_error( Layout::from_recipe( $wrong ) ), 'A core blueprint for another post type is rejected before synchronization' );
+
+// A theme can render only ACF, leaving both native body and its list of mapped fields empty.
+$php_template = $core_blueprint; $php_template['post_type'] = 'page'; $php_template['resource_id'] = 'post_type:page';
+$php_template['document'] = [ 'title' => '', 'sections' => [ [ 'body' => '' ] ], 'faqs' => [] ];
+$only = record( 'core', 'page', $php_template, [] );
+$acf_path = '/@nova/custom-fields/acf/summary'; $meta_path = '/@nova/custom-fields/meta/credit_line';
+$only['recipe']['posting_fields'] = [
+    $acf_path => [ 'name' => 'summary', 'key' => 'field_summary', 'provider' => 'acf', 'type' => 'wysiwyg', 'label' => 'Summary', 'instructions' => 'Use the full introduction.' ],
+    $meta_path => [ 'name' => 'credit_line', 'key' => 'credit_line', 'provider' => 'meta', 'type' => 'string', 'label' => 'Author credit' ],
+];
+$destination = good( Layout::from_recipe( $only ), 'Core PHP layout with only companion bindings exports' );
+$wire = good( Writing::template_input( $destination ), 'The posting-service wire format accepts both explicit native registrations' );
+$wire_fields = array_column( $wire['definition']['fields'], null, 'id' );
+check( count( $wire_fields ) === 3 && $wire_fields[Writing::field_id( $acf_path )]['value_type'] === 'rich_text' && $wire_fields[Writing::field_id( $meta_path )]['value_type'] === 'text', 'Only the native title and the selected editorial destinations are exposed.' );
+check( ! str_contains( wp_json_encode( $wire ), 'field_summary' ) && str_contains( wp_json_encode( $wire ), 'Use the full introduction.' ), 'Only instructions and opaque IDs go to posting service. Native ACF keys stay in WordPress.' );
+$translated = good( Layout::compile( $destination, fitted( [ '/title' => 'Dienst', $acf_path => '<p>Inleiding.</p>' ] ), 'custom-only' ), 'A custom-only native page compiles without access to the example' );
+check( $translated['writer_payload']['template'] === 'templates/full-width.php' && $translated['post_fields']['title'] === 'Dienst' && $translated['custom_fields'] === [ 'summary' => [ 'provider' => 'acf', 'key' => 'field_summary', 'type' => 'wysiwyg', 'value' => '<p>Inleiding.</p>' ] ], 'The PHP template and fitted ACF value survive while absent optional post meta is omitted.' );
+$legacy = $only; unset( $legacy['recipe']['posting_fields'] );
+$legacy['recipe']['custom_fields'] = [ 'mode' => 'static', 'builder' => 'acf', 'bindings' => [ [ 'target' => '/document/summary', 'instructions' => 'Use the full introduction.' ] ], 'regions' => [], 'blueprint' => [ 'schema' => [ 'summary' => $only['recipe']['posting_fields'][$acf_path] ], 'document' => [ 'summary' => 'Private example copy', 'unselected' => 'Also private' ] ] ];
+$legacy_draft = good( Layout::from_recipe( $legacy ), 'An existing explicitly bound legacy scalar companion can be synchronized' );
+check( isset( $legacy_draft['fields'][$acf_path] ) && ! str_contains( wp_json_encode( $legacy_draft ), 'Private example copy' ) && ! str_contains( wp_json_encode( $legacy_draft ), 'Also private' ), 'Existing scalar bindings export without any of the example post meta.' );
+$tampered = $destination; $tampered['posting_fields'][$acf_path]['key'] = 'field_other';
+check( is_wp_error( Layout::compile( $tampered, fitted( [ '/title' => 'Dienst' ] ), 'changed-key' ) ), 'Changing a sealed field identity invalidates the approved native snapshot.' );
 
 $block_markup = '<!-- wp:group {"layout":{"type":"constrained","contentSize":"1180px"},"className":"retained-layout"} --><div class="wp-block-group retained-layout"><!-- wp:heading {"level":2,"className":"retained-heading"} --><h2 class="wp-block-heading retained-heading">Example heading</h2><!-- /wp:heading --><!-- wp:html --><p>Example paragraph</p><!-- /wp:html --></div><!-- /wp:group -->';
 $gutenberg = [ 'document' => parse_blocks( $block_markup ), 'template' => 'templates/full-width.php', 'meta' => [ 'retained_design' => [ 'width' => 'wide', 'spacing' => 24 ] ] ];

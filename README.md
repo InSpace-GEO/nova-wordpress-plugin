@@ -38,6 +38,14 @@ The single-original providers support mapped WordPress and Gutenberg content and
 
 TranslatePress stores identical source strings in a shared dictionary. NOVA leaves conflicting manual translations and entries known to be used by another post untouched. TranslatePress may not have recorded a page it has never rendered; use a distinct source string when the same text needs different translations on different pages.
 
+### Mapping custom fields
+
+In step 3 of a fixed post layout, open **Editorial custom fields** and select the fields NOVA should fill. Give each field its own mapping instructions, then use **Save & review** and confirm that the posting service accepted the revision. For a PHP page template that renders its content from ACF, use a WordPress layout with that page template and select its custom fields. The WordPress body can be empty.
+
+The picker supports top-level ACF text, textarea, WYSIWYG, URL and email fields, plus public WordPress fields registered as single REST strings. A delivery that omits an optional field preserves its current value. Repeater rows, flexible layouts, media and relationship fields are outside this picker.
+
+WPML and Polylang store the mapped values on the native post for each language. Configure translated fields to allow independent values. TranslatePress and Weglot keep localized field values on the shared source post and serve them on that post’s public page through normal WordPress metadata and ACF reads. A static builder layout can use these localized fields even when the provider cannot translate the builder’s own widgets. If a theme rewrites a field’s text or prints an identical phrase in multiple places, the provider may translate that output again.
+
 ## Development
 
 The plugin derives from NOVA Bridge Suite commit 7e124d48d914b805a31bee340eb6f7fe338d61cc. Retained wire names and option keys preserve saved mappings. Set `NOVA_WP_CORE_FIXTURE` to a local WordPress `wp-includes` directory and run `python tools/test.py` with PHP and Node on your path. Build the runtime ZIP with `python tools/package.py OUTPUT_DIRECTORY`.

@@ -45,7 +45,7 @@ function get_post_type_object( $name ) { global $post_types; return $post_types[
 function get_post_types( $args = [], $output = 'names' ) { global $post_types; $result = []; foreach ( $post_types as $name => $type ) { $matches = true; foreach ( $args as $key => $value ) { if ( ( $type->$key ?? null ) !== $value ) { $matches = false; } } if ( $matches ) { $result[$name] = $output === 'objects' ? $type : $name; } } return $result; }
 function get_post_stati( $args = [], $output = 'names' ) { $statuses = [ 'draft', 'publish', 'private', 'pending', 'future', 'trash', 'auto-draft', 'editor-review' ]; return array_combine( $statuses, $statuses ); }
 function post_type_supports( $type, $feature ) { return true; }
-function get_registered_meta_keys( ...$args ) { return []; }
+function get_registered_meta_keys( ...$args ) { return $GLOBALS['editorial_meta'] ?? []; }
 function get_page_template_slug( $id ) { return 'protected-template.php'; }
 function get_post( $id ) { global $posts; return $posts[$id] ?? null; }
 function get_post_field( $field, $id ) { $post = get_post( $id ); return $post ? ( $post->$field ?? '' ) : ''; }
@@ -207,4 +207,31 @@ check( $writes === $before_writes && ! isset( $options['nova_bridge_layout_recip
 foreach ( $posts as $id => $post ) { if ( $id > 100 ) { check( $post->post_status === 'draft', 'The template test draft was published' ); } }
 foreach ( $original_options as $key => $value ) { check( $options[$key] === $value, 'Draft creation changed unrelated settings or backend connection' ); }
 check( empty( $actions['wp_insert_post'][1] ) && empty( $filters['wp_insert_post_data'][PHP_INT_MAX] ), 'Scoped native hooks remained active after an operation' );
+$field_registration = [ 'type' => 'string', 'single' => true, 'show_in_rest' => true, 'description' => 'Credit the author of the summary.' ];
+$editorial_meta = [ 'credit_line' => $field_registration, 'headline' => $field_registration, 'private_token' => $field_registration, '_thumbnail_id' => $field_registration, 'rank_math_robots' => $field_registration, 'several_values' => [ 'single' => false ] + $field_registration ];
+$before_reads = $acf_reads;
+$fixed = design( 'core', 'static', 'post_type:page', 11 );
+$choices = $fixed['posting_field_choices'];
+$acf_path = '/@nova/custom-fields/acf/headline'; $meta_path = '/@nova/custom-fields/meta/credit_line';
+check( array_keys( $choices ) === [ $acf_path, $meta_path ], 'Only the two supported, unambiguous scalar fields should be offered from the mixed registered schema.' );
+check( $acf_reads === $before_reads && ! isset( $fixed['custom_fields_design'], $fixed['recipe_preset']['posting_fields'] ), 'Cataloguing fixed fields must not read example ACF values or automatically select them.' );
+$single = $fixed['recipe_preset']; $single['bindings'] = []; $single['posting_fields'] = [ $acf_path => $choices[$acf_path] + [ 'required' => true ] ];
+$single['posting_fields'][$acf_path]['instructions'] = 'Use the headline of the section.';
+$single_body = save_body( $fixed, $single, [] );
+$single_saved = data( route( 'save', 'POST', [], $single_body ) );
+check( $single_saved['recipe'] === $single && $single_saved['recipe']['blueprint']['template'] === 'protected-template.php', 'A PHP page template with only one ACF binding must save through the ordinary route.' );
+$reopened = data( route( 'profile', 'GET', [ 'id' => $single_saved['id'] ] ) );
+check( $reopened['recipe']['posting_fields'] === $single['posting_fields'] && $reopened['design']['posting_field_choices'] === $choices, 'Reopening the mapping retained the selection and live registration choices.' );
+$forged = $single; $forged['posting_fields'][$acf_path]['key'] = 'field_different';
+rejected( route( 'save', 'POST', [], save_body( $fixed, $forged, [] ) ), 409, 'A forged native field key cannot be persisted.' );
+$acf_example_only = true;
+rejected( route( 'save', 'POST', [], save_body( $fixed, $single, [] ) ), 409, 'A field registered for a specific example cannot be selected for future posts.' );
+$acf_example_only = false;
+$acf_schema['heroCopy-Two'] = af( 'heroCopy-Two' );
+$acf_schema['restricted_summary'] = af( 'restricted_summary', 'text', [ 'readonly' => true ] );
+$editorial_meta['plainCopy-2'] = [ 'description' => '' ] + $field_registration;
+$editorial_meta['restricted_summary'] = $field_registration;
+$catalog_only = Nova_Bridge_Suite_Layout_Custom_Fields::catalog( 'page', 'protected-template.php', 11, [ 'CREDIT_LINE' => true ] );
+check( isset( $catalog_only['/@nova/custom-fields/acf/heroCopy-Two'], $catalog_only['/@nova/custom-fields/meta/plainCopy-2'] ) && '' === $catalog_only['/@nova/custom-fields/meta/plainCopy-2']['instructions'], 'Legitimate mixed-case and hyphenated names and undescribed public single string registrations remain selectable.' );
+check( ! isset( $catalog_only[$meta_path] ) && ! isset( $catalog_only['/@nova/custom-fields/meta/restricted_summary'] ), 'A builder-owned setting or a protected ACF name cannot be remapped as generic REST metadata.' );
 echo 'PASS ' . $checks . " layout recipe API checks (real Core + ACF + transport/compiler).\n";

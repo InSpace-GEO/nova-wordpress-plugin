@@ -22,11 +22,27 @@ final class Nova_WordPress_Translation_Fields {
         if ( is_wp_error( $compiled ) ) { return $compiled; }
         $payload = $compiled['writer_payload']; $builder = $compiled['builder']; $fields = [];
         if ( ! empty( $payload['nova_media'] ) ) { return self::unsupported( 'localized media' ); }
+        $bindings = $local['stored_layout']['bindings'] ?? [];
+        $columns = []; $document = false;
+        foreach ( $bindings as $binding ) {
+            if ( 'protected' === $binding['mode'] ) { continue; }
+            if ( 'post' === $binding['kind'] ) { $columns[$binding['column']] = true; }
+            elseif ( ! in_array( $binding['kind'], [ 'custom_field', 'routing' ], true ) ) { $document = true; }
+        }
+        if ( ! empty( $compiled['custom_fields'] ) ) {
+            $custom = Nova_Bridge_Suite_Stored_Custom_Fields::prepare( $target['post_type'], $target['post_id'], (string) get_page_template_slug( $target['post_id'] ), $compiled['custom_fields'] );
+            if ( is_wp_error( $custom ) ) { return $custom; }
+            $fields['mapped_fields'] = $custom;
+        }
         foreach ( [ 'title', 'excerpt' ] as $column ) {
+            if ( $bindings && ! isset( $columns[$column] ) ) { continue; }
             $value = $compiled['post_fields'][$column] ?? '';
             if ( '' === $value && 'title' === $column ) { $value = $payload['title'] ?? ''; }
             if ( '' !== $value ) { $fields[$column] = sanitize_text_field( $value ); }
         }
+        // A source-shared provider only needs the native document when it has a writable document slot.
+        // Retained styling and protected slots belong to the original in every language.
+        if ( $bindings && ! $document ) { return $fields ?: self::unsupported( 'empty translation' ); }
         if ( 'elementor' === $builder && 'weglot' === $target['provider'] ) {
             $document = wp_json_encode( $payload['elementor_data'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
             if ( false === $document ) { return self::unsupported( 'Elementor document' ); }
