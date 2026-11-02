@@ -75,4 +75,8 @@ $p = ok( Nova_Bridge_Suite_Owned_CPT_Writer::plan( $content, $config, [ 'operati
 $crash_save = true; Nova_Bridge_Suite_Owned_CPT_Writer::apply( $p, uuid( 1 ) ); $denied_caps = [ 'edit_post' ];
 check( is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::recover( $p, uuid( 1 ) ) ) && '' === get_post_meta( 10, '_seopress_titles_desc' ), 'Recovery cannot finish native SEO writes after target-edit permission is revoked.' );
 $denied_caps = [];
+require_once __DIR__ . '/locale-association-fixture.php';
+foreach ( [ 'service_page', 'blog' ] as $type ) {
+    check_locale_associations( Nova_Bridge_Suite_Owned_CPT_Writer::class, 'reset_fake', static function ( $version ) use ( $type ) { return fixture( $type, $version ); }, 'uuid', 'nova_cpt_url_' );
+}
 echo "Owned CPT writer: $checks checks passed\n";

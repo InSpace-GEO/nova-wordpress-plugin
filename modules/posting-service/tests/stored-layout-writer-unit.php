@@ -324,5 +324,7 @@ reset_native(); $old = planned(); $crash_insert = true; Nova_Bridge_Suite_Stored
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::supersede( $old, op( 1 ) ) ) && $inserts === 1, 'A lost reservation with no uniquely identifiable native page is not blindly recreated.' );
 reset_native(); $old = planned(); ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $old, op( 1 ) ) ); $meta[10]['_elementor_page_settings']['background_color'] = '#human';
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::supersede( $old, op( 1 ) ) ), 'Retiring committed work does not bypass human-edit protection.' );
+require_once __DIR__ . '/locale-association-fixture.php';
+check_locale_associations( Nova_Bridge_Suite_Stored_Layout_Writer::class, 'reset_native', 'fixture', 'op', 'nova_layout_page_' );
 echo "Stored-layout writer checks: $checks passed.\n";
 }
