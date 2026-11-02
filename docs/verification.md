@@ -1,5 +1,39 @@
 # Release verification
 
+## Locale association hotfix
+
+Stored-layout and owned-CPT associations now include the delivery locale. Case
+and underscore/hyphen variants share one association. Two locales sharing a
+backend URL ID retain separate native pages at their supplied URLs and update
+independently. Each locale retains its content/version guards. A matching legacy
+association is reused lazily without changing its old option; another locale
+cannot adopt its native page. Malformed legacy identities require reconciliation.
+Operation journals, reservation recovery, native language routing and target URL
+locks retain their existing behavior.
+
+Owned CPTs retain a private native owner marker when a page is created or first
+adopted. Another locale cannot adopt that same native URL, including through an
+already-planned operation with identical fitted values. Both writers check the
+exact post type, parent and slug for owned draft reservations hidden by draft
+permalinks, and repeat that check under their target URL lock before insert. The
+stored-layout writer uses its existing owner and reservation markers.
+Unowned existing CPTs remain adoptable, and their unrelated native marker data is
+preserved. The owner marker does not change frozen plan or native snapshot bytes.
+
+The disposable WordPress 7.1.4/MariaDB proof in
+`modules/posting-service/tests/locale-associations-wordpress.php` passed 102 checks
+using registered Service/Blog CPTs and the stored-layout core/Gutenberg providers
+for native Pages, Posts and the Service CPT.
+It published two locales with one URL ID, updated each independently, upgraded a
+legacy association without duplication, and recovered a lost insert reply while
+preserving the frozen operation plan and digest. Same-URL locale collisions,
+competing adoption plans, and competing creation plans produced no overwrite or
+second reserved draft. The script requires the dedicated
+`https://bridge-locale.test` installation and `NOVA_DISPOSABLE_WORDPRESS=1`; it
+retains its disposable records for inspection. Elementor locale behavior is
+covered by the local writer fixtures; this proof does not install Elementor or a
+multilingual plugin and does not exercise an external NOVA delivery.
+
 ## 1.0.2
 
 All 93 local suites passed. Coverage includes ranking eligible site members by published content, preserving a different user's existing byline, checking destination permissions before a write, verifying previously committed work after a permission change, and routing signed delivery notifications.

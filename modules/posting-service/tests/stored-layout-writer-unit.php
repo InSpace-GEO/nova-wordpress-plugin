@@ -60,7 +60,7 @@ class Layout_Documents { public function get( $id, $cache = false ) { return new
 // Elementor before 3.34 exposes separate public registries, without get_element().
 class Layout_Elements { public function get_element_types( $type = null ) { $types = array_fill_keys( [ 'section', 'column', 'container' ], (object) [] ); return $type === null ? $types : ( $types[$type] ?? null ); } }
 class Layout_Widgets { public function get_widget_types( $type = null ) { $types = $GLOBALS['missing_widget'] ? [] : array_fill_keys( [ 'heading', 'text-editor' ], (object) [] ); return $type === null ? $types : ( $types[$type] ?? null ); } }
-class Layout_DB { public $posts = 'wp_posts'; public $last_error = ''; public function prepare( $q, ...$args ) { return [ $q, $args ]; } public function get_var( $q ) { return '1'; } public function get_col( $q ) { $ids = []; foreach ( $GLOBALS['posts'] as $post ) { if ( $post->post_content_filtered === $q[1][0] && $post->post_type === $q[1][1] ) { $ids[] = $post->ID; } } return $ids; } }
+class Layout_DB { public $posts = 'wp_posts'; public $postmeta = 'wp_postmeta'; public $last_error = ''; public function prepare( $q, ...$args ) { return [ $q, $args ]; } public function get_var( $q ) { if ( strpos( $q[0], 'p.post_name' ) !== false ) { foreach ( $GLOBALS['posts'] as $post ) { if ( $post->post_type === $q[1][0] && (int) $post->post_parent === $q[1][1] && $post->post_name === $q[1][2] && $post->post_status !== 'trash' && ( strpos( $post->post_content_filtered, 'nova.stored-layout-document/v1:' ) === 0 || array_key_exists( '_nova_stored_layout_owner', $GLOBALS['meta'][$post->ID] ?? [] ) ) ) { return $post->ID; } } return null; } return '1'; } public function get_col( $q ) { $ids = []; foreach ( $GLOBALS['posts'] as $post ) { if ( $post->post_content_filtered === $q[1][0] && $post->post_type === $q[1][1] ) { $ids[] = $post->ID; } } return $ids; } }
 $wpdb = new Layout_DB();
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/adapters/elementor/class-element-registry.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-posting-protocol.php';
@@ -324,5 +324,7 @@ reset_native(); $old = planned(); $crash_insert = true; Nova_Bridge_Suite_Stored
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::supersede( $old, op( 1 ) ) ) && $inserts === 1, 'A lost reservation with no uniquely identifiable native page is not blindly recreated.' );
 reset_native(); $old = planned(); ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $old, op( 1 ) ) ); $meta[10]['_elementor_page_settings']['background_color'] = '#human';
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::supersede( $old, op( 1 ) ) ), 'Retiring committed work does not bypass human-edit protection.' );
+require_once __DIR__ . '/locale-association-fixture.php';
+check_locale_associations( Nova_Bridge_Suite_Stored_Layout_Writer::class, 'reset_native', 'fixture', 'op', 'nova_layout_page_' );
 echo "Stored-layout writer checks: $checks passed.\n";
 }

@@ -41,11 +41,11 @@ function add_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key][] = $fn; 
 function remove_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key] = array_values( array_filter( $GLOBALS['filters'][$key] ?? [], static function ( $v ) use ( $fn ) { return $v !== $fn; } ) ); }
 function wp_insert_post( $data, $error = false ) { foreach ( $GLOBALS['filters']['wp_insert_post_data'] ?? [] as $fn ) { $data = $fn( $data, $data, $data ); } $p = new WP_Post(); $p->ID = 10 + count( $GLOBALS['posts'] ); foreach ( wp_unslash( $data ) as $k => $v ) { $p->$k = $v; } $GLOBALS['posts'][$p->ID] = $p; ++$GLOBALS['inserts']; if ( $GLOBALS['crash_insert'] ) { $GLOBALS['crash_insert'] = false; throw new RuntimeException( 'Lost insert response' ); } return $p->ID; }
 function wp_update_post( $data, $error = false ) { $p = get_post( $data['ID'] ); if ( ! $p ) { return new WP_Error( 'missing', 'Missing native ID' ); } foreach ( wp_unslash( $data ) as $k => $v ) { if ( $k !== 'ID' ) { $p->$k = $v; } } if ( isset( $data['post_content'] ) ) { ++$GLOBALS['saves']; } else { ++$GLOBALS['publishes']; } return $p->ID; }
-class Layout_DB { public $posts = 'wp_posts'; public function prepare( $q, ...$args ) { return [ $q, $args ]; } public function get_var( $q ) { return '1'; } public function get_col( $q ) { $ids = []; foreach ( $GLOBALS['posts'] as $p ) { if ( $p->post_content_filtered === $q[1][0] && $p->post_type === $q[1][1] ) { $ids[] = $p->ID; } } return $ids; } }
+class Layout_DB { public $posts = 'wp_posts'; public $postmeta = 'wp_postmeta'; public function prepare( $q, ...$args ) { return [ $q, $args ]; } public function get_var( $q ) { if ( strpos( $q[0], 'p.post_name' ) !== false ) { foreach ( $GLOBALS['posts'] as $post ) { if ( $post->post_type === $q[1][0] && (int) $post->post_parent === $q[1][1] && $post->post_name === $q[1][2] && $post->post_status !== 'trash' && ( strpos( $post->post_content_filtered, 'nova.stored-layout-document/v1:' ) === 0 || array_key_exists( '_nova_stored_layout_owner', $GLOBALS['meta'][$post->ID] ?? [] ) ) ) { return $post->ID; } } return null; } return '1'; } public function get_col( $q ) { $ids = []; foreach ( $GLOBALS['posts'] as $p ) { if ( $p->post_content_filtered === $q[1][0] && $p->post_type === $q[1][1] ) { $ids[] = $p->ID; } } return $ids; } }
 $wpdb = new Layout_DB();
 class Nova_Bridge_Suite_Mapped_Content_Target {
     public static function normalize_url( $url ) { if ( ! is_string( $url ) || ! preg_match( '#^https://fixture\.test/(?:[a-z-]+/?)?$|^https://fixture\.test/library/[a-z-]+/?$#D', $url ) ) { return new WP_Error( 'foreign', 'Invalid canonical fixture URL' ); } return [ 'origin' => 'https://fixture.test', 'path' => rtrim( parse_url( $url, PHP_URL_PATH ), '/' ) ?: '/', 'identity' => rtrim( $url, '/' ) ]; }
-    public static function resolve( $url, $resource = null ) { $n = self::normalize_url( $url ); if ( is_wp_error( $n ) ) { return $n; } foreach ( $GLOBALS['posts'] as $p ) { if ( rtrim( get_permalink( $p->ID ), '/' ) === $n['identity'] ) { return $resource === 'post_type:' . $p->post_type ? [ 'reference_type' => 'post', 'reference_id' => $p->ID, 'resource_id' => $resource ] : new WP_Error( 'resource', 'Wrong post type' ); } } return new WP_Error( 'nova_mapped_target_not_found', 'Not found' ); }
+    public static function resolve( $url, $resource = null ) { $n = self::normalize_url( $url ); if ( is_wp_error( $n ) ) { return $n; } foreach ( $GLOBALS['posts'] as $p ) { if ( ! empty( $GLOBALS['hidden_drafts'] ) && $p->post_status === 'draft' ) { continue; } if ( rtrim( get_permalink( $p->ID ), '/' ) === $n['identity'] ) { return $resource === 'post_type:' . $p->post_type ? [ 'reference_type' => 'post', 'reference_id' => $p->ID, 'resource_id' => $resource ] : new WP_Error( 'resource', 'Wrong post type' ); } } return new WP_Error( 'nova_mapped_target_not_found', 'Not found' ); }
     public static function creation( $resource, $url, $language ) { $n = self::normalize_url( $url ); if ( is_wp_error( $n ) ) { return $n; } return [ 'slug' => basename( $n['path'] ), 'parent' => 0, 'target_url' => $n['identity'], 'language' => $language, 'native_language' => [ 'provider' => 'core', 'code' => 'en-us' ] ]; }
     public static function with_creation_language( $target, $fn ) { return $fn(); }
     public static function verify_created_language( $resource, $kind, $id, $target ) { return true; }
@@ -61,7 +61,7 @@ require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layo
 function check( $condition, $why ) { ++$GLOBALS['checks']; if ( ! $condition ) { throw new RuntimeException( $why ); } }
 function ok( $result ) { if ( is_wp_error( $result ) ) { throw new RuntimeException( $result->get_error_code() . ': ' . $result->get_error_message() ); } return $result; }
 function op( $n ) { return '11111111-1111-4111-8111-' . sprintf( '%012d', $n ); }
-function reset_native() { $GLOBALS['options'] = $GLOBALS['posts'] = $GLOBALS['meta'] = $GLOBALS['filters'] = $GLOBALS['denied'] = []; $GLOBALS['inserts'] = $GLOBALS['saves'] = $GLOBALS['publishes'] = 0; $GLOBALS['crash_insert'] = $GLOBALS['editor_unavailable'] = false; $GLOBALS['crash_meta'] = $GLOBALS['drop_meta'] = null; }
+function reset_native() { $GLOBALS['options'] = $GLOBALS['posts'] = $GLOBALS['meta'] = $GLOBALS['filters'] = $GLOBALS['denied'] = []; $GLOBALS['inserts'] = $GLOBALS['saves'] = $GLOBALS['publishes'] = 0; $GLOBALS['crash_insert'] = $GLOBALS['editor_unavailable'] = $GLOBALS['hidden_drafts'] = false; $GLOBALS['crash_meta'] = $GLOBALS['drop_meta'] = null; }
 function fixture( $builder, $type = 'post', $civ = '501', $status = 'publish' ) {
     if ( in_array( $builder, [ 'core', 'custom' ], true ) ) { $blueprint = [ 'document' => [ 'title' => 'Example', 'sections' => [ [ 'body' => '<p>Old body.</p>' ] ], 'faqs' => [] ], 'type' => 'post_type', 'post_type' => $type, 'resource_id' => 'post_type:' . $type, 'template' => 'templates/full.php' ]; $target = '/document/sections/0/body'; }
     else { $blueprint = [ 'document' => parse_blocks( '<!-- wp:paragraph --><p>Old body.</p><!-- /wp:paragraph -->' ), 'template' => 'templates/full.php', 'meta' => [ 'design_mode' => 'wide', 'editor_toggle' => true, 'layout_data' => [ 'color' => '#445566', 'active' => true ] ] ]; $target = '/document/0/innerHTML'; }
@@ -150,4 +150,22 @@ ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $replacement, op( 3 ) ) );
 check( $inserts === 1 && $saves === 3 && get_post_meta( 10, '_vendor_document' ) === '<p>Mapped 503</p>', 'A newer authorized delivery replaces changed extension content on the retained native item.' );
 $extension_bad_confirmation = true;
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Provider::verify( 'custom', 10, $new['payload'] ) ), 'Extension verification requires an explicit true confirmation rather than a truthy result object.' );
+foreach ( [ 'core', 'gutenberg' ] as $builder ) {
+    foreach ( [ 'post', 'portfolio' ] as $type ) {
+        reset_native(); $hidden_drafts = true;
+        [ $english, $config ] = fixture( $builder, $type );
+        $dutch = $english; $dutch['language'] = 'nl-NL'; $dutch['content_item_id'] = '202';
+        $first = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $english, $config, [ 'operation_id' => op( 401 ) ] ) );
+        $competing = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $dutch, $config, [ 'operation_id' => op( 402 ) ] ) );
+        $crash_insert = true;
+        check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $first, op( 401 ) ) ), "$builder/$type retains a hidden native draft after a lost insert reply." );
+        check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $competing, op( 402 ) ) ) && $inserts === 1, "$builder/$type rejects the preplanned locale collision before inserting a second draft." );
+        check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $dutch, $config, [ 'operation_id' => op( 403 ) ] ) ), "$builder/$type cannot plan a fresh creation over its hidden reservation." );
+        $dutch['url'] = str_replace( 'article', 'alternate', $dutch['url'] );
+        $other = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $dutch, $config, [ 'operation_id' => op( 404 ) ] ) ), op( 404 ) ) );
+        $proof = ok( Nova_Bridge_Suite_Stored_Layout_Writer::recover( $first, op( 401 ) ) );
+        $recovered = $proof['state'] === 'not_committed' ? ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $first, op( 401 ) ) ) : $proof;
+        check( $recovered['post_id'] === 10 && $other['post_id'] !== 10 && $inserts === 2 && $options['nova_layout_operation_' . hash( 'sha256', op( 401 ) )]['plan'] === $first, "$builder/$type recovers the original frozen reservation once while the other locale publishes at its distinct path." );
+    }
+}
 echo "Generic stored-layout writer checks: $checks passed.\n";
