@@ -57,6 +57,10 @@ final class Nova_Bridge_Suite_Recipe_Builders {
         $post_id = (int) $post->ID;
         $content = (string) $post->post_content; $builders = []; $elementor = get_post_meta( $post_id, '_elementor_data', true );
         if ( 'builder' === get_post_meta( $post_id, '_elementor_edit_mode', true ) || ! empty( $elementor ) && ! in_array( $elementor, [ '[]', [] ], true ) ) { $builders[] = 'elementor'; }
+        // Cornerstone stores the editable element tree separately from the HTML or shortcodes in post_content.
+        $cornerstone = get_post_meta( $post_id, '_cornerstone_data', true );
+        if ( is_string( $cornerstone ) && '' !== $cornerstone ) { $cornerstone = json_decode( $cornerstone, true ); }
+        if ( is_array( $cornerstone ) && is_string( $cornerstone[0]['_type'] ?? null ) && '' !== $cornerstone[0]['_type'] && ! get_post_meta( $post_id, '_cornerstone_override', true ) ) { $builders[] = 'cornerstone'; }
         $divi5 = 1 === preg_match( '/<!--\s+wp:divi\//i', $content ) || 'on' === get_post_meta( $post_id, '_et_pb_use_divi_5', true );
         if ( $divi5 ) { $builders[] = 'divi5'; }
         if ( preg_match( '/\[et_pb_/i', $content ) || ! $divi5 && 'on' === get_post_meta( $post_id, '_et_pb_use_builder', true ) ) { $builders[] = 'divi4'; }

@@ -216,6 +216,10 @@ recipe_assert( $gutenberg_compiled['writer_payload']['native_document'] === get_
 function field_target( array $fields, string $target ): array { foreach ( $fields as $field ) { if ( $field['target'] === $target ) { return $field; } } return []; }
 $carrier_cases = [
     [ '<p>Plain content</p>', [], [] ],
+    [ '<div id="cs-content">Rendered heading</div>', [ '_cornerstone_data' => '[{"_type":"section","_modules":[{"_type":"headline"}]}]' ], [ 'cornerstone' ] ],
+    [ '[cs_content]Saved shortcode output[/cs_content]', [ '_cornerstone_data' => [ [ '_type' => 'classic:section' ] ] ], [ 'cornerstone' ] ],
+    [ '<p>Ordinary post on a Cornerstone site</p>', [ '_cornerstone_data' => '[]', '_cornerstone_settings' => [ 'layout' => 'full-width' ] ], [] ],
+    [ '<p>Edited in WordPress</p>', [ '_cornerstone_data' => '[{"_type":"classic:section"}]', '_cornerstone_override' => '1' ], [] ],
     [ '', [ '_et_pb_use_divi_5' => 'on', '_et_pb_use_builder' => 'on' ], [ 'divi5' ] ],
     [ '<p>Public projection</p>', [ '_aviaLayoutBuilder_active' => 'active' ], [ 'enfold' ] ],
     [ '[av_section][av_textblock]Saved native layout[/av_textblock][/av_section]', [], [ 'enfold' ] ],
@@ -227,6 +231,10 @@ $carrier_cases = [
     [ '<!-- wp:paragraph --><p>Content</p><!-- /wp:paragraph -->', [], [ 'gutenberg' ] ],
 ];
 foreach ( $carrier_cases as $case ) { $GLOBALS['recipe_posts'][9000] = (object) [ 'ID' => 9000, 'post_type' => 'page', 'post_content' => $case[0] ]; $GLOBALS['recipe_meta'][9000] = $case[1]; recipe_assert( $case[2] === Nova_Bridge_Suite_Recipe_Builders::detect_reference( 9000 ), 'Detection preserves stored native authority and ambiguity without provider availability guesses' ); }
+$GLOBALS['recipe_posts'][9000]->post_type = 'post';
+$GLOBALS['recipe_posts'][9000]->post_content = '';
+$GLOBALS['recipe_meta'][9000] = [ '_cornerstone_data' => '[{"_type":"text","text_content":"Article"}]' ];
+recipe_assert( [ 'cornerstone' ] === Nova_Bridge_Suite_Recipe_Builders::detect_reference( 9000 ), 'A Cornerstone blog post can have an empty WordPress body and still contain an editable native document' );
 recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Builders::detect_reference( 99999 ) ), 'Missing reference is not silently treated as core content' );
 recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Builders::detect_reference( 0 ) ), 'Reference zero cannot resolve the ambient WordPress post' );
 $packed_raw = '[vc_row el_id="native-row"][vc_column][vc_btn title="Click" link="url:https%3A%2F%2Fexample.test%2Fold|title:Original%20link|target:_blank|rel:nofollow"][/vc_column][/vc_row]';
