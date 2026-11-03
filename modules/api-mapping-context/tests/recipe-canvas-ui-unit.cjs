@@ -46,6 +46,13 @@ function dom() {
 }
 function field(id,target='/document/0/settings/title',locator={}) { return {field_id:id,target,label:'Heading',writable:true,assigned:false,locator:{strategy:'elementor',reference_id:12,node_id:'heading',control_path:'title',element_type:'heading',...locator}}; }
 const fixture=dom(), record=canvas.normalizeItems([field('title')],config,false)[0];
+const csPage=fixture.document.body.appendChild(new Node('main',{id:'cs-content'}));
+const csHeadline=csPage.appendChild(new Node('div',{class:'e12-e4'}));
+const csTitle=csHeadline.appendChild(new Node('h2',{class:'x-text-content-text-primary'}));
+const csRecord=field('csTitle','/document/0/children/0/values/text_content',{strategy:'cornerstone',node_id:'4',element_type:'headline',control_path:['text_content']});
+check(canvas.locate(fixture.document,csRecord,config).node===csTitle,'A Cornerstone headline without a manually assigned ID resolves to its rendered heading');
+csPage.appendChild(new Node('div',{class:'e12-4'}));
+check(canvas.locate(fixture.document,csRecord,config)===null,'A Cornerstone element rendered multiple times cannot ambiguously bind');
 check(canvas.locate(fixture.document,record,config).node===fixture.title,'Exact Elementor document and node IDs resolve the native text control');
 check(canvas.locate(fixture.document,record,config).precision==='field','Exact known widget control reports field precision');
 check(canvas.locate(fixture.document,{...record,locator:{...record.locator,reference_id:13}},config)===null,'Foreign native document never binds');

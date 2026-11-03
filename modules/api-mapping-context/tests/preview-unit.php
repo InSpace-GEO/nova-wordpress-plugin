@@ -14,9 +14,18 @@ function wp_die($message, $title, $args) { throw new RuntimeException($message, 
 function sanitize_key($s) { return $s; }
 function wp_unslash($s) { return $s; }
 function absint($v) { return abs((int)$v); }
-function wp_parse_url($url) { return parse_url($url); }
+function wp_parse_url($url,$part=-1) { return parse_url($url,$part); }
 function admin_url() { return 'https://example.test/wp-admin/'; }
-function get_post_status($id) { return 'publish'; }
+function home_url($path) { return 'https://example.test/shop/'; }
+function get_post_status($id) { return $GLOBALS['status'] ?? 'publish'; }
+function get_preview_post_link($id) { return $GLOBALS['foreign'] . '?preview=true'; }
+function get_post_type($id) { return $GLOBALS['ref_type'] ?? 'page'; }
+function apply_filters($hook,$value,...$args) {
+ if($hook==='wpml_setting')return $GLOBALS['negotiation'] ?? 0;
+ if($hook==='wpml_element_language_code')return $args[0]===['element_id'=>1,'element_type'=>'post_'.get_post_type(1)] ? 'de' : null;
+ if($hook==='wpml_permalink')return $args[0]==='de' ? 'https://german.test/shop/' : $value;
+ return $value;
+}
 function wp_generate_uuid4() { static $n = 0; return 'request-' . ++$n; }
 function add_query_arg($args, $url) { return $url . (str_contains($url, '?') ? '&' : '?') . http_build_query($args); }
 class Nova_Bridge_Suite_Strategy { static function entity($type, $id) { return $GLOBALS['entity']; } }
@@ -40,5 +49,42 @@ $first = Nova_Bridge_Suite_Mapping_Preview::url($ref);
 check(str_starts_with($first, 'https://example.test/page/?x=1&'));
 check($first !== Nova_Bridge_Suite_Mapping_Preview::url($ref));
 $ref['url'] = 'https://other.test/page/';
-check(str_starts_with(Nova_Bridge_Suite_Mapping_Preview::url($ref), $ref['url']));
+check(Nova_Bridge_Suite_Mapping_Preview::url($ref) === '');
+$sitepress = new class {
+ public $switches = [];
+ function switch_lang($code,$cookie=false) { $this->switches[] = [$code,$cookie]; }
+};
+$foreign = 'https://german.test/shop/same-slug/';
+$ref['url'] = $foreign;
+$negotiation = 1;
+check(Nova_Bridge_Suite_Mapping_Preview::url($ref) === '');
+$negotiation = 2;
+foreach (['https://german.test.evil.test/shop/', 'https://german.test:8443/shop/', 'https://user@german.test/shop/'] as $untrusted) {
+ check(Nova_Bridge_Suite_Mapping_Preview::url(array_merge($ref,['url'=>$untrusted])) === '');
+}
+$ref_type = 'page';
+$url = Nova_Bridge_Suite_Mapping_Preview::url($ref);
+check(str_starts_with($url,'https://example.test/shop/?page_id=1&') && !str_contains($url,'same-slug'));
+parse_str(parse_url($url,PHP_URL_QUERY),$_GET);
+$entity=['post_type'=>'page','url'=>$foreign];
+$signed=$_GET;
+$_GET['_nova_nonce']='bad';
+try { Nova_Bridge_Suite_Mapping_Preview::prepare(); throw new RuntimeException('Invalid language switch'); }
+catch(RuntimeException $e){check($e->getCode()===403 && !$sitepress->switches);}
+$_GET=$signed;
+$_GET['lang']='fr';
+Nova_Bridge_Suite_Mapping_Preview::prepare();
+check($sitepress->switches===[['de',false]]);
+$entity['url']='https://foreign.test/';
+try { Nova_Bridge_Suite_Mapping_Preview::prepare(); throw new RuntimeException('Unregistered domain allowed'); }
+catch(RuntimeException $e){check($e->getCode()===409 && count($sitepress->switches)===1);}
+$status='draft'; $ref_type='service';
+$draft=Nova_Bridge_Suite_Mapping_Preview::url($ref);
+check(str_starts_with($draft,'https://example.test/shop/?p=1&post_type=service&'));
+parse_str(parse_url($draft,PHP_URL_QUERY),$_GET);
+$entity=['post_type'=>'service','url'=>$foreign];
+Nova_Bridge_Suite_Mapping_Preview::prepare();
+check(count($sitepress->switches)===2);
+$term=Nova_Bridge_Suite_Mapping_Preview::url(['reference_type'=>'term','reference_id'=>1,'url'=>$foreign]);
+check(str_starts_with($term,$foreign) && !str_contains($term,'nova_wpml_domain_preview'));
 echo "PASS preview lifecycle, authentication, nonce, reference permissions, origin and fresh URLs\n";

@@ -134,6 +134,10 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         if ( ! class_exists( 'Nova_Bridge_Suite_Mapping_Preview' ) || ! $source['url'] ) { $design['visual_preview'] = [ 'status' => 'unavailable', 'reason' => 'The authenticated native page preview is unavailable. Use the complete field inventory.' ]; return $design; }
         $session = wp_generate_uuid4();
         $url = Nova_Bridge_Suite_Mapping_Preview::url( $source );
+        if ( '' === $url ) {
+            $design['visual_preview'] = [ 'status' => 'unavailable', 'reason' => 'WordPress could not open this example on the admin domain. Its fields are available in the list.' ];
+            return $design;
+        }
         $url = add_query_arg( [ 'nova_recipe_canvas' => $session, 'nova_recipe_digest' => $source['native_digest'] ], $url );
         $design['visual_preview'] = [ 'status' => 'available', 'url' => $url, 'session_id' => $session, 'digest' => $source['native_digest'], 'reference_id' => $source['reference_id'], 'reference_type' => $source['reference_type'], 'reason' => 'Click content to choose its purpose. Site scripts and forms are disabled in this isolated design view; hidden or theme-controlled fields remain in the inventory.' ];
         foreach ( $design['preview_fields'] as &$field ) { $field['locator']['reference_id'] = $source['reference_id']; } unset( $field );

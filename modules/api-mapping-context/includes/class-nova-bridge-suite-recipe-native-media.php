@@ -38,6 +38,9 @@ final class Nova_Bridge_Suite_Recipe_Native_Media {
             if ( ( $spec['kind'] ?? '' ) === 'flatsome' && $spec['id_target'] === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Flatsome ) {
                 return [ 'kind' => 'flatsome', 'id_target' => $spec['id_target'] ];
             }
+            if ( 'cornerstone' === $kind && $spec['id_target'] === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Cornerstone ) {
+                return [ 'kind' => $kind, 'id_target' => $binding['target'] ];
+            }
             break;
         }
         Nova_Bridge_Suite_Recipe_Engine::fail( 'Only a captured native image control can use image import.' );

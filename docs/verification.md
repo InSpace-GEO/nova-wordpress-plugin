@@ -1,5 +1,13 @@
 # Release verification
 
+## 1.0.7 staging candidate
+
+The isolated `inspace-seo.com` lab ran WordPress 7.1.2, Themeco X 10.8.12 and Cornerstone 7.9.7. We saved a fixed layout from a native Page and another from a native Post through the mapping endpoints, then deleted both example items. With fitted test deliveries, NOVA created each target and updated it a second time. HTTP requests found the expected heading, formatted body, button text and destination, and newly imported image. Both updates retained the target’s original WordPress ID and URL. Cornerstone’s own document reader returned the new mapped values, and the saved presentation settings survived. We also checked that a publishing user without Cornerstone’s Posts permission could not publish that destination.
+
+The signed preview returned HTML for each reference. In Chrome, clicking the heading, body or button in the captured staging markup selected the correct mapping field. With a simulated WPML domain-per-language configuration, authenticated preview requests for a German page and post rendered those items on the staging admin origin. A separate check used WPML’s native query parser. The test did not use a live second language domain or the client’s child theme. The WordPress writer received synthetic fitted deliveries; no external posting service or LLM was called.
+
+All 102 local suites passed. The installable ZIP contains 152 NOVA runtime files; no Themeco files are bundled. ZIP SHA-256: `66547aab41326ea9a006248e897d658fe6fa2df0891217927537cbbd3eebe420`.
+
 ## 1.0.6 staging candidate
 
 All 100 local suites passed, including 104 layout editor workflows. Tests cover revision conflicts, saving and retrying sync on step 3, explicit default replacement, and resuming a mapping when its example is selected again. The wizard no longer creates sample drafts. A browser with an interrupted draft request from an older build can still look up that specific draft. Field tests cover excluding core footnotes from new choices, retaining legacy bindings, and offering a separate ACF field labelled Footnotes. The theme tests covered 25 Astra 4.11.7 and 10 Kadence 1.2.16 design settings, opt-in editorial metadata, and previously saved empty or partial selections.

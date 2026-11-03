@@ -27,7 +27,7 @@ final class Nova_Bridge_Suite_Native_Media {
     public static function validate( string $builder, array $payload ) {
         if ( ! array_key_exists( 'nova_media', $payload ) ) { return true; }
         if ( ! is_array( $payload['nova_media'] ) ) { return self::error( 'The native image manifest is invalid.' ); }
-        $featured = false; $targets = []; $shortcode_fields = null;
+        $featured = false; $targets = []; $shortcode_fields = null; $cornerstone_fields = null;
         foreach ( $payload['nova_media'] as $target => $entry ) {
             if ( ! is_string( $target ) || ! is_array( $entry ) || ! is_string( $entry['url'] ?? null ) || ( isset( $entry['clear'] ) && ! is_bool( $entry['clear'] ) ) ) { return self::error( 'The native image binding is invalid.' ); }
             if ( ! empty( $entry['clear'] ) ? '' !== $entry['url'] : '' === trim( $entry['url'] ) ) { return self::error( 'The native image binding needs a source URL or an explicit clear instruction.' ); }
@@ -40,6 +40,18 @@ final class Nova_Bridge_Suite_Native_Media {
                 $url_path = self::pointer( $url_target ); $id_path = self::pointer( $id_target ); $test = $payload;
                 if ( ! $url_path || ! $id_path || ! self::place( $test, $url_path, '' ) || ! self::place( $test, $id_path, 0 ) ) { return self::error( 'A native image target no longer belongs to its compiled media control.' ); }
                 $targets[$url_target] = true;
+            } elseif ( 'cornerstone' === $builder && $builder === ( $entry['kind'] ?? '' ) ) {
+                if ( null === $cornerstone_fields ) {
+                    require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-recipe-builders.php';
+                    $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( $builder );
+                    $description = $adapter->describe( [ 'document' => $payload['cornerstone_document'] ?? [] ] );
+                    if ( is_wp_error( $description ) ) { return $description; }
+                    $cornerstone_fields = array_column( $description['fields'], null, 'target' );
+                }
+                $field = $cornerstone_fields[ $target ] ?? [];
+                if ( $target !== ( $entry['id_target'] ?? null ) || empty( $field['writable'] ) || ( $field['native_media']['id_target'] ?? null ) !== $target ) {
+                    return self::error( 'Only a captured Cornerstone image control can receive an imported image.' );
+                }
             } elseif ( in_array( $builder, [ 'flatsome', 'enfold' ], true ) && $builder === ( $entry['kind'] ?? '' ) ) {
                 $id_target = $entry['id_target'] ?? null;
                 $binding_target = 'enfold' === $builder ? ( $entry['url_target'] ?? null ) : $id_target;
@@ -83,6 +95,13 @@ final class Nova_Bridge_Suite_Native_Media {
                     if ( ! is_string( $url ) || '' === $url ) { return self::error( 'The retained native image has no readable attachment URL.' ); }
                 }
                 if ( 'featured' === $entry['kind'] ) { $result['featured'] = $id; }
+                elseif ( 'cornerstone' === $entry['kind'] ) {
+                    $document = [ 'document' => $result['payload']['cornerstone_document'] ];
+                    $old = Nova_Bridge_Suite_Recipe_Engine::get( $document, $entry['id_target'] );
+                    $size = preg_match( '/^[1-9][0-9]*(:[a-zA-Z0-9_-]+)$/D', (string) $old, $match ) ? $match[1] : '';
+                    Nova_Bridge_Suite_Recipe_Engine::put( $document, $entry['id_target'], $id ? $id . $size : '' );
+                    $result['payload']['cornerstone_document'] = $document['document'];
+                }
                 elseif ( in_array( $entry['kind'], [ 'flatsome', 'enfold' ], true ) ) {
                     self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['id_target'] ), (string) $id );
                     if ( 'enfold' === $entry['kind'] ) { self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['url_target'] ), $url ); }
