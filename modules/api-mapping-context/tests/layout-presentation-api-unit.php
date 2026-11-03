@@ -104,6 +104,11 @@ function selection( array $design, array $keys ) {
     return [ 'resource_id' => $design['source_reference']['resource_id'], 'mode' => 'static', 'design' => $design, 'presentation_choices' => $design['presentation_choices'], 'presentation_seal' => $design['presentation_seal'], 'source_reference' => $design['source_reference'], 'source_receipt' => $design['source_receipt'], 'selected_keys' => $keys ];
 }
 $initial_meta = $post_meta; $initial_blueprints = $blueprints;
+$registered['brand_variant'] = [ 'single' => true, 'type' => 'string', 'show_in_rest' => true ];
+$blueprints[11]['document_settings'] = [ 'brand_variant' => 'subdued' ];
+$registered_design = capture_design();
+check( $registered_design['presentation_choices']['inventory']['fields']['brand_variant']['template_setting'] === true, 'Matching a registered Elementor document setting identifies an otherwise ambiguous WordPress field.' );
+unset( $registered['brand_variant'] ); $blueprints = $initial_blueprints;
 check( isset( $routes['/mapping/layout-recipes/presentation'] ) && $routes['/mapping/layout-recipes/presentation']['methods'] === 'POST', 'Missing presentation route.' );
 $design = capture_design();
 $legacy_body = selection( $design, [] ); $legacy_recipe = $design['recipe_preset']; $legacy_resource = [ 'id' => 'post_type:page', 'type' => 'post_type', 'post_type' => 'page' ];

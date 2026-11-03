@@ -1,5 +1,13 @@
 # Release verification
 
+## 1.0.6 staging candidate
+
+All 100 local suites passed, including 107 layout editor workflows. Tests cover revision conflicts, save and retry-sync on step 3, explicit replacement of a different default, native test-draft recovery, and retaining the current or saved mapping when an example is selected again. The source-registration tests selected all 25 Astra 4.11.7 and all 10 Kadence 1.2.16 design settings. They also checked that editorial metadata stays opt-in and previously saved empty or partial selections remain intact.
+
+We installed the ZIP on inspace-seo.com and verified all 149 runtime files. Chrome loaded the site's editor assets and exercised a 38-setting example against isolated responses. It selected and deselected settings without replacing the preview iframe, reselected the example, then saved the field binding and the 36 settings left selected. Exactly one request verified the settings on save. Syncing the saved revision remained available. Ten PHP regression suites passed on the staging host with in-memory fixtures, including the save and sync handlers. The browser and server tests did not change any staging mapping or remote default.
+
+Staging ZIP SHA-256 is `87ae94317eda618ed7d988c20ee4fed354bee15ef56efcb256c2c7f8caa2ccb2`.
+
 ## 1.0.5
 
 We tested the installable ZIP on isolated WordPress 7.1.2 with ACF Pro 6.8.0.1. For each provider we saved a fixed page layout using the editor’s capture and save endpoints, selected an ACF field and a registered WordPress REST string field, then sent fitted values through the plugin’s publishing writer. The posting-service transport was simulated. The WordPress plugins, storage, and public HTTP requests were real.

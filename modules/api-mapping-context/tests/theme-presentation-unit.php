@@ -54,7 +54,7 @@ if ( isset( $argv[2] ) ) {
     check( 25 === count( $registrations[''] ), 'Official Astra registration executes and declares twenty-five global settings.' );
     check( isset( $registrations['']['ast-page-background-meta']['show_in_rest']['schema']['properties']['desktop'] ), 'Actual Astra structured background schema is registered.' );
 }
-foreach ( [ '_edit_lock', '_elementor_css', 'private_api_key', 'seo_title', 'source_id', 'business_reference' ] as $key ) { $registrations[''][$key] = registration(); }
+foreach ( [ '_edit_lock', '_elementor_css', 'private_api_key', 'seo_title', 'source_id', 'business_reference', 'background_story', 'header_copy', 'image_credit' ] as $key ) { $registrations[''][$key] = registration(); }
 $nonpresentation_keys = [ '_seopress_titles_title', '_seopress_titles_desc', '_seopress_redirections_enabled', '_seopress_redirections_value', '_seopress_pro_rich_snippets_type', '_acf_changed', '_genesis_title', '_genesis_description', 'footnotes', 'schema_type', 'redirections_enabled', 'og_title', 'twitter_description' ];
 foreach ( $nonpresentation_keys as $key ) { $registrations[''][$key] = registration(); }
 $registrations['']['_genesis_layout'] = registration();
@@ -65,6 +65,13 @@ $meta = [ 10 => [
     'not_registered_layout' => 'no-schema',
 ] ];
 $inventory = good( Theme::candidates( 10 ), 'Discover globally registered Astra fields.' );
+$defaults = array_keys( array_filter( $inventory['fields'], static fn( $item ) => $item['template_setting'] ) );
+$manual_keys = [ 'business_reference', 'background_story', 'header_copy', 'image_credit' ];
+check( ! array_intersect( $manual_keys, $defaults ) && in_array( 'site-content-layout', $defaults, true ) && in_array( '_genesis_layout', $defaults, true ), 'Only recognizable, authorized presentation controls default on, including inherited settings.' );
+if ( isset( $argv[2] ) ) {
+    $provider_defaults = array_diff( $defaults, [ '_genesis_layout' ] );
+    check( 25 === count( $provider_defaults ), 'All 25 official Astra settings start selected.' );
+}
 check( 0 === $writes && null === Theme::capture( 10 ) && null === Theme::select( $inventory, [] ), 'Discovery never selects or writes settings automatically.' );
 check( isset( $inventory['fields']['ast-site-content-layout'], $inventory['fields']['site-post-title'] ), 'Global registration captures Astra legacy and modern controls.' );
 check( ! isset( $inventory['fields']['private_api_key'], $inventory['fields']['_elementor_css'] ) && ! isset( $inventory['fields']['_edit_lock'] ) && ! isset( $inventory['fields']['seo_title'] ) && ! isset( $inventory['fields']['source_id'] ) && ! isset( $inventory['fields']['not_registered_layout'] ), 'Secrets, SEO, identity, cache and undeclared fields never enter candidates.' );
@@ -107,6 +114,10 @@ if ( isset( $argv[1] ) ) {
     $registrations['']['_kad_post_header'] = registration( 'boolean' );
 }
 $meta[30] = [ '_kad_post_layout' => 'fullwidth', '_kad_post_content_style' => 'unboxed', '_kad_post_transparent' => 'enable', '_kad_post_header' => '' ];
+$kadence_inventory = Theme::candidates( 30 );
+$kadence_defaults = array_filter( $kadence_inventory['fields'], static fn( $item ) => $item['template_setting'] );
+check( ! array_diff( $kadence_selected, array_keys( $kadence_defaults ) ), 'Registered layout, chrome and appearance switches start selected for a second theme.' );
+if ( isset( $argv[1] ) ) { check( 10 === count( $kadence_defaults ), 'All 10 official Kadence settings start selected.' ); }
 $kadence = good( Theme::capture( 30, $kadence_selected ), 'Capture another common theme without theme-specific code.' );
 check( $kadence['meta']['_kad_post_header']['value'] === false, 'Registered boolean metadata normalizes WordPress empty-string storage.' );
 $meta[31] = [ '_kad_post_header' => '1' ];

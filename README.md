@@ -18,7 +18,9 @@ WordPress suggests the eligible site member with the most published posts, pages
 
 The picker finds native publishing capabilities assigned through a role or directly to a site member. It also checks network super admins who belong to the site. If another plugin grants publishing permission only through a filter, an existing selection remains usable while that permission is effective. To make a new account discoverable, give it the corresponding WordPress role or direct capability.
 
-Under **Layouts**, choose an example, map its fields and go directly to **Save & review**. The layout shows whether the posting service confirmed the default for that NOVA page type. NOVA adapts the content there and WordPress applies it to the saved layout. You can create a native test draft after saving a supported layout.
+Under **Layouts**, choose an example, map its fields and save directly from **Content rules** in step 3. Stay on that screen to check whether the posting service confirmed the default for the selected NOVA page type, retry a sync or explicitly replace a different default. After saving a supported layout, you can also create a native test draft.
+
+Selecting the same example for the same WordPress destination resumes the mapping. To rebuild it from a changed example, choose **Capture a fresh layout** in step 2. In Elementor, **Page layout and template settings** starts with recognized design settings selected for a new layout. **Select all** and **Deselect all** change them together. Saved layouts retain their previous choices. Unrelated registered metadata is available separately and is opt-in.
 
 ## Supported paths
 
@@ -40,7 +42,7 @@ TranslatePress stores identical source strings in a shared dictionary. NOVA leav
 
 ### Mapping custom fields
 
-In step 3 of a fixed post layout, open **Editorial custom fields** and select the fields NOVA should fill. Give each field its own mapping instructions, then use **Save & review** and confirm that the posting service accepted the revision. For a PHP page template that renders its content from ACF, use a WordPress layout with that page template and select its custom fields. The WordPress body can be empty.
+In step 3 of a fixed post layout, open **Editorial custom fields** and select the fields NOVA should fill. Give each field its own mapping instructions, save the layout on the same screen and check the sync result. For a PHP page template that renders its content from ACF, use a WordPress layout with that page template and select its custom fields. The WordPress body can be empty.
 
 The picker supports top-level ACF text, textarea, WYSIWYG, URL and email fields, plus public WordPress fields registered as single REST strings. A delivery that omits an optional field preserves its current value. Repeater rows, flexible layouts, media and relationship fields are outside this picker.
 
