@@ -9,6 +9,23 @@ class WP_Error {
 function is_wp_error( $value ) { return $value instanceof WP_Error; }
 function wp_parse_url( $value ) { return parse_url( $value ); }
 function wp_json_encode( $value ) { return json_encode( $value ); }
+function get_option( $key, $default = false ) { return $GLOBALS['role_options'][$key] ?? $default; }
+function wp_cache_delete( $key, $group ) {}
+class Nova_Bridge_Suite_Posting_Jobs {
+    public static $locked = false;
+    public static $on_lock;
+    public function lock( $key ) {
+        if ( self::$locked ) { return new WP_Error( 'busy' ); }
+        self::$locked = true;
+        if ( self::$on_lock ) { ( self::$on_lock )(); self::$on_lock = null; }
+        return true;
+    }
+    public function unlock( $key ) { self::$locked = false; }
+}
+class Nova_Bridge_Suite_Posting_Settings {
+    public const OPTION = 'nova_bridge_posting_connection';
+    public static function connection() { return get_option( self::OPTION, [] ); }
+}
 function wp_safe_remote_request( $url, $args ) { $GLOBALS['calls'][] = [ $url, $args ]; if ( ! $GLOBALS['responses'] ) { throw new RuntimeException( 'Unexpected HTTP request.' ); } return array_shift( $GLOBALS['responses'] ); }
 function wp_remote_retrieve_body( $value ) { return $value['body']; }
 function wp_remote_retrieve_response_code( $value ) { return $value['response']['code']; }
@@ -51,4 +68,37 @@ client_check( is_wp_error($client->request('GET','/v1/sites/00000000-0000-4000-8
 client_check( is_wp_error($client->site_request('GET',$suffix,null,['Authorization'=>'replacement'])) && count($calls) === $before, 'Caller cannot replace auth header.' );
 client_check( is_wp_error($client->site_request_bytes('POST',$suffix.'/events','[]')) && count($calls) === $before, 'Event wire body must be an object.' );
 $responses[] = client_response( 200, str_repeat('x',1048577) ); client_check( 'nova_posting_response_size' === $client->site_request('GET',$suffix)->get_error_code(), 'Oversized response fails closed without truncation acceptance.' );
+$connection = $fixture['connection']; $site = $connection['site_id'];
+$index = 'nova_shared_layout_index_' . hash( 'sha256', $connection['base_url'] . "\n" . $site );
+$responses[] = client_response( 201, '{}' );
+client_check( 201 === $client->site_request( 'POST', '/templates', [] )['status'] && ! Nova_Bridge_Suite_Posting_Jobs::$locked, 'A primary can still publish a template.' );
+$locked_client = new Nova_Bridge_Suite_Posting_Client( $connection + [ 'receive_shared_layouts' => true ] );
+foreach ( [ 'checkbox', 'first import', 'damaged index' ] as $mode ) {
+    $role_options = 'checkbox' === $mode ? [] : [ $index => ( 'first import' === $mode ? [ 'selected revision' ] : 'damaged' ) ];
+    $actor = 'checkbox' === $mode ? $locked_client : $client;
+    $before = count( $calls );
+    foreach ( [ 'POST', 'PUT', 'DELETE' ] as $method ) {
+        foreach ( [ '/templates', '/templates/' . $fixture['snapshot']['id'], '/template-defaults', '/pages/123/setting', '/%74emplates?flag=1' ] as $route ) {
+            client_check( 'nova_shared_layout_subscriber' === $actor->site_request( $method, $route )->get_error_code(), 'The subscriber blocks ' . $method . ' ' . $route . ' via ' . $mode );
+        }
+    }
+    client_check( 'nova_shared_layout_subscriber' === $actor->site_request_bytes( 'POST', '/templates', '{}' )->get_error_code() && 'nova_shared_layout_subscriber' === $actor->request( 'POST', '/v1/sites/' . $site . '/templates' )->get_error_code() && count( $calls ) === $before, 'No helper sends configuration HTTP from a subscriber.' );
+    foreach ( [ '/templates', '/template-defaults', '/pages/123/setting', '/deliveries', $suffix ] as $read ) {
+        $responses[] = client_response( 200, '{}' ); client_check( 200 === $actor->site_request( 'GET', $read )['status'], 'Subscriber reads ' . $read );
+    }
+    $responses[] = client_response( 202, '{}' );
+    client_check( 202 === $actor->site_request_bytes( 'POST', $suffix . '/events', $bytes )['status'] && $bytes === end( $calls )[1]['body'], 'Subscriber receipts keep their exact durable wire bytes.' );
+}
+$role_options = []; $before = count( $calls );
+Nova_Bridge_Suite_Posting_Jobs::$on_lock = static function () use ( $index ) { $GLOBALS['role_options'][$index] = [ 'activated by another request' ]; };
+client_check( 'nova_shared_layout_subscriber' === $client->site_request( 'PUT', '/template-defaults', [] )->get_error_code() && count( $calls ) === $before && ! Nova_Bridge_Suite_Posting_Jobs::$locked, 'Role is rechecked after acquiring the lock shared with import.' );
+$role_options = [ Nova_Bridge_Suite_Posting_Settings::OPTION => $connection + [ 'receive_shared_layouts' => true ] ];
+client_check( 'nova_shared_layout_subscriber' === $client->site_request( 'POST', '/templates' )->get_error_code() && count( $calls ) === $before, 'A stale client respects newly saved receive-only settings.' );
+$role_options[$index] = [ 'active' ];
+$canonical_client = new Nova_Bridge_Suite_Posting_Client( array_replace( $connection, [ 'base_url' => $connection['base_url'] . ':443/' ] ) );
+client_check( 'nova_shared_layout_subscriber' === $canonical_client->site_request( 'POST', '/templates' )->get_error_code(), 'An explicit default HTTPS port cannot change the subscriber role.' );
+foreach ( [ [ 'base_url' => 'https://other.fixture.invalid' ], [ 'site_id' => '00000000-0000-4000-8000-000000000444' ] ] as $other ) {
+    $other_client = new Nova_Bridge_Suite_Posting_Client( array_replace( $connection, $other ) );
+    $responses[] = client_response( 201, '{}' ); client_check( 201 === $other_client->site_request( 'POST', '/templates' )['status'], 'The subscriber role belongs to this exact origin and NOVA site.' );
+}
 echo "PASS {$checks} posting client checks\n";

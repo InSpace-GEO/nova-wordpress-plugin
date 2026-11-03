@@ -30,6 +30,9 @@ final class Nova_Bridge_Suite_Endpoint_Mappings_Admin {
     public static function render(): void {
         if ( ! current_user_can( 'manage_options' ) ) { return; }
         echo '<section id="nova-endpoint-mappings-app" class="nem"><p role="status">Loading all content destinations…</p></section>';
+        echo '<details id="nova-shared-layouts" class="card" style="max-width: 64rem"><summary><strong>Share layouts between installations</strong></summary>';
+        echo '<p>For WordPress installations connected to the same NOVA site. Export approved layouts here, then import the file on each installation that will publish with them.</p>';
+        echo '<div data-shared-layouts-panel></div></details>';
         echo '<noscript><p>Enable JavaScript to configure default templates and inspect existing content.</p></noscript>';
     }
 }

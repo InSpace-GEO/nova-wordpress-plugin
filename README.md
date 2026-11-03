@@ -22,6 +22,18 @@ Under **Layouts**, choose an example, map its fields and save directly from **Co
 
 In **2. Choose a design**, open **Reference item** to browse or type to filter the list. Use **Use an item ID** for an example outside the list. Selecting the same example for the same WordPress destination resumes the mapping. To rebuild it from a changed example, choose **Capture a fresh layout** in step 2. In Elementor, **Page layout and template settings** starts with recognized design settings selected for a new layout. **Select all** and **Deselect all** change them together. Saved layouts retain their previous choices. Unrelated registered metadata is available separately and is opt-in.
 
+## Share a layout across WordPress installations
+
+On the installation where you manage the layout, save the mapping and confirm the posting-service default for its NOVA page type. In **Layouts → Share layouts between installations**, select the revisions and click **Export selected layouts**. Include older revisions if deliveries were already prepared against them.
+
+On each receiving installation, enter the same NOVA site ID, posting-service address and access token. Choose its local publishing user. Before the first connection save, select **Multi-site WordPress → Only receive shared layouts on this installation** to prevent automatic template uploads during setup. Then open **Layouts → Share layouts between installations**, select the file and click **Import layouts**.
+
+A successful import makes this installation receive-only for that NOVA connection, even if the box was left unchecked. Edit shared mappings on the installation that exports them. Receiving installations can publish deliveries, return receipts and import future revisions. The file takes precedence locally for its template IDs and revision numbers. The destination cards show the imported revisions available to the writer. You can import a newer revision while queued work still targets an older one.
+
+The importer checks site-specific references. For a supported image control, it uses the source file’s contents and media type to verify the local attachment. If the correct file is missing or ambiguous, the prompt identifies it and accepts the ID of an equivalent local attachment. Upload the original file to the receiving Media Library if necessary, then retry the same file. Linked objects that the importer cannot verify are identified before any revision in that file is enabled.
+
+This transfer is for user-authored fixed layouts on WordPress post types. The template must be present in the delivery’s publishing configuration. WordPress’s optional local rendering rules for deliveries without a selected template are a separate feature.
+
 ## Supported paths
 
 - Fixed-layout delivery for WordPress content, Gutenberg, Elementor, Flatsome and Enfold. The corresponding builder/theme must be available on the site.

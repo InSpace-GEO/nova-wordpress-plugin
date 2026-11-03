@@ -42,7 +42,7 @@
 	function customerResources( resources ) { return resources.filter( function ( resource ) { return ! resource.system_managed; } ); }
 	function coverage( resources ) {
 		var visible = customerResources( resources ), available = visible.filter( function ( resource ) { return ! comingSoon( resource ); } );
-		var manual = available.filter( function ( resource ) { return resource.require_creation_default !== false && resource.creation_supported === true; } ), saved = manual.filter( function ( resource ) { return !! resource.default_mapping; } );
+		var manual = available.filter( function ( resource ) { return resource.require_creation_default !== false && resource.creation_supported === true; } ), saved = manual.filter( function ( resource ) { return !! resource.default_mapping || !! ( resource.shared_layouts || [] ).length; } );
 		var unavailable = available.filter( function ( resource ) { return resource.require_creation_default !== false && resource.creation_supported !== true; } ).length;
 		return { total: visible.length, supported: manual.length, saved: saved.length, missing: manual.length - saved.length, managed: 0, coming_soon: visible.length - available.length, unavailable: unavailable, complete: manual.length > 0 && manual.length === saved.length };
 	}
@@ -115,13 +115,13 @@
 		function previewCurrent() { try { return !! state.preview && state.previewKey === JSON.stringify( sourcePayload( state ) ); } catch ( error ) { return false; } }
 		async function loadCatalog( initial ) {
 			var turn = ++catalogEpoch;
-			try { var values = catalog( await request( base, '/endpoints', config.nonce ) ); if ( disposed || turn !== catalogEpoch ) { return; } state.resources = values; }
+			try { var response = await request( base, '/endpoints', config.nonce ), values = catalog( response ); if ( disposed || turn !== catalogEpoch ) { return; } state.resources = values; state.receiveOnly = response.receive_only === true; }
 			catch ( error ) { if ( ! disposed && turn === catalogEpoch ) { note( error.message, true ); } }
 			finally { if ( ! disposed && turn === catalogEpoch ) { state.loading = false; render(); } }
 		}
 		async function open( resourceId, mode ) {
 			var chosen = state.resources.find( function ( item ) { return item.id === resourceId; } );
-			if ( ! chosen || comingSoon( chosen ) || chosen.system_managed || ! [ 'creation', 'inspect' ].includes( mode ) || state.busy || ! canLeave() ) { return; }
+			if ( ! chosen || comingSoon( chosen ) || chosen.system_managed || ! [ 'creation', 'inspect' ].includes( mode ) || (state.receiveOnly && mode === 'creation') || state.busy || ! canLeave() ) { return; }
 			var turn = ++epoch; Object.assign( state, { resourceId: resourceId, mode: mode, step: 1, busy: mode === 'creation', reference: referenceKey( referenceType( chosen ), 0 ), source: null, preview: null, previewKey: '', selected: [], selectionInitialized: false, needsSourceRefresh: false, descriptions: {}, label: chosen.label + ' default', instructions: '', revision: 0, dirty: false, done: false, notice: '', error: false, inspectPath: '', descriptionPath: '' } ); render();
 			if ( mode !== 'creation' ) { return; }
 			try {
@@ -232,6 +232,7 @@
 		function render() {
 			if ( disposed ) { return; } host.replaceChildren(); host.setAttribute( 'aria-busy', String( state.busy || state.loading ) );
 			var header = el( 'header', 'nem-head' + ( state.mode ? ' nem-head-focused' : '' ) ), introduction = el( 'p', '', 'Save a default for Pages, Posts, categories and supported custom content. Inspect existing items to review their current content and layout.' ); introduction.hidden = !! state.mode; header.append( el( 'h2', '', state.mode ? 'Content destination setup' : 'Set up every content destination' ), introduction, el( 'p', 'nem-help', 'This prepares templates locally in WordPress. It does not change source items or start publication.' ) ); host.appendChild( header );
+			if ( state.receiveOnly ) { introduction.textContent = 'This installation receives shared layouts. Edit mappings on the installation that exports them, then import the updated file here.'; }
 			if ( state.notice ) { var feedback = el( 'p', 'nem-feedback' + ( state.error ? ' error' : '' ), state.notice ); feedback.setAttribute( 'role', state.error ? 'alert' : 'status' ); host.appendChild( feedback ); }
 			if ( state.loading ) { host.appendChild( el( 'p', '', 'Loading all content destinations…' ) ); return; }
 			var resources = customerResources( state.resources ), summary = coverage( resources ), line = el( 'div', 'nem-summary' ); line.append( el( 'span', 'nem-badge ' + ( summary.complete ? 'saved' : 'pending' ), summary.supported ? summary.saved + ' of ' + summary.supported + ' client defaults set up' : 'No client defaults to set up' ), button( 'Refresh destinations', function () { if ( ! state.busy ) { loadCatalog( false ); } } ) ); if ( summary.unavailable ) { line.appendChild( el( 'span', 'nem-badge blocked', summary.unavailable + ' destinations need capability review' ) ); } host.appendChild( line );
@@ -239,8 +240,17 @@
 			resources.forEach( function ( item ) {
 				var card = el( 'article', 'nem-resource' ), actions = el( 'div', 'nem-actions' ); card.dataset.resourceId = item.id; card.appendChild( el( 'h3', 'nem-card-title', item.label ) );
 				if ( comingSoon( item ) ) { card.appendChild( el( 'span', 'nem-badge nem-card-status', 'Coming soon' ) ); grid.appendChild( card ); return; }
-				card.appendChild( el( 'span', 'nem-badge nem-card-status ' + ( item.default_mapping ? 'saved' : item.creation_supported ? 'pending' : 'blocked' ), item.default_mapping ? 'Default saved · revision ' + item.default_mapping.revision : item.creation_supported ? 'Default needed for new content' : 'Creation needs review' ) );
-				var setup = button( item.default_mapping ? 'Edit creation default' : 'Configure creation default', function () { if ( config.recipesUrl ) { var url = new URL( config.recipesUrl, window.location.href ); url.searchParams.set( 'resource_id', item.id ); if ( item.recipe_default ) { url.searchParams.set( 'recipe_id', item.recipe_default.id ); } window.location.assign( url.href ); } else { open( item.id, 'creation' ); } }, true ); setup.dataset.action = 'creation'; setup.disabled = state.busy || item.creation_supported !== true; actions.appendChild( setup );
+				var imports = item.shared_layouts || [];
+				if ( imports.length ) {
+					card.appendChild( el( 'span', 'nem-badge nem-card-status saved', 'Shared layouts ready' ) );
+					var revisions = el( 'details', 'nem-help' );
+					revisions.appendChild( el( 'summary', '', 'Imported publishing revisions (' + imports.length + ')' ) );
+					imports.forEach( function ( row ) { revisions.appendChild( el( 'p', '', row.label + ' · ' + row.page_type + ' · revision ' + row.revision ) ); } );
+					card.appendChild( revisions );
+				} else {
+					card.appendChild( el( 'span', 'nem-badge nem-card-status ' + ( item.default_mapping ? 'saved' : item.creation_supported ? 'pending' : 'blocked' ), item.default_mapping ? 'Default saved · revision ' + item.default_mapping.revision : state.receiveOnly ? 'Import a shared layout for this destination' : item.creation_supported ? 'Default needed for new content' : 'Creation needs review' ) );
+				}
+				var setup = button( item.default_mapping ? 'Edit creation default' : 'Configure creation default', function () { if ( config.recipesUrl ) { var url = new URL( config.recipesUrl, window.location.href ); url.searchParams.set( 'resource_id', item.id ); if ( item.recipe_default ) { url.searchParams.set( 'recipe_id', item.recipe_default.id ); } window.location.assign( url.href ); } else { open( item.id, 'creation' ); } }, true ); setup.dataset.action = 'creation'; setup.disabled = state.busy || item.creation_supported !== true; if ( !state.receiveOnly ) { actions.appendChild( setup ); }
 				var inspect = button( 'Inspect existing content', function () { open( item.id, 'inspect' ); } ); inspect.dataset.action = 'inspect'; inspect.disabled = state.busy || item.can_inspect_existing === false || ! item.targets.length; actions.appendChild( inspect );
 				var description = el( 'div', 'nem-card-description' ); recipePostingSummary( item ).forEach( function ( text ) { description.appendChild( el( 'p', 'nem-help nem-posting-summary', text ) ); } ); description.appendChild( el( 'p', 'nem-help', 'Inspect existing content to read its current native document.' ) );
 				if ( ( item.creation_supported === false || item.can_inspect_existing === false ) && item.reasons && item.reasons.length ) { warnings( description, item.reasons ); }
@@ -248,8 +258,10 @@
 				if ( item.endpoint || item.route ) { card.appendChild( el( 'code', 'nem-endpoint-address', item.endpoint || item.route ) ); } grid.appendChild( card );
 			} ); host.appendChild( grid ); if ( ! resources.length ) { host.appendChild( el( 'p', '', 'No supported editable content destinations were discovered.' ) ); } renderWorkspace( host );
 		}
+		function sharedChanged() { if ( !state.busy && !state.mode ) { loadCatalog( false ); } }
+		host.addEventListener( 'nova-shared-layouts-changed', sharedChanged );
 		render(); var ready = loadCatalog( true );
-		return { ready: ready, open: open, close: close, goStep: goStep, getState: function () { return copy( state ); }, destroy: function () { disposed = true; ++epoch; host.replaceChildren(); } };
+		return { ready: ready, open: open, close: close, goStep: goStep, getState: function () { return copy( state ); }, destroy: function () { disposed = true; ++epoch; host.removeEventListener( 'nova-shared-layouts-changed', sharedChanged ); host.replaceChildren(); } };
 	}
 	return { mount: mount, catalog: catalog, coverage: coverage, parseReference: parseReference, readResult: readResult, defaultSelection: defaultSelection, sourcePayload: sourcePayload, savePayload: savePayload, previewResult: previewResult, savedResult: savedResult, safePreview: safePreview, request: request };
 } ) );

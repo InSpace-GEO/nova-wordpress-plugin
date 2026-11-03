@@ -1,6 +1,7 @@
 <?php
 /** Site-scoped posting-service HTTP transport. Credentials never leave this boundary. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
 
 class Nova_Bridge_Suite_Posting_Client {
     private $connection;
@@ -10,6 +11,7 @@ class Nova_Bridge_Suite_Posting_Client {
     public function __construct( array $connection ) { $this->connection = $connection; }
 
     public function site_id(): string { return (string) ( $this->connection['site_id'] ?? '' ); }
+    public function receives_layouts(): bool { return Nova_Bridge_Suite_Shared_Layouts::is_subscriber( $this->connection ); }
 
     public function connection_error() {
         $url = $this->connection['base_url'] ?? '';
@@ -59,8 +61,14 @@ class Nova_Bridge_Suite_Posting_Client {
             if ( $exact_bytes && ! json_decode( $json ) instanceof stdClass ) { return self::error( 'request', 'The durable event must be a JSON object.', 400 ); }
             $args['headers']['Content-Type'] = 'application/json'; $args['body'] = $json;
         }
-        $response = wp_safe_remote_request( rtrim( $this->connection['base_url'], '/' ) . $path, $args );
-        if ( is_wp_error( $response ) ) { return self::error( 'transport', 'The posting service could not be reached. Retry using the same operation identity.', 502 ); }
+        $send = function () use ( $path, $args ) {
+            $response = wp_safe_remote_request( rtrim( $this->connection['base_url'], '/' ) . $path, $args );
+            return is_wp_error( $response ) ? self::error( 'transport', 'The posting service could not be reached. Retry using the same operation identity.', 502 ) : $response;
+        };
+        // Connector events are the sole delivery write. Future configuration endpoints inherit the same protection.
+        $event = 'POST' === $method && preg_match( '#^/v1/sites/[^/]+/deliveries/([^/]+)/events$#D', $path, $match ) && self::uuid( $match[1] );
+        $response = 'GET' === $method || $event ? $send() : Nova_Bridge_Suite_Shared_Layouts::publish_configuration( $this->connection, $send );
+        if ( is_wp_error( $response ) ) { return $response; }
         $status = (int) wp_remote_retrieve_response_code( $response );
         $raw = (string) wp_remote_retrieve_body( $response );
         $metadata = [ 'retry_after' => self::safe_header( wp_remote_retrieve_header( $response, 'retry-after' ) ), 'request_id' => self::safe_header( wp_remote_retrieve_header( $response, 'x-request-id' ) ) ];

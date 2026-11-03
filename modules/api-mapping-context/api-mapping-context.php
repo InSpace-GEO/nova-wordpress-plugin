@@ -40,6 +40,8 @@ add_action( 'init', [ 'Nova_Bridge_Suite_Flatsome_Document', 'register_nested_al
 Nova_Bridge_Suite_Recipe_ACF::register();
 Nova_Bridge_Suite_Recipe_Core::register();
 Nova_Bridge_Suite_Layout_Recipes::bootstrap();
+require_once __DIR__ . '/includes/class-nova-bridge-suite-shared-layouts-admin.php';
+Nova_Bridge_Suite_Shared_Layouts_Admin::bootstrap();
 Nova_Bridge_Suite_Layout_Recipes_Admin::bootstrap();
 Nova_Bridge_Suite_Term_Content::bootstrap();
 // Publishing is part of mapping: load all collaborators before registering hooks.

@@ -37,6 +37,10 @@ final class Nova_Bridge_Suite_Posting_Worker {
 
     /** An explicit unmapped-site opt-in is a separate route, never failed remote-map fallback. */
     public static function configuration_for_snapshot( array $snapshot, string $site_id ) {
+        if ( is_callable( [ 'Nova_Bridge_Suite_Mapping_Sync', 'imported_configuration' ] ) ) {
+            $imported = Nova_Bridge_Suite_Mapping_Sync::imported_configuration( $snapshot, $site_id );
+            if ( null !== $imported ) { return $imported; }
+        }
         if ( class_exists( 'Nova_Bridge_Suite_Owned_CPT_Sync' ) ) {
             $owned = Nova_Bridge_Suite_Owned_CPT_Sync::configuration_for_snapshot( $snapshot, $site_id );
             if ( null !== $owned ) { return $owned; }
@@ -52,6 +56,8 @@ final class Nova_Bridge_Suite_Posting_Worker {
     }
 
     public static function frozen_policy( $client, array $snapshot, array $configuration ) {
+        // configuration_for_snapshot already validated this revision. Keep that choice if an admin imports a replacement during policy selection.
+        if ( ( $configuration['mode'] ?? '' ) === 'stored_layout_v3' ) { return Nova_Bridge_Suite_Stored_Layout_Writer::policy( $snapshot, $configuration ); }
         if ( ( $configuration['mode'] ?? '' ) === 'owned_cpt_v3' ) { return Nova_Bridge_Suite_Owned_CPT_Writer::policy( $snapshot, $configuration ); }
         if ( ( $configuration['mode'] ?? '' ) === 'static_recipe_v1' ) { return Nova_Bridge_Suite_Static_Recipe_Adapter::policy( $snapshot, $configuration ); }
         if ( ( $configuration['mode'] ?? '' ) === 'local_rules' ) { return Nova_Bridge_Suite_Rule_Writer::policy( $snapshot, $configuration ); }
@@ -351,10 +357,11 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 // Once selected, a local rule revision belongs to this job. A later binding edit
                 // cannot reinterpret a retained delivery after a crash or a delayed draft publish.
                 $retained_local = ( $job['payload']['configuration']['mode'] ?? '' ) === 'local_rules';
+                $retained_layout = ( $job['payload']['configuration']['mode'] ?? '' ) === 'stored_layout_v3' && isset( $job['payload']['selected_policy'], $job['payload']['context'] );
                 // A fresh authenticated attempt can clear a previously selected writer before planning.
                 $retained_writer = $job['payload']['native_writer'] ?? '';
                 $retained_translation = 'dictionary_translation' === $retained_writer;
-                $configuration = $retained_local || $retained_translation ? $job['payload']['configuration'] : call_user_func( $this->configuration, $snapshot, $job['site_id'] );
+                $configuration = $retained_local || $retained_translation || $retained_layout ? $job['payload']['configuration'] : call_user_func( $this->configuration, $snapshot, $job['site_id'] );
                 if ( is_wp_error( $configuration ) ) { return $this->native_failure( $job, $snapshot, $configuration->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
                 $native_snapshot = Nova_Bridge_Suite_Posting_Protocol::writer_snapshot( $snapshot, $configuration );
                 if ( is_wp_error( $native_snapshot ) ) { return $this->native_failure( $job, $snapshot, $native_snapshot->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
@@ -385,7 +392,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( 'dictionary_translation' === $writer_name ) {
                     $selected = Nova_Bridge_Suite_Translation_Writer::policy( $snapshot, $configuration );
                 } else {
-                    $selected = $retained_local && isset( $job['payload']['selected_policy'] ) ? $job['payload']['selected_policy'] : call_user_func( $this->policy, $this->client, $snapshot, $configuration );
+                    $selected = ( $retained_local || $retained_layout ) && isset( $job['payload']['selected_policy'] ) ? $job['payload']['selected_policy'] : call_user_func( $this->policy, $this->client, $snapshot, $configuration );
                 }
                 if ( is_wp_error( $selected ) && 'nova_translation_source_pending' === $selected->get_error_code() ) { return $this->retry( $job, $selected->get_error_code() ); }
                 if ( is_wp_error( $selected ) ) { return $this->native_failure( $job, $snapshot, $selected->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }

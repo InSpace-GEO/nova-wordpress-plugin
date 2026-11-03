@@ -13,6 +13,11 @@ function wp_enqueue_style( $handle, $url, $dependencies, $version ) { global $st
 function wp_enqueue_script( $handle, $url, $dependencies, $version, $footer ) { global $scripts; check( str_starts_with( $version, NOVA_BRIDGE_SUITE_VERSION . '-' ), 'The layout script cache key must change across releases even for identical ZIP file times' ); $scripts[$handle] = $url; }
 function wp_localize_script( $handle, $name, $value ) { global $localized; $localized[$name] = $value; }
 function esc_url_raw( $value ) { return $value; }
+function esc_url( $url ) { return htmlspecialchars( $url, ENT_QUOTES ); }
+final class Nova_Bridge_Suite_Layout_Recipes {
+    public static $receiver = false;
+    public static function receives_shared_layouts() { return self::$receiver; }
+}
 function rest_url( $path ) { return 'https://site.example/wp-json/' . $path; }
 function wp_create_nonce( $action ) { return 'fixture-rest-nonce'; }
 function admin_url( $path ) { return 'https://site.example/wp-admin/' . $path; }
@@ -26,6 +31,10 @@ check( $tabs['layout-recipes']['nav_parent'] === 'layouts' && is_callable( $tabs
 ob_start(); Nova_Bridge_Suite_Layout_Recipes_Admin::render(); $html = ob_get_clean();
 check( strpos( $html, 'id="nova-layout-recipes-app"' ) !== false && strpos( $html, 'class="nlr"' ) !== false, 'The recipe mount is absent' );
 check( strpos( $html, 'nova-publishing-app' ) === false, 'The recipe shell duplicates shared layout padding' );
+Nova_Bridge_Suite_Layout_Recipes::$receiver = true;
+ob_start(); Nova_Bridge_Suite_Layout_Recipes_Admin::render(); $receiver = ob_get_clean();
+check( ! str_contains( $receiver, 'nova-layout-recipes-app' ) && str_contains( $receiver, 'Import shared layouts' ), 'A direct recipe-editor link on a receiver takes the administrator to import.' );
+Nova_Bridge_Suite_Layout_Recipes::$receiver = false;
 $_GET = []; Nova_Bridge_Suite_Layout_Recipes_Admin::assets( 'settings_page_nova-settings' );
 check( isset( $scripts['nova-layout-recipes'], $styles['nova-layout-recipes'] ), 'The default settings route lacks host-guarded assets' );
 check( $localized['NovaLayoutRecipes']['url'] === 'https://site.example/wp-json/nova-bridge/v1/mapping/layout-recipes' && $localized['NovaLayoutRecipes']['nonce'] === 'fixture-rest-nonce', 'The UI is not scoped to local authenticated recipe APIs' );

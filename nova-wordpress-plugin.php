@@ -3,7 +3,7 @@
  * Plugin Name: NOVA WordPress Plugin
  * Plugin URI: https://github.com/InSpace-GEO/nova-wordpress-plugin
  * Description: Map NOVA content to native WordPress layouts and receive publishing deliveries.
- * Version: 1.0.7
+ * Version: 1.1.0
  * Author: LUNA B.V.
  * Requires at least: 6.9
  * Requires PHP: 8.0
@@ -38,7 +38,7 @@ function nova_wordpress_boot(): void {
     if ( ! defined( 'NOVA_BRIDGE_SUITE_PLUGIN_FILE' ) ) {
         define( 'NOVA_BRIDGE_SUITE_PLUGIN_FILE', __FILE__ );
         define( 'NOVA_BRIDGE_SUITE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
-        define( 'NOVA_BRIDGE_SUITE_VERSION', '1.0.7' );
+        define( 'NOVA_BRIDGE_SUITE_VERSION', '1.1.0' );
         define( 'NOVA_BRIDGE_SUITE_OPTION', 'nova_wordpress_plugin_modules' );
         define( 'NOVA_BRIDGE_SUITE_VERSION_OPTION', 'nova_wordpress_plugin_version' );
     }

@@ -3,6 +3,7 @@
 require_once __DIR__ . '/mapping-sync-unit.php';
 $checks = 0;
 class Nova_Bridge_Suite_Posting_Settings { public static $value = []; public static function connection() { return self::$value; } }
+class Nova_Bridge_Suite_Posting_Jobs { public function lock( $key ) { return true; } public function unlock( $key ) {} }
 class Nova_Bridge_Suite_Mapping_Drafts { public static function can_admin() { return true; } }
 class Nova_Bridge_Suite_Strategy {
     public static $inventory = [];
@@ -70,6 +71,13 @@ queue_http( [
 ] );
 $defaults = Nova_Bridge_Suite_Mapping_Sync::template_default_response( new SetupRequest( 'POST', $default_params ) );
 check( $defaults->data['server_revision'] === 5, 'Server acknowledges the new defaults revision.' );
+Nova_Bridge_Suite_Posting_Settings::$value['receive_shared_layouts'] = true;
+$before = count( $http_calls );
+foreach ( [ 'template_default_response', 'url_binding_response' ] as $callback ) {
+    $denied = Nova_Bridge_Suite_Mapping_Sync::$callback( new SetupRequest( 'POST', $default_params ) );
+    check( 'nova_shared_layout_subscriber' === $denied->get_error_code() && count( $http_calls ) === $before, 'A receiving site rejects explicit REST defaults and URL binding writes before network access.' );
+}
+unset( Nova_Bridge_Suite_Posting_Settings::$value['receive_shared_layouts'] );
 queue_http( [ [ 'GET', '/template-defaults', 200, [ 'defaults' => (object) [], 'revision' => 1 ] ] ] );
 $empty = Nova_Bridge_Suite_Mapping_Sync::template_default_response( new SetupRequest( 'GET', $params + [ 'source_page_type' => 'service' ] ) );
 check( $empty instanceof SetupResponse && $empty->data['template_default']['defaults'] === [], 'Actual wire empty defaults object validates without confusing it with a JSON list.' );

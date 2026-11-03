@@ -6,10 +6,12 @@ function sanitize_text_field( $value ) { return trim( strip_tags( $value ) ); }
 function wp_kses_post( $value ) { return $value; }
 function wp_strip_all_tags( $value ) { return strip_tags( $value ); }
 function get_post( $id ) {
+    if ( isset( $GLOBALS['shared_test_media'] ) ) { return isset( $GLOBALS['shared_test_media'][$id] ) ? (object) [ 'ID' => $id, 'post_type' => 'attachment', 'post_status' => 'inherit', 'post_name' => 'station-photo', 'post_mime_type' => 'image/png', 'post_password' => '' ] : null; }
     if ( 4121 !== $id ) { throw new RuntimeException( 'The example page is deleted; synchronization must use the stored layout.' ); }
     return $GLOBALS['loop_item'] ?? null;
 }
 function get_post_meta( $id, $key, $single ) {
+    if ( isset( $GLOBALS['shared_test_media'] ) ) { return isset( $GLOBALS['shared_test_media'][$id] ) && '_wp_attached_file' === $key ? '2026/11/station-photo.png' : ''; }
     if ( 4121 !== $id || '_elementor_template_type' !== $key ) { throw new RuntimeException( 'Unexpected native metadata lookup.' ); }
     return 'loop-item';
 }
@@ -18,12 +20,14 @@ require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layo
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-recipe-sync.php';
 class Nova_Bridge_Suite_Layout_Recipes {
     public static $record;
-    public static function delivery_record( $id, $revision ) { return self::$record['id'] === $id && self::$record['revision'] === $revision ? self::$record : new WP_Error( 'missing', 'Unknown revision.' ); }
+    public static $history = [];
+    public static function saved_recipe_ids() { return array_unique( array_merge( [ self::$record['id'] ], array_keys( self::$history ) ) ); }
+    public static function delivery_record( $id, $revision ) { return self::$record['id'] === $id && self::$record['revision'] === $revision ? self::$record : ( self::$history[$id][$revision] ?? new WP_Error( 'missing', 'Unknown revision.' ) ); }
     public static function defaults() { return [ self::$record['resource_id'] => self::$record ]; }
 }
 class Nova_Bridge_Suite_Stored_Layout_Writer {
     public static $failure = null;
-    public static function probe_mapping( $template, $mapping, $draft, $context ) { check( $context['actor_user_id'] === 7, 'Configured delivery actor is supplied for approval.' ); return self::$failure ?: Nova_Bridge_Suite_Stored_Layout::validate( $draft ); }
+    public static function probe_mapping( $template, $mapping, $draft, $context ) { check( $context['actor_user_id'] === 7, 'Configured delivery actor is supplied for approval.' ); return is_callable( self::$failure ) ? ( self::$failure )( $draft ) : ( self::$failure ?: Nova_Bridge_Suite_Stored_Layout::validate( $draft ) ); }
 }
 class Stored_Sync_Lock { public function lock( $name ) { return true; } public function unlock( $name ) {} }
 function stored_ok( $value ) { check( ! is_wp_error( $value ), is_wp_error( $value ) ? $value->get_error_code() . ': ' . $value->get_error_message() : 'Success' ); return $value; }

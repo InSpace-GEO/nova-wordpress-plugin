@@ -1,6 +1,7 @@
 <?php
 /** Publishing-template setup; native profiles and human instructions remain in WordPress. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
 
 final class Nova_Bridge_Suite_Mapping_Sync {
     public const CONTRACT = 'nova-publishing-profile/v1';
@@ -26,10 +27,11 @@ final class Nova_Bridge_Suite_Mapping_Sync {
     private static function json( $value ): string { return Nova_Bridge_Suite_Writing_Adapter::canonical_json( $value ); }
     private static function key( string $site, string $type, int $id ): string { return 'nova_mapping_sync_' . hash( 'sha256', $site . ':' . $type . ':' . $id ); }
     private static function profile_key( string $site, string $id, int $revision ): string { return 'nova_publishing_profile_' . hash( 'sha256', $site . ':' . $id . ':' . $revision ); }
+    public static function authored_profile( string $site, string $id, int $revision ) { return get_option( self::profile_key( $site, $id, $revision ), null ); }
     public static function state( string $type, int $id, string $site ): ?array { $state = get_option( self::key( $site, $type, $id ), null ); return is_array( $state ) ? $state : null; }
     public static function scope_state( string $site, string $scope ): ?array { $state = get_option( 'nova_mapping_sync_' . hash( 'sha256', $site . ':' . $scope ), null ); return is_array( $state ) ? $state : null; }
     // WordPress can return a cached boolean or the scalar string persisted in wp_options.
-    public static function destination_enabled( string $site ): bool { return in_array( get_option( 'nova_posting_v3_' . hash( 'sha256', $site ), false ), [ true, 1, '1' ], true ); }
+    public static function destination_enabled( string $site ): bool { return in_array( get_option( 'nova_posting_v3_' . hash( 'sha256', $site ), false ), [ true, 1, '1' ], true ) || Nova_Bridge_Suite_Shared_Layouts::has_imports( self::connection(), $site ); }
     private static function response( array $data ) { $response = rest_ensure_response( $data ); $response->header( 'Cache-Control', 'private, no-store' ); return $response; }
     private static function permission( $request ) {
         $permission = Nova_Bridge_Suite_Mapping_Drafts::can_admin(); if ( is_wp_error( $permission ) ) { return $permission; }
@@ -100,6 +102,7 @@ final class Nova_Bridge_Suite_Mapping_Sync {
 
     /** POST has no backend idempotency key: an unknown create is never blindly replayed. */
     public function synchronize( array $draft, string $recover_template_id = '' ) {
+        if ( $this->client->receives_layouts() ) { return Nova_Bridge_Suite_Shared_Layouts::subscriber_error(); }
         $input = Nova_Bridge_Suite_Writing_Adapter::template_input( $draft ); if ( is_wp_error( $input ) ) { return $input; }
         $locked = $this->acquire( $draft ); if ( is_wp_error( $locked ) ) { return $locked; }
         try {
@@ -166,6 +169,8 @@ final class Nova_Bridge_Suite_Mapping_Sync {
             $profile = [ 'contract' => self::CONTRACT, 'site_id' => $this->client->site_id(), 'template' => self::frozen_remote( $record ), 'remote' => self::frozen_remote( $record ), 'local' => $draft, 'profile_digest' => hash( 'sha256', self::json( $draft ) ) ];
             if ( $creation ) { $profile['mode'] = 'stored_layout_v3'; }
             $key = self::profile_key( $profile['site_id'], $record['id'], $record['revision'] );
+            $imported = Nova_Bridge_Suite_Shared_Layouts::installed_profile( self::connection(), $profile['site_id'], $record['id'], $record['revision'] );
+            if ( is_wp_error( $imported ) || ( null !== $imported && self::json( $imported ) !== self::json( $profile ) ) ) { return self::error( 'profile_conflict', 'This revision already belongs to a different imported layout.' ); }
             if ( ! add_option( $key, $profile, '', false ) && self::json( get_option( $key, [] ) ) !== self::json( $profile ) ) { return self::error( 'profile_conflict', 'This remote revision already belongs to another local native profile. It cannot be reassigned.', 409 ); }
             if ( 3 === $record['definition']['version'] ) {
                 $enabled_key = 'nova_posting_v3_' . hash( 'sha256', $profile['site_id'] );
@@ -177,10 +182,22 @@ final class Nova_Bridge_Suite_Mapping_Sync {
         } finally { $this->release(); }
     }
 
+    /** Import is an explicit local override and must be checked before any older native writer. */
+    public static function imported_configuration( array $snapshot, string $site_id ) {
+        $remote = $snapshot['configuration'] ?? null;
+        if ( ( $snapshot['site_id'] ?? null ) !== $site_id || ! is_array( $remote ) || ! Nova_Bridge_Suite_Posting_Protocol::uuid( $remote['id'] ?? null ) || ! is_int( $remote['revision'] ?? null ) || $remote['revision'] < 1 ) { return null; }
+        $profile = Nova_Bridge_Suite_Shared_Layouts::installed_profile( self::connection(), $site_id, $remote['id'], $remote['revision'] );
+        return null === $profile || is_wp_error( $profile ) ? $profile : self::verify_profile( $remote, $site_id, $profile );
+    }
     public static function configuration_for_snapshot( array $snapshot, string $site_id ) {
+        $imported = self::imported_configuration( $snapshot, $site_id );
+        if ( null !== $imported ) { return $imported; }
         $remote = $snapshot['configuration'] ?? null;
         if ( ( $snapshot['site_id'] ?? null ) !== $site_id || ! is_array( $remote ) || ! Nova_Bridge_Suite_Posting_Protocol::uuid( $remote['id'] ?? null ) || ! is_int( $remote['revision'] ?? null ) || $remote['revision'] < 1 ) { return self::error( 'profile_missing', 'This delivery has no supported frozen publishing configuration.' ); }
-        $profile = get_option( self::profile_key( $site_id, $remote['id'], $remote['revision'] ), null );
+        $profile = self::authored_profile( $site_id, $remote['id'], $remote['revision'] );
+        return self::verify_profile( $remote, $site_id, $profile );
+    }
+    private static function verify_profile( array $remote, string $site_id, $profile ) {
         if ( ! is_array( $profile ) || self::CONTRACT !== ( $profile['contract'] ?? '' ) || ( $profile['site_id'] ?? null ) !== $site_id || ! Nova_Bridge_Suite_Posting_Protocol::configuration_matches( $remote, $profile['template'] ?? null ) || hash( 'sha256', self::json( $profile['local'] ?? null ) ) !== ( $profile['profile_digest'] ?? null ) ) { return self::error( 'profile_unapproved', 'The exact frozen publishing revision has no matching approved local native profile. No current or historical writing-pin fallback is allowed.' ); }
         $remote = $profile['template'];
         $input = Nova_Bridge_Suite_Writing_Adapter::template_input( $profile['local'], $remote['definition']['version'] ); if ( is_wp_error( $input ) ) { return $input; }
@@ -222,6 +239,7 @@ final class Nova_Bridge_Suite_Mapping_Sync {
         $permission = self::permission( $request ); if ( is_wp_error( $permission ) ) { return $permission; }
         $connection = self::connection(); if ( empty( $connection['enabled'] ) ) { return self::error( 'connection_disabled', 'Complete the NOVA connection details before setting up publishing templates.', 503 ); }
         $write = 'POST' === $request->get_method(); $input = $write ? $request->get_json_params() : $request->get_params();
+        if ( $write && Nova_Bridge_Suite_Shared_Layouts::is_subscriber( $connection ) ) { return Nova_Bridge_Suite_Shared_Layouts::subscriber_error(); }
         if ( ! is_array( $input ) || ! in_array( $input['reference_type'] ?? null, [ 'post', 'term' ], true ) || ! ctype_digit( (string) ( $input['reference_id'] ?? '' ) ) || (int) $input['reference_id'] < 1 ) { return self::error( 'reference', 'Supply the concrete WordPress reference.', 400 ); }
         if ( ! $defaults && ! Nova_Bridge_Suite_Posting_Client::id( $input['url_id'] ?? null ) ) { return self::error( 'url_id', 'Enter a trusted NOVA URL ID, not a WordPress post ID.', 400 ); }
         if ( $defaults && ! preg_match( '/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/D', $input['source_page_type'] ?? '' ) ) { return self::error( 'page_type', 'Enter the NOVA source page type for this default.', 400 ); }

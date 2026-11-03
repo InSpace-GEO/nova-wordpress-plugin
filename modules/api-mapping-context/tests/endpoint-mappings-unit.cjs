@@ -9,15 +9,33 @@ test('existing mappings retain complete values and exact target identity; previe
 test('default payload uses the native source marker, selects content leaves and excludes protected fields',()=>{const source=envelope(),state={resourceId:'post_type:page',reference:'post:17',source,selected:editor.defaultSelection(source.mapping),revision:0,label:' Default ',instructions:'Whole page',descriptions:{'/core/title':{purpose:'Hero heading',instructions:''}}};assert.deepEqual(state.selected,['/core/title','/core/content']);const payload=editor.savePayload(state);assert.equal(payload.source_document_version,nativeSha);assert.equal(payload.label,'Default');assert.equal(payload.expected_revision,0);assert(!('mapping' in payload));assert.deepEqual(payload.field_descriptions['/core/title'],{purpose:'Hero heading',instructions:''});state.selected.push('/core/status');assert.throws(()=>editor.savePayload(state));assert.deepEqual(editor.parseReference('term:0'),{reference_type:'term',reference_id:0});assert.throws(()=>editor.parseReference('post:-1'));});
 test('blank previews and save responses cannot falsely claim filled source data or an unconfirmed revision is saved',()=>{const state={resourceId:'post_type:page',reference:'post:17',source:envelope(),selected:['/core/content'],revision:0,label:'Default',instructions:'',descriptions:{}},payload=editor.savePayload(state),preview=blank(payload);assert.strictEqual(editor.previewResult(preview,payload,state.source.mapping),preview);assert.equal(preview.mapping.structure.core.content,'');assert.equal(preview.mapping.structure.core.template,'preserved-style.php');assert.equal(preview.mapping.fields['/core/content'].current_value,'');const bad=structuredClone(preview);bad.mapping.fields['/core/content'].current_value=longArticle;assert.throws(()=>editor.previewResult(bad,payload,state.source.mapping));const saved={...preview,saved:true,mapping_id:'mapping-id',revision:1};assert.strictEqual(editor.savedResult(saved,payload),saved);for(const override of [{saved:false},{revision:2},{reference_id:18},{selected_fields:[]},{mapping_id:null}])assert.throws(()=>editor.savedResult({...saved,...override},payload));assert.deepEqual(state.source,envelope(),'Preview never blanks the actual source object');});
 class Element{
+ removeEventListener(name,handler){if(this.events[name]===handler)delete this.events[name];}
  constructor(tag,owner){this.tag=tag;this.ownerDocument=owner;this.children=[];this.events={};this.attributes={};this.dataset={};this.value='';this.ownText='';this.classList={toggle(){}};}
  set textContent(value){this.ownText=String(value);this.children=[];}get textContent(){return this.ownText+' '+this.children.map(item=>item.textContent).join(' ');}
  appendChild(child){child.parentNode=this;this.children.push(child);return child;}append(...children){children.forEach(child=>this.appendChild(child));}
  replaceChildren(...children){this.children=[];this.ownText='';this.append(...children);}insertBefore(child,before){child.parentNode=this;this.children.splice(this.children.indexOf(before),0,child);}
  setAttribute(name,value){this.attributes[name]=value;}addEventListener(name,handler){this.events[name]=handler;}click(){return this.events.click?.({preventDefault(){}});}all(){return [this,...this.children.flatMap(item=>item.all())];}
 }
-async function fixture(resources){const document={createElement:tag=>new Element(tag,document)},host=new Element('div',document),calls=[],defaults=new Map(),items=resources||[resource('post_type:page'),resource('post_type:post')];let nextSave=null,nextPreview=null;
+test('a receiving installation shows both imported revisions without an authored default', async () => {
+ const original=global.fetch;
+ let view;
+ try {
+  const page=resource('post_type:page');
+  page.shared_layouts=[1,2].map(revision=>({label:'Airport Service',page_type:'service',template_id:'shared',revision}));
+  view=await fixture([page],true);
+  assert(view.host.textContent.includes('Shared layouts ready'));
+  assert(view.host.textContent.includes('service · revision 1'));
+  assert(view.host.textContent.includes('service · revision 2'));
+  assert(!view.host.textContent.includes('Default needed for new content'));
+  assert(!view.host.textContent.includes('Configure creation default'));
+  await view.controller.open(page.id,'creation');
+  assert(!view.calls.some(call=>call.suffix==='/creation'));
+  assert.equal(editor.coverage([page]).complete,true);
+ } finally {view?.controller.destroy();global.fetch=original;}
+});
+async function fixture(resources,receiveOnly=false){const document={createElement:tag=>new Element(tag,document)},host=new Element('div',document),calls=[],defaults=new Map(),items=resources||[resource('post_type:page'),resource('post_type:post')];let nextSave=null,nextPreview=null;
  global.fetch=async(url,options)=>{const route=new URL(url,'https://wp.example/'),suffix=route.pathname.replace('/mapping',''),body=options.body?JSON.parse(options.body):null;calls.push({suffix,url,options,body});let value;
-  if(suffix==='/endpoints'){value={resources:items.map(item=>({...item,default_mapping:defaults.has(item.id)?{id:'mapping-id',revision:defaults.get(item.id).revision,label:defaults.get(item.id).label}:item.default_mapping||null}))};}
+  if(suffix==='/endpoints'){value={receive_only:receiveOnly,resources:items.map(item=>({...item,default_mapping:defaults.has(item.id)?{id:'mapping-id',revision:defaults.get(item.id).revision,label:defaults.get(item.id).label}:item.default_mapping||null}))};}
   else if(suffix==='/existing'){value=envelope(route.searchParams.get('resource_id'),Number(route.searchParams.get('reference_id')));}
   else if(suffix==='/creation/preview'){value=nextPreview||blank(body);nextPreview=null;}
   else if(suffix==='/creation'&&options.method==='POST'){if(nextSave){const response=nextSave;nextSave=null;return response;}value={...blank(body),saved:true,mapping_id:'mapping-id',revision:body.expected_revision+1};defaults.set(body.resource_id,value);}

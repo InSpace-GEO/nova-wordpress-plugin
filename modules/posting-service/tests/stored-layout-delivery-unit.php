@@ -33,6 +33,17 @@ class Layout_Delivery_Client {
         return [ 'status' => 202, 'raw_body' => json_encode( nova_contract_fixture_event_accept( $bytes ) ) ];
     }
 }
+class Interrupted_Layout_Policy_Store extends Layout_Delivery_Store {
+    public $interrupted = false;
+    public function save( $job, $changes ) {
+        $saved = parent::save( $job, $changes );
+        if ( ! $this->interrupted && 'received' === $saved['phase'] && isset( $saved['payload']['selected_policy'], $saved['payload']['context'] ) && ! isset( $saved['payload']['plan'] ) ) {
+            $this->interrupted = true;
+            return new WP_Error( 'test_policy_interruption', 'Interrupted after the durable policy checkpoint.' );
+        }
+        return $saved;
+    }
+}
 function delivery_setup( $version = 3, $target_url = null, $publication = 'draft', $retained_settings = false ) {
     reset_native(); if ( $retained_settings ) { retained_presentation_source(); } list( $content, $configuration ) = fixture( '501', $version, $publication );
     if ( null !== $target_url ) { $content['url'] = $target_url; }
@@ -56,6 +67,15 @@ function delivery_setup( $version = 3, $target_url = null, $publication = 'draft
     return [ $base, $store, $client, $worker ];
 }
 $checks = 0;
+list( $f, , $client ) = delivery_setup();
+$store = new Interrupted_Layout_Policy_Store();
+$worker = new Nova_Bridge_Suite_Posting_Worker( $f['connection'], $store, $client );
+$interrupted = $worker->process( $f['job'] );
+check( is_wp_error( $interrupted ) && $store->interrupted && ! $inserts, 'Interrupted after retaining native authority and before creation.' );
+$pending = end( $store->history ); $frozen_digest = $pending['payload']['configuration']['profile_digest'];
+$GLOBALS['delivery_configuration'] = new WP_Error( 'changed_layout', 'Another import changed the currently active definition.' );
+$pending['state'] = 'running'; $recovered = ok( $worker->process( $pending ) );
+check( 'complete' === $recovered['state'] && $frozen_digest === $recovered['payload']['plan']['profile_digest'] && 1 === $inserts, 'A job which already selected a layout resumes with its original native authority after an import.' );
 list( $f, $store, $client, $worker ) = delivery_setup();
 $worker = new Nova_Bridge_Suite_Posting_Worker( array_replace( $f['connection'], [ 'actor_user_id' => 2 ] ), $store, $client );
 $client->lose_receipt = true; $client->receipt_to_lose = 'received_complete';
