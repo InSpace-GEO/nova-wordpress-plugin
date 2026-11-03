@@ -8,7 +8,7 @@ class WP_Error { private $code; private $message; private $data; function __cons
 class WP_REST_Response { public $headers = []; private $data; private $status; function __construct( $data, $status = 200 ) { $this->data = $data; $this->status = $status; } function get_data() { return $this->data; } function get_status() { return $this->status; } function set_status( $value ) { $this->status = $value; } function header( $name, $value ) { $this->headers[$name] = $value; } }
 class WP_REST_Posts_Controller {}
 class WP_Post { public $ID; public $post_type; public $post_title; public $post_content; public $post_status; public $post_author; public $post_excerpt = ''; public $post_name = ''; function __construct( array $data ) { foreach ( $data as $key => $value ) { $this->$key = $value; } } }
-class WP_Post_Type { public $name; public $cap; public $_builtin = false; public $show_ui = true; public $public = true; public $publicly_queryable = true; public $exclude_from_search = false; function __construct( $name ) { $this->name = $name; $this->cap = (object) [ 'edit_posts' => 'edit_posts', 'create_posts' => 'edit_posts', 'publish_posts' => 'publish_posts' ]; } }
+class WP_Post_Type { public $name; public $cap; public $_builtin = false; public $show_ui = true; public $show_in_rest = true; public $public = true; public $publicly_queryable = true; public $exclude_from_search = false; function __construct( $name ) { $this->name = $name; $this->cap = (object) [ 'edit_posts' => 'edit_posts', 'create_posts' => 'edit_posts', 'publish_posts' => 'publish_posts' ]; } }
 class RecipeRequest { private $params; private $body; private $headers; private $raw; function __construct( $params = [], $body = null, $headers = [ 'x-wp-nonce' => 'valid' ], $raw = null ) { $this->params = $params; $this->body = $body; $this->headers = $headers; $this->raw = $raw; } function get_param( $name ) { return $this->params[$name] ?? null; } function get_header( $name ) { return $this->headers[$name] ?? null; } function get_json_params() { return $this->body; } function get_body() { return $this->raw ?? json_encode( $this->body ); } }
 function is_wp_error( $value ) { return $value instanceof WP_Error; }
 function rest_ensure_response( $value ) { return $value instanceof WP_REST_Response ? $value : new WP_REST_Response( $value ); }
@@ -209,6 +209,7 @@ foreach ( $original_options as $key => $value ) { check( $options[$key] === $val
 check( empty( $actions['wp_insert_post'][1] ) && empty( $filters['wp_insert_post_data'][PHP_INT_MAX] ), 'Scoped native hooks remained active after an operation' );
 $field_registration = [ 'type' => 'string', 'single' => true, 'show_in_rest' => true, 'description' => 'Credit the author of the summary.' ];
 $editorial_meta = [ 'credit_line' => $field_registration, 'headline' => $field_registration, 'private_token' => $field_registration, '_thumbnail_id' => $field_registration, 'rank_math_robots' => $field_registration, 'several_values' => [ 'single' => false ] + $field_registration ];
+$editorial_meta['footnotes'] = [ 'type' => 'string', 'single' => true, 'show_in_rest' => true, 'revisions_enabled' => true ];
 $before_reads = $acf_reads;
 $fixed = design( 'core', 'static', 'post_type:page', 11 );
 $choices = $fixed['posting_field_choices'];
@@ -222,6 +223,12 @@ $single_saved = data( route( 'save', 'POST', [], $single_body ) );
 check( $single_saved['recipe'] === $single && $single_saved['recipe']['blueprint']['template'] === 'protected-template.php', 'A PHP page template with only one ACF binding must save through the ordinary route.' );
 $reopened = data( route( 'profile', 'GET', [ 'id' => $single_saved['id'] ] ) );
 check( $reopened['recipe']['posting_fields'] === $single['posting_fields'] && $reopened['design']['posting_field_choices'] === $choices, 'Reopening the mapping retained the selection and live registration choices.' );
+$footnotes_path = '/@nova/custom-fields/meta/footnotes';
+$legacy = $single;
+$legacy['posting_fields'] = [ $footnotes_path => [ 'provider' => 'meta', 'name' => 'footnotes', 'key' => 'footnotes', 'type' => 'string', 'label' => 'footnotes' ] ];
+$legacy_saved = data( route( 'save', 'POST', [], save_body( $fixed, $legacy, [] ) ) );
+$legacy_reopened = data( route( 'profile', 'GET', [ 'id' => $legacy_saved['id'] ] ) );
+check( $legacy_reopened['recipe']['posting_fields'] === $legacy['posting_fields'] && ! isset( $legacy_reopened['design']['posting_field_choices'][$footnotes_path] ), 'An explicitly selected legacy WordPress footnotes mapping still validates and reopens, without offering its native key for a new selection.' );
 $forged = $single; $forged['posting_fields'][$acf_path]['key'] = 'field_different';
 rejected( route( 'save', 'POST', [], save_body( $fixed, $forged, [] ) ), 409, 'A forged native field key cannot be persisted.' );
 $acf_example_only = true;
@@ -234,4 +241,11 @@ $editorial_meta['restricted_summary'] = $field_registration;
 $catalog_only = Nova_Bridge_Suite_Layout_Custom_Fields::catalog( 'page', 'protected-template.php', 11, [ 'CREDIT_LINE' => true ] );
 check( isset( $catalog_only['/@nova/custom-fields/acf/heroCopy-Two'], $catalog_only['/@nova/custom-fields/meta/plainCopy-2'] ) && '' === $catalog_only['/@nova/custom-fields/meta/plainCopy-2']['instructions'], 'Legitimate mixed-case and hyphenated names and undescribed public single string registrations remain selectable.' );
 check( ! isset( $catalog_only[$meta_path] ) && ! isset( $catalog_only['/@nova/custom-fields/meta/restricted_summary'] ), 'A builder-owned setting or a protected ACF name cannot be remapped as generic REST metadata.' );
+$acf_schema['footnotes'] = af( 'footnotes' );
+$acf_schema['article_notes'] = af( 'article_notes', 'textarea', [ 'label' => 'Footnotes' ] );
+$acf_choices = design( 'core', 'static', 'post_type:page', 11 )['posting_field_choices'];
+check( ! isset( $acf_choices['/@nova/custom-fields/acf/footnotes'] ) && isset( $acf_choices['/@nova/custom-fields/acf/article_notes'] ), 'An ACF field using the core storage key stays hidden while an independent ACF field labelled Footnotes remains selectable.' );
+unset( $editorial_meta['footnotes'] );
+$acf_choices = design( 'core', 'static', 'post_type:page', 11 )['posting_field_choices'];
+check( isset( $acf_choices['/@nova/custom-fields/acf/footnotes'] ), 'An editorial ACF field named footnotes remains available where the core registration is absent.' );
 echo 'PASS ' . $checks . " layout recipe API checks (real Core + ACF + transport/compiler).\n";

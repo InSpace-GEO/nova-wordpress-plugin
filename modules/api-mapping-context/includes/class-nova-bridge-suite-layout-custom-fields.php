@@ -53,6 +53,23 @@ final class Nova_Bridge_Suite_Layout_Custom_Fields {
         return $fields;
     }
 
+    /** The block editor owns this JSON list on post types where core registers it. */
+    public static function editor_choices( string $type, string $template, int $example, array $retained_meta ): array {
+        $fields = self::catalog( $type, $template, $example, $retained_meta );
+        $meta = self::path( 'meta', 'footnotes' );
+        $acf = self::path( 'acf', 'footnotes' );
+        if ( isset( $fields[$meta] ) || isset( $fields[$acf] ) ) {
+            $registration = get_registered_meta_keys( 'post', $type )['footnotes'] ?? [];
+            if ( ! empty( get_post_type_object( $type )->show_in_rest ) && ! empty( $registration['revisions_enabled'] ) && 'string' === ( $registration['type'] ?? '' )
+                && ! empty( $registration['single'] ) && ! empty( $registration['show_in_rest'] )
+                && post_type_supports( $type, 'editor' ) && post_type_supports( $type, 'custom-fields' ) && post_type_supports( $type, 'revisions' ) ) {
+                // Both providers write the same post meta key. Already saved layouts still verify against catalog().
+                unset( $fields[$meta], $fields[$acf] );
+            }
+        }
+        return $fields;
+    }
+
     /** Also project explicit scalar bindings in recipes saved with the original ACF companion UI. */
     public static function selections( array $recipe ): array {
         $fields = array_key_exists( 'posting_fields', $recipe ) ? $recipe['posting_fields'] : [];

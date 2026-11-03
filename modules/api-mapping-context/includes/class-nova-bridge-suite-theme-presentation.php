@@ -89,19 +89,44 @@ final class Nova_Bridge_Suite_Theme_Presentation {
     }
 
 
+    // These providers register their native display switches as unrestricted text fields.
+    private const THEME_DISPLAY_SWITCHES = [
+        'astra' => [ 'site-post-title', 'ast-breadcrumbs-content', 'ast-featured-img' ],
+        'kadence' => [ '_kad_post_title', '_kad_post_feature' ],
+    ];
+
+    private static function template_setting( string $theme, string $key, array $registration, array $entry ): bool {
+        if ( in_array( $key, self::THEME_DISPLAY_SWITCHES[$theme] ?? [], true ) ) { return true; }
+        $words = preg_split( '/[_-]+/', strtolower( trim( $key, '_-' ) ) );
+        $editorial = [ 'copy', 'text', 'html', 'description', 'caption', 'credit', 'email', 'url' ];
+        if ( array_intersect( $words, $editorial ) ) { return false; }
+        $appearance = [ 'layout', 'layouts', 'style', 'width', 'spacing', 'padding', 'margin', 'alignment', 'background', 'sidebar', 'visibility', 'display', 'overlay', 'sticky', 'stick', 'transparent' ];
+        // A suffix such as "background-meta" denotes a setting. "background-story" does not.
+        $aspect = end( $words );
+        if ( in_array( $aspect, [ 'meta', 'enabled', 'inherit', 'id' ], true ) ) { $aspect = prev( $words ); }
+        if ( in_array( $aspect, $appearance, true ) ) { return true; }
+        // A heading or image may itself be editorial. Recognize its display switch only.
+        $chrome = [ 'header', 'footer', 'title', 'breadcrumbs', 'feature', 'featured' ];
+        if ( ! array_intersect( $words, $chrome ) ) { return false; }
+        $switches = [ 'enable', 'enabled', 'disable', 'disabled', 'show', 'hide', 'inherit', 'default', 'on', 'off' ];
+        $value = $entry['value'] ?? ( $registration['default'] ?? null );
+        return 'boolean' === ( $registration['type'] ?? '' ) || in_array( $value, $switches, true ) || array_intersect( [ 'meta', 'position' ], $words );
+    }
+
     /** Read-only discovery. Registration declares a field, not that it should be copied. */
     public static function candidates( int $id ) {
         $type = $id > 0 && function_exists( 'get_post_type' ) ? (string) get_post_type( $id ) : '';
-        if ( ! $type || ! self::family() || ! current_user_can( 'edit_post', $id ) ) { return self::error( 'An editable example page and active theme are required to inspect its presentation settings.' ); }
+        $theme = self::family();
+        if ( ! $type || ! $theme || ! current_user_can( 'edit_post', $id ) ) { return self::error( 'An editable example page and active theme are required to inspect its presentation settings.' ); }
         $fields = [];
         foreach ( self::registrations( $type ) as $key => $registration ) {
             if ( count( $fields ) >= self::MAX_FIELDS ) { break; }
             if ( ! self::safe_key( $key ) || ! is_array( $registration ) || ! current_user_can( 'edit_post_meta', $id, $key ) || ! ( $schema = self::schema( $registration ) ) || ! ( $entry = self::entry( $id, $key, $schema ) ) ) { continue; }
             $label = $registration['label'] ?? $registration['description'] ?? '';
             $label = is_string( $label ) && '' !== trim( $label ) ? trim( strip_tags( $label ) ) : ucwords( str_replace( [ '_', '-' ], ' ', trim( $key, '_' ) ) );
-            $fields[$key] = [ 'label' => substr( $label, 0, 200 ) ] + $entry;
+            $fields[$key] = [ 'label' => substr( $label, 0, 200 ), 'template_setting' => self::template_setting( $theme, $key, $registration, $entry ) ] + $entry;
         }
-        return [ 'format' => self::CANDIDATES_FORMAT, 'theme' => self::family(), 'post_type' => $type, 'fields' => $fields ];
+        return [ 'format' => self::CANDIDATES_FORMAT, 'theme' => $theme, 'post_type' => $type, 'fields' => $fields ];
     }
 
     /** Caller must verify the inventory's capture seal before accepting a UI selection. */
