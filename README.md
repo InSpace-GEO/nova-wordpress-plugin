@@ -20,7 +20,7 @@ The picker finds native publishing capabilities assigned through a role or direc
 
 Under **Layouts**, choose an example, map its fields and save directly from **Content rules** in step 3. Stay on that screen to check whether the posting service confirmed the default for the selected NOVA page type, retry a sync or explicitly replace a different default. The posting service adapts the article during delivery.
 
-Selecting the same example for the same WordPress destination resumes the mapping. To rebuild it from a changed example, choose **Capture a fresh layout** in step 2. In Elementor, **Page layout and template settings** starts with recognized design settings selected for a new layout. **Select all** and **Deselect all** change them together. Saved layouts retain their previous choices. Unrelated registered metadata is available separately and is opt-in.
+In **2. Choose a design**, open **Reference item** to browse or type to filter the list. Use **Use an item ID** for an example outside the list. Selecting the same example for the same WordPress destination resumes the mapping. To rebuild it from a changed example, choose **Capture a fresh layout** in step 2. In Elementor, **Page layout and template settings** starts with recognized design settings selected for a new layout. **Select all** and **Deselect all** change them together. Saved layouts retain their previous choices. Unrelated registered metadata is available separately and is opt-in.
 
 ## Supported paths
 
