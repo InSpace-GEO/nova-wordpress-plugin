@@ -2,11 +2,11 @@
 
 ## 1.0.6 staging candidate
 
-All 100 local suites passed, including 107 layout editor workflows. Tests cover revision conflicts, save and retry-sync on step 3, explicit replacement of a different default, native test-draft recovery, and retaining the current or saved mapping when an example is selected again. The source-registration tests selected all 25 Astra 4.11.7 and all 10 Kadence 1.2.16 design settings. They also checked that editorial metadata stays opt-in and previously saved empty or partial selections remain intact.
+All 100 local suites passed, including 103 layout editor workflows. Tests cover revision conflicts, saving and retrying sync on step 3, explicit default replacement, and resuming a mapping when its example is selected again. The wizard no longer creates sample drafts. A browser with an interrupted draft request from an older build can still look up that specific draft. Field tests cover excluding core footnotes from new choices, retaining legacy bindings, and offering a separate ACF field labelled Footnotes. The theme tests covered 25 Astra 4.11.7 and 10 Kadence 1.2.16 design settings, opt-in editorial metadata, and previously saved empty or partial selections.
 
-We installed the ZIP on inspace-seo.com and verified all 149 runtime files. Chrome loaded the site's editor assets and exercised a 38-setting example against isolated responses. It selected and deselected settings without replacing the preview iframe, reselected the example, then saved the field binding and the 36 settings left selected. Exactly one request verified the settings on save. Syncing the saved revision remained available. Ten PHP regression suites passed on the staging host with in-memory fixtures, including the save and sync handlers. The browser and server tests did not change any staging mapping or remote default.
+We installed the ZIP on inspace-seo.com and verified all 149 runtime files. Chrome loaded the site's editor assets and exercised a 38-setting example against isolated responses. It selected and deselected settings without replacing the preview iframe, reselected the example, then saved the field binding and the 36 settings left selected. Exactly one request verified the settings on save. The saved layout offered sync without a sample draft section or draft title. Nine PHP regression suites passed on the staging host with in-memory fixtures, including the field catalog, save and sync handlers. The browser and server tests did not change any staging mapping or remote default.
 
-Staging ZIP SHA-256 is `87ae94317eda618ed7d988c20ee4fed354bee15ef56efcb256c2c7f8caa2ccb2`.
+Staging ZIP SHA-256 is `900ebe6fa0e226b4c790349d89144d0514322f2e43faea2e855e952611512ca9`.
 
 ## 1.0.5
 

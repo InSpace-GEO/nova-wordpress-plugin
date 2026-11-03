@@ -12,6 +12,7 @@ Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge
 == Changelog ==
 = 1.0.6 =
 Save and sync directly from Content rules. Selecting the same example again can resume its mapping. New layouts select eligible page design settings by default, with bulk controls for changing the selection.
+The layout editor no longer offers a draft made from sample text. New editorial mappings omit the WordPress Footnotes block’s storage field.
 
 = 1.0.5 =
 Select editorial ACF and registered WordPress text fields when mapping a fixed layout. Each language can receive its own field values with WPML, Polylang, TranslatePress and Weglot. WPML can link a single translation delivered before its original.

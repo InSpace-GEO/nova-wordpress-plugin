@@ -18,7 +18,7 @@ WordPress suggests the eligible site member with the most published posts, pages
 
 The picker finds native publishing capabilities assigned through a role or directly to a site member. It also checks network super admins who belong to the site. If another plugin grants publishing permission only through a filter, an existing selection remains usable while that permission is effective. To make a new account discoverable, give it the corresponding WordPress role or direct capability.
 
-Under **Layouts**, choose an example, map its fields and save directly from **Content rules** in step 3. Stay on that screen to check whether the posting service confirmed the default for the selected NOVA page type, retry a sync or explicitly replace a different default. After saving a supported layout, you can also create a native test draft.
+Under **Layouts**, choose an example, map its fields and save directly from **Content rules** in step 3. Stay on that screen to check whether the posting service confirmed the default for the selected NOVA page type, retry a sync or explicitly replace a different default. The posting service adapts the article during delivery.
 
 Selecting the same example for the same WordPress destination resumes the mapping. To rebuild it from a changed example, choose **Capture a fresh layout** in step 2. In Elementor, **Page layout and template settings** starts with recognized design settings selected for a new layout. **Select all** and **Deselect all** change them together. Saved layouts retain their previous choices. Unrelated registered metadata is available separately and is opt-in.
 
@@ -26,7 +26,7 @@ Selecting the same example for the same WordPress destination resumes the mappin
 
 - Fixed-layout delivery for WordPress content, Gutenberg, Elementor, Flatsome and Enfold. The corresponding builder/theme must be available on the site.
 - Native publishing to NOVA Blog and Service post types, and WooCommerce category content with separate top and bottom fields.
-- WPBakery, Avada, Beaver Builder, Breakdance, Divi 4 and Divi 5 support layout capture and native test drafts. In **Layouts**, select an existing Divi 5 page, save a fixed layout, then create a test draft. Divi uses its own adapter. The generic Gutenberg and plain WordPress writers leave Divi 5 documents protected.
+- WPBakery, Avada, Beaver Builder, Breakdance, Divi 4 and Divi 5 support layout capture. In **Layouts**, select an existing Divi 5 page to capture a fixed layout with its native adapter. The generic Gutenberg and plain WordPress writers leave Divi 5 documents protected.
 - The existing NOVA posting contract and ready webhook URL remain compatible. Older explicit live-source clone jobs require the original Suite.
 
 ## Publishing in multiple languages

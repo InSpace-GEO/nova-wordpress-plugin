@@ -276,7 +276,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( 'static' === $mode && 0 === strpos( $resource, 'post_type:' ) && 'acf' !== ( $design['builder'] ?? '' ) ) {
             // Editable Elementor settings can become editorial fields without an intermediate save.
             $fixed = 'elementor' === $design['builder'] && isset( $design['presentation_choices'] ) ? [] : Nova_Bridge_Suite_Layout_Custom_Fields::retained_meta( $design );
-            $design['posting_field_choices'] = Nova_Bridge_Suite_Layout_Custom_Fields::catalog( substr( $resource, 10 ), (string) ( $design['blueprint']['template'] ?? '' ), $example, $fixed );
+            $design['posting_field_choices'] = Nova_Bridge_Suite_Layout_Custom_Fields::editor_choices( substr( $resource, 10 ), (string) ( $design['blueprint']['template'] ?? '' ), $example, $fixed );
         }
         return $design;
     }

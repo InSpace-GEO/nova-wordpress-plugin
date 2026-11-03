@@ -130,7 +130,7 @@ final class Nova_Bridge_Suite_Layout_Setup_Admin {
         echo '</div><button type="submit" class="button button-primary">Start guided setup</button></form>';
         echo '<div class="nova-layout-outcome"><h3>What does a mapping do?</h3><p>It decides how content belongs in your website. An existing-layout mapping describes fixed fields. Elementor layout rules turn headings, paragraphs and other blocks into widgets.</p><p>Saving a setup keeps it on this website. It does not publish an article, upload your rules to NOVA or change how NOVA writes.</p></div></section>';
         self::saved();
-        echo '<aside class="nova-layout-connection-note"><h3>Connect NOVA when you need it</h3><p>Local setup, examples and Elementor test drafts work without a service connection. Connection details are shared setup, not another mapping.</p><a href="' . esc_url( self::url( 'nova-connection' ) ) . '">Open NOVA connection</a></aside>';
+        echo '<aside class="nova-layout-connection-note"><h3>Connect NOVA when you need it</h3><p>You can set up layouts before connecting. Connect NOVA to sync your mappings and receive deliveries.</p><a href="' . esc_url( self::url( 'nova-connection' ) ) . '">Open NOVA connection</a></aside>';
     }
 
     private static function saved(): void {
@@ -154,7 +154,7 @@ final class Nova_Bridge_Suite_Layout_Setup_Admin {
         if ( ! current_user_can( 'manage_options' ) ) { return; }
         $connection = Nova_Bridge_Suite_Posting_Settings::connection();
         echo '<section class="nova-connection-intro"><p class="nova-brand-kicker">OPTIONAL / SHARED SETUP</p><h2>NOVA connection</h2><p>A connection lets this website retrieve compatible content from NOVA. It is separate from choosing how that content becomes a page.</p>';
-        echo '<p class="nova-layout-connection-state">' . esc_html( $connection['enabled'] ? 'Connection details are configured. Manage delivery in NOVA.' : 'Save your NOVA connection details and posting user below to receive deliveries. You can set up layouts and create test drafts before connecting.' ) . '</p>';
+        echo '<p class="nova-layout-connection-state">' . esc_html( $connection['enabled'] ? 'Connection details are configured. Manage delivery in NOVA.' : 'You can set up layouts before connecting. Save your NOVA connection details and posting user below to receive deliveries.' ) . '</p>';
         echo '<a href="' . esc_url( self::url( 'layouts' ) ) . '">Back to layouts</a></section>';
         Nova_Bridge_Suite_Posting_Settings::render();
     }
