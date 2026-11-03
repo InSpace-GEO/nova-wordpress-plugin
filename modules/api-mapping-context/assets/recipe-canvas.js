@@ -53,6 +53,17 @@
 			var scope = unique( document, '[data-elementor-id="' + config.referenceId + '"]' ); if ( ! scope ) { return null; }
 			owner = unique( scope, '[data-id="' + id + '"]' ); if ( ! owner ) { return null; }
 			selector = { 'heading:title': '.elementor-heading-title', 'text-editor:editor': '.elementor-widget-container', 'button:text': '.elementor-button-text', 'image:caption': '.widget-image-caption', 'image:image.url': '.elementor-widget-container img', 'image:image.alt': '.elementor-widget-container img', 'google_maps:address': '.nrc-map-placeholder' }[ locator.element_type + ':' + control ];
+		} else if ( strategy === 'cornerstone' ) {
+			// Cornerstone renders the document ID and the native element number together.
+			if ( config.referenceType !== 'post' || ! /^[1-9][0-9]*$/.test( id ) ) { return null; }
+			var prefix = '.e' + config.referenceId + '-';
+			owner = unique( document, prefix + 'e' + id + ',' + prefix + id );
+			if ( ! owner || ! owner.closest( '#cs-content,main,[role="main"],.entry-content' ) || owner.closest( 'nav,header,footer,[role="navigation"]' ) ) { return null; }
+			selector = { 'headline:text_content': '.x-text-content-text-primary', 'headline:text_subheadline_content': '.x-text-content-text-subheadline', 'button:anchor_text_primary_content': '.x-anchor-text-primary', 'button:anchor_text_secondary_content': '.x-anchor-text-secondary', 'image:image_src': 'img', 'image:image_alt': 'img' }[ locator.element_type + ':' + control ];
+			if ( selector ) {
+				var part = unique( owner, selector );
+				return part ? { node: part, owner: owner, precision: 'field' } : null;
+			}
 		} else if ( strategy === 'beaver' ) {
 			if ( ! safeId.test( id ) ) { return null; }
 			var beaver = unique( document, '.fl-builder-content-' + config.referenceId ); if ( ! beaver ) { return null; }

@@ -25,6 +25,7 @@ In **2. Choose a design**, open **Reference item** to browse or type to filter t
 ## Supported paths
 
 - Fixed-layout delivery for WordPress content, Gutenberg, Elementor, Flatsome and Enfold. The corresponding builder/theme must be available on the site.
+- For Cornerstone, select a page or post built in the content builder and map its fields under **Content rules**. NOVA saves the element tree and the page’s layout settings with the mapping. Deliveries create or update the native Cornerstone document; the example can be deleted after capture. Site-wide library components remain linked. Use the field list for controls without a unique visible element. When mapping blog posts, enable **Posts** in Cornerstone’s permissions for the NOVA publishing user. For an example captured as plain WordPress in an older version, choose **Capture a fresh layout** in step 2 and save the new mapping.
 - Native publishing to NOVA Blog and Service post types, and WooCommerce category content with separate top and bottom fields.
 - WPBakery, Avada, Beaver Builder, Breakdance, Divi 4 and Divi 5 support layout capture. In **Layouts**, select an existing Divi 5 page to capture a fixed layout with its native adapter. The generic Gutenberg and plain WordPress writers leave Divi 5 documents protected.
 - The existing NOVA posting contract and ready webhook URL remain compatible. Older explicit live-source clone jobs require the original Suite.

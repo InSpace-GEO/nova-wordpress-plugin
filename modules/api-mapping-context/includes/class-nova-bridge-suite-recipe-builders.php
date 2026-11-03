@@ -3,7 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 final class Nova_Bridge_Suite_Recipe_Builders {
-    const BUILDERS = [ 'elementor', 'gutenberg', 'flatsome', 'enfold', 'wpbakery', 'avada', 'divi4', 'divi5', 'beaver', 'breakdance' ];
+    const BUILDERS = [ 'elementor', 'gutenberg', 'flatsome', 'enfold', 'cornerstone', 'wpbakery', 'avada', 'divi4', 'divi5', 'beaver', 'breakdance' ];
     private static $adapters = [];
 
     public static function register(): void {
@@ -23,6 +23,9 @@ final class Nova_Bridge_Suite_Recipe_Builders {
             } elseif ( 'enfold' === $builder ) {
                 require_once __DIR__ . '/class-nova-bridge-suite-recipe-enfold.php';
                 self::$adapters[ $builder ] = new Nova_Bridge_Suite_Recipe_Enfold();
+            } elseif ( 'cornerstone' === $builder ) {
+                require_once __DIR__ . '/class-nova-bridge-suite-recipe-cornerstone.php';
+                self::$adapters[ $builder ] = new Nova_Bridge_Suite_Recipe_Cornerstone();
             } else { self::$adapters[ $builder ] = 'elementor' === $builder ? new Nova_Bridge_Suite_Recipe_Elementor() : new Nova_Bridge_Suite_Recipe_Native_Adapter( $builder ); }
         }
         return self::$adapters[ $builder ];
@@ -60,7 +63,12 @@ final class Nova_Bridge_Suite_Recipe_Builders {
         // Cornerstone stores the editable element tree separately from the HTML or shortcodes in post_content.
         $cornerstone = get_post_meta( $post_id, '_cornerstone_data', true );
         if ( is_string( $cornerstone ) && '' !== $cornerstone ) { $cornerstone = json_decode( $cornerstone, true ); }
-        if ( is_array( $cornerstone ) && is_string( $cornerstone[0]['_type'] ?? null ) && '' !== $cornerstone[0]['_type'] && ! get_post_meta( $post_id, '_cornerstone_override', true ) ) { $builders[] = 'cornerstone'; }
+        $cornerstone = $cornerstone['data'] ?? $cornerstone;
+        if ( is_array( $cornerstone ) && is_string( $cornerstone[0]['_type'] ?? null ) && '' !== $cornerstone[0]['_type'] && ! get_post_meta( $post_id, '_cornerstone_override', true ) ) {
+            $builders[] = 'cornerstone';
+            // Its generated body can contain other plugins' shortcodes or block comments.
+            if ( str_contains( $content, '<!-- cs-content -->' ) || str_contains( $content, '[cs_content' ) ) { $content = ''; }
+        }
         $divi5 = 1 === preg_match( '/<!--\s+wp:divi\//i', $content ) || 'on' === get_post_meta( $post_id, '_et_pb_use_divi_5', true );
         if ( $divi5 ) { $builders[] = 'divi5'; }
         if ( preg_match( '/\[et_pb_/i', $content ) || ! $divi5 && 'on' === get_post_meta( $post_id, '_et_pb_use_builder', true ) ) { $builders[] = 'divi4'; }

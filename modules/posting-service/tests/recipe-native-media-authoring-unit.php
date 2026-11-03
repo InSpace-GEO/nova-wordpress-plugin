@@ -77,4 +77,15 @@ check( ! isset( $legacy_draft['source_hints'] ) && $legacy_draft['stored_layout'
 $legacy_compiled = good( Stored::compile( $legacy_draft, values( [ '/title' => 'Test', $path => $url ] ), 'image' ) );
 check( ! isset( $legacy_compiled['writer_payload']['nova_media'] ) && $legacy_compiled['writer_payload']['elementor_data'][0]['settings']['image']['url'] === $url, 'Old external image binding behavior remains unchanged' );
 $tampered = $draft; $tampered['target_descriptors'][$path]['native_media'] = false; check( is_wp_error( Stored::validate( $tampered ) ), 'Changing selected media policy invalidates the sealed layout' );
+$image_path = '/document/0/children/0/values/image_src';
+$cs = [ 'document' => Nova_Bridge_Suite_Cornerstone_Document::capture( '[{"_type":"section","_modules":[{"_type":"image","image_src":"https://example.test/placeholder.jpg","image_alt":"Placeholder"}]}]' ) ];
+$cs_draft = good( Stored::from_recipe( record( recipe( 'cornerstone', $cs, [ binding( $image_path ) ] ) ) ) );
+$cs_compiled = good( Stored::compile( $cs_draft, values( [ '/title' => 'Article', $image_path => $url ] ), 'image' ) );
+$entry = [ 'kind' => 'cornerstone', 'id_target' => $image_path, 'url' => $url ];
+check( $cs_compiled['writer_payload']['nova_media'][$image_path] === $entry, 'A selected Cornerstone image survives projection as a native media binding' );
+require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-native-media.php';
+check( true === Nova_Bridge_Suite_Native_Media::validate( 'cornerstone', $cs_compiled['writer_payload'] ), 'The frozen Cornerstone layout admits its own image target' );
+$alt = '/document/0/children/0/values/image_alt';
+$cs_compiled['writer_payload']['nova_media'] = [ $alt => [ 'id_target' => $alt ] + $entry ];
+check( is_wp_error( Nova_Bridge_Suite_Native_Media::validate( 'cornerstone', $cs_compiled['writer_payload'] ) ), 'A forged media target cannot overwrite image alt text' );
 echo "PASS $checks native media authoring/projection checks (pure, no storage or HTTP).\n";

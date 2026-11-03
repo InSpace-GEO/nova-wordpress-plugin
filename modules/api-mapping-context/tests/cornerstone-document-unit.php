@@ -7,7 +7,7 @@ require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-cornerstone-docu
 function wp_get_attachment_image_url( $id, $size ) {
     return 12 === $id && 'large' === $size ? 'https://example.test/large.jpg' : false;
 }
-function shortcode_exists( $tag ) { return 'gallery' === $tag; }
+function shortcode_exists( $tag ) { return in_array( $tag, [ 'gallery', 'acme.embed', '_private:feed' ], true ); }
 function check( $condition, $message ) {
     if ( ! $condition ) { throw new RuntimeException( $message ); }
 }
@@ -40,6 +40,13 @@ check( 'hero-title' === $by_sample['Example headline']['locator']['anchor'], 'Na
 check( 'html' === $by_sample['<p>Original body.</p>']['format'] && str_contains( $by_sample['<p>Original body.</p>']['context'], 'Classic:column' ), 'Nested classic text is editable as rich text.' );
 check( ! isset( $by_sample['Unregistered setting'] ) && ! isset( $by_sample['#112233'] ), 'Unknown controls and styling never become editorial fields.' );
 check( ! $by_sample['{{dc:post:title}}']['writable'] && ! $by_sample['Looped text']['writable'], 'A dynamic expression and the children of a looper remain protected.' );
+$encoded = '%7B%7Bdc:user:email%7D%7D';
+$dynamic_fields = $document::inventory( [ 'document' => $document::capture( [
+    [ '_type' => 'text', 'text_content' => '<p>' . $encoded . '</p>' ],
+    [ '_type' => 'button', 'anchor_href' => 'https://example.test/?field=' . $encoded ],
+    [ '_type' => 'text', 'text_content' => '[acme.embed id="1"]' ],
+] ) ] )['fields'];
+check( 3 === count( $dynamic_fields ) && ! in_array( true, array_column( $dynamic_fields, 'writable' ), true ), 'Captured encoded expressions and registered shortcodes are protected in the mapping UI.' );
 $stored = $document::bind( $stored, $by_sample['Example headline'], 'A & B [archived] <em>literal</em>' );
 $stored = $document::bind( $stored, $by_sample['<p>Original body.</p>'], '<p>New <strong>body</strong>.</p>' );
 $stored = $document::bind( $stored, $by_sample['https://example.test/large.jpg'], 'https://example.test/new.jpg' );
@@ -52,6 +59,14 @@ $expected[0]->_modules[3]->anchor_href = '/new/';
 check( json_decode( $document::source( $stored['document'] ) ) == $expected, 'Fitting heading, body, image and link changes only the selected controls.' );
 refuses( fn() => $document::bind( $stored, $by_sample['{{dc:post:title}}'], 'Replace' ), 'Dynamic bindings must reject writes.' );
 refuses( fn() => $document::bind( $stored, $by_sample['Example headline'], '{{dc:user:meta key="secret"}}' ), 'Delivery text must not introduce executable builder expressions.' );
+refuses( fn() => $document::bind( $stored, $by_sample['<p>Original body.</p>'], '<p>' . $encoded . '</p>' ), 'Cornerstone expands encoded dynamic content in rich text.' );
+refuses( fn() => $document::bind( $stored, $by_sample['/initial/'], 'https://example.test/?field=' . $encoded ), 'A mapped native link must not expand the viewer’s data.' );
+refuses( fn() => $document::bind( $stored, $by_sample['<p>Original body.</p>'], '<p>[acme.embed id="23"]</p>' ), 'WordPress permits punctuation inside registered shortcode names.' );
+refuses( fn() => $document::bind( $stored, $by_sample['Example headline'], '[_private:feed]' ), 'Registered shortcodes may also start with an underscore.' );
+refuses( fn() => $document::bind( $stored, $by_sample['Example headline'], '{# removable text #}' ), 'Cornerstone treats Twig comments as dynamic content.' );
+$ordinary = '<p>Note [editor.review] and [section:2] for reference.</p>';
+$plain = $document::bind( $stored, $by_sample['<p>Original body.</p>'], $ordinary );
+check( str_contains( $document::source( $plain['document'] ), $ordinary ), 'Unregistered bracketed prose remains ordinary rich text.' );
 refuses( fn() => $document::bind( $stored, $by_sample['<p>Original body.</p>'], '[gallery ids="123"]' ), 'Delivery HTML must not execute WordPress shortcodes.' );
 refuses( fn() => $document::bind( $stored, $by_sample['https://example.test/large.jpg'], '14:thumbnail' ), 'A native attachment reference is not an external image URL.' );
 refuses( fn() => $document::capture( '[{"_type":"section","_modules":{}}]' ), 'Malformed children must not cause the layout to be dropped.' );

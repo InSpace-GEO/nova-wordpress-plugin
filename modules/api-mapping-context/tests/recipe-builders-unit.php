@@ -218,6 +218,7 @@ $carrier_cases = [
     [ '<p>Plain content</p>', [], [] ],
     [ '<div id="cs-content">Rendered heading</div>', [ '_cornerstone_data' => '[{"_type":"section","_modules":[{"_type":"headline"}]}]' ], [ 'cornerstone' ] ],
     [ '[cs_content]Saved shortcode output[/cs_content]', [ '_cornerstone_data' => [ [ '_type' => 'classic:section' ] ] ], [ 'cornerstone' ] ],
+    [ '<!-- cs-content --><!-- wp:paragraph --><p>Rendered block</p><!-- /wp:paragraph -->', [ '_cornerstone_data' => '{"data":[{"_type":"section"}]}' ], [ 'cornerstone' ] ],
     [ '<p>Ordinary post on a Cornerstone site</p>', [ '_cornerstone_data' => '[]', '_cornerstone_settings' => [ 'layout' => 'full-width' ] ], [] ],
     [ '<p>Edited in WordPress</p>', [ '_cornerstone_data' => '[{"_type":"classic:section"}]', '_cornerstone_override' => '1' ], [] ],
     [ '', [ '_et_pb_use_divi_5' => 'on', '_et_pb_use_builder' => 'on' ], [ 'divi5' ] ],
