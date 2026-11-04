@@ -1,6 +1,7 @@
 <?php
 /** A TranslatePress or Weglot translation shares a native post with the original. */
 defined( 'ABSPATH' ) || exit;
+require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
 require_once __DIR__ . '/class-nova-wordpress-weglot.php';
 require_once __DIR__ . '/class-nova-wordpress-translatepress.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-custom-fields.php';
@@ -81,6 +82,12 @@ final class Nova_Bridge_Suite_Translation_Writer {
         }
         $target = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url );
         if ( is_wp_error( $target ) ) { return $target; }
+        $input_origin = $target['origin'];
+        $native_url = Nova_WordPress_Delivery_Host::canonicalize( $url, $base['origin'] );
+        if ( $native_url !== $url ) {
+            $target = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $native_url );
+            if ( is_wp_error( $target ) ) { return $target; }
+        }
         if ( $target['origin'] !== $base['origin'] || ( '/' !== $base['path'] && $target['path'] !== $base['path'] && 0 !== strpos( $target['path'], rtrim( $base['path'], '/' ) . '/' ) ) ) {
             return self::error( 'url', 'The requested URL does not belong to the configured language.' );
         }
@@ -89,6 +96,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
             if ( $code === $context['language'] ) { continue; }
             $sibling = self::translated_url( array_replace( $context, [ 'language' => $code ] ), $home );
             if ( is_wp_error( $sibling ) ) { return $sibling; }
+            if ( $native_url !== $url && $sibling['origin'] === $input_origin ) { return self::error( 'url', 'A different configured language owns the requested host.' ); }
             if ( $target['origin'] === $sibling['origin'] && strlen( $sibling['path'] ) >= strlen( $base['path'] ) &&
                 ( $target['path'] === $sibling['path'] || 0 === strpos( $target['path'], rtrim( $sibling['path'], '/' ) . '/' ) ) ) {
                 return self::error( 'url', 'A different configured language owns the requested URL.' );

@@ -3,6 +3,8 @@
 require __DIR__ . '/delivery-unit.php';
 $checks = 0;
 const REPLACEMENT_ATTEMPT = '00000000-0000-4000-8000-000000000099';
+function get_option( $key, $default = false ) { return 'home' === $key ? 'https://native.fixture.invalid' : $default; }
+function home_url( $path = '/' ) { return get_option( 'home' ) . $path; }
 
 foreach ( [ 'publication_failed', 'publication_succeeded' ] as $kind ) {
     [ $job, $store, $server, $worker ] = delivery_fixture();
@@ -102,7 +104,7 @@ foreach ( [ 'retired', 'still_active', 'unknown_native' ] as $case ) {
     delivery_check( Contract_Test_Writer::$apply === ( 'retired' === $case ? 1 : 0 ), 'No competing/unreconciled native write: ' . $case );
     if ( 'retired' === $case ) { delivery_check( $store->retired[0][0]['payload']['pending_event'] === $previous['payload']['pending_event'], 'Prior pending receipt survives as history, not an outgoing event.' ); }
 }
-foreach ( [ 'different_url', 'same_url', 'same_locale', 'fixed_target' ] as $case ) {
+foreach ( [ 'different_url', 'same_url', 'same_url_alias', 'same_locale', 'fixed_target' ] as $case ) {
     Contract_Test_Writer::reset();
     $snapshot = nova_contract_fixture()['snapshot'];
     $snapshot['language'] = 'fr-FR';
@@ -115,6 +117,7 @@ foreach ( [ 'different_url', 'same_url', 'same_locale', 'fixed_target' ] as $cas
     $other['content_item_id'] = '999';
     $other['language'] = 'same_locale' === $case ? 'FR_fr' : 'nl-NL';
     $other['url'] = 'same_url' === $case ? rtrim( $other['url'], '/' ) : 'https://native.fixture.invalid/artikel/';
+    if ( 'same_url_alias' === $case ) { $other['url'] = 'https://www.native.fixture.invalid/fr/article/'; }
     $store->previous = [ [ 'site_id' => $fixture['job']['site_id'], 'phase' => 'event_pending', 'payload' => [ 'content' => $other, 'native_writer' => 'stored_layout_v3', 'pending_event' => [ 'kind' => 'publication_succeeded' ] ] ] ];
     $next = handover_worker( $fixture, $store, $server )->process( $fixture['job'] );
     if ( 'different_url' === $case ) {

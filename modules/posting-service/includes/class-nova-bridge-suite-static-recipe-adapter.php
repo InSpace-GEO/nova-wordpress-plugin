@@ -1,6 +1,7 @@
 <?php
 /** Explicit stock-field compatibility for reviewed, scalar WooCommerce category recipes. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-posting-url-scope.php';
 require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
 
 final class Nova_Bridge_Suite_Static_Recipe_Adapter {
@@ -200,10 +201,14 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
         if ( self::digest( $record ) !== self::digest( $profile['record'] ) ) { return self::error( 'recipe_changed', 'The approved immutable local recipe changed.' ); }
         return true;
     }
+    public static function creation_target( string $url, ?string $language ) {
+        $url = Nova_Bridge_Suite_Posting_Url_Scope::canonical_site_url( $url, $language ?? '' );
+        return Nova_Bridge_Suite_Mapped_Content_Target::creation( 'taxonomy:product_cat', $url, $language );
+    }
     public static function policy( array $snapshot, array $profile ) {
         $valid = self::validate_profile( $snapshot, $profile ); if ( is_wp_error( $valid ) ) { return $valid; }
         if ( ! is_string( $snapshot['url'] ?? null ) ) { return self::error( 'target_url', 'A category delivery requires its planned site URL.' ); }
-        $target = Nova_Bridge_Suite_Mapped_Content_Target::creation( 'taxonomy:product_cat', $snapshot['url'], $snapshot['language'] ?? null ); if ( is_wp_error( $target ) ) { return $target; }
+        $target = self::creation_target( $snapshot['url'], $snapshot['language'] ?? null ); if ( is_wp_error( $target ) ) { return $target; }
         return [ 'reference' => [ 'reference_type' => 'term', 'reference_id' => 0 ], 'routing' => [ 'operation' => 'create', 'publication' => 'publish' ], 'target' => $target ];
     }
 }

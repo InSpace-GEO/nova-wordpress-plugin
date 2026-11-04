@@ -26,7 +26,7 @@ function is_wp_error( $v ) { return $v instanceof WP_Error; }
 function wp_json_encode( $v, $flags = 0 ) { return json_encode( $v, $flags ); }
 function wp_cache_delete( $key, $group ) {}
 function get_option( $key, $default = false ) { return $GLOBALS['options'][$key] ?? $default; }
-function home_url( $path = '/' ) { return 'https://example.test' . $path; }
+function home_url( $path = '/' ) { return get_option( 'home', 'https://example.test' ) . $path; }
 function wp_parse_url( $url ) { return parse_url( $url ); }
 function add_option( $key, $value, ...$rest ) { if ( isset( $GLOBALS['options'][$key] ) ) { return false; } $GLOBALS['options'][$key] = $value; return true; }
 function update_option( $key, $value, ...$rest ) { $GLOBALS['options'][$key] = $value; return true; }
@@ -47,8 +47,8 @@ function metadata_exists( $type, $id, $key ) { if ( $id === 99 ) { get_post( 99 
 function update_post_meta( $id, $key, $value ) { if ( $key === ( $GLOBALS['drop_meta_write'] ?? null ) ) { return false; } $GLOBALS['meta'][$id][$key] = $value; if ( $key === '_nova_stored_layout_owner' && $GLOBALS['crash_owner'] ) { $GLOBALS['crash_owner'] = false; throw new RuntimeException( 'Lost ownership marker response' ); } return true; }
 function delete_post_meta( $id, $key ) { unset( $GLOBALS['meta'][$id][$key] ); return true; }
 function get_page_template_slug( $id ) { return get_post_meta( $id, '_wp_page_template', true ); }
-function get_permalink( $id ) { $post = get_post( $id ); return ( $post->post_parent ? get_permalink( $post->post_parent ) : 'https://example.test/' ) . $post->post_name . '/'; }
-function get_sample_permalink( $id ) { $post = get_post( $id ); return [ ( $post->post_parent ? get_permalink( $post->post_parent ) : 'https://example.test/' ) . '%pagename%/', $post->post_name ]; }
+function get_permalink( $id ) { $post = get_post( $id ); return ( $post->post_parent ? get_permalink( $post->post_parent ) : home_url() ) . $post->post_name . '/'; }
+function get_sample_permalink( $id ) { $post = get_post( $id ); return [ ( $post->post_parent ? get_permalink( $post->post_parent ) : home_url() ) . '%pagename%/', $post->post_name ]; }
 function wp_unique_post_slug( $slug, $id, $status, $type, $parent ) { foreach ( $GLOBALS['posts'] as $post ) { if ( $post->ID !== $id && $post->post_name === $slug ) { return $slug . '-2'; } } return $slug; }
 function add_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key][] = $fn; }
 function remove_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key] = array_values( array_filter( $GLOBALS['filters'][$key] ?? [], static function ( $v ) use ( $fn ) { return $v !== $fn; } ) ); }
@@ -80,7 +80,7 @@ class Nova_Bridge_Suite_Recipe_Builders {
     }
 }
 class Nova_Bridge_Suite_Mapped_Content_Target {
-    public static function normalize_url( $url ) { if ( ! is_string( $url ) || ! preg_match( '#^https://example\.test/(?:[a-z-]+(?:/[a-z-]+)*/?)?$#D', $url ) ) { return new WP_Error( 'foreign_url', 'Wrong site' ); } return [ 'origin' => 'https://example.test', 'path' => rtrim( parse_url( $url, PHP_URL_PATH ), '/' ) ?: '/', 'identity' => rtrim( $url, '/' ) ]; }
+    public static function normalize_url( $url ) { $origin = home_url( '' ); if ( ! is_string( $url ) || ! preg_match( '#^' . preg_quote( $origin, '#' ) . '/(?:[a-z-]+(?:/[a-z-]+)*/?)?$#D', $url ) ) { return new WP_Error( 'foreign_url', 'Wrong site' ); } return [ 'origin' => $origin, 'path' => rtrim( parse_url( $url, PHP_URL_PATH ), '/' ) ?: '/', 'identity' => rtrim( $url, '/' ) ]; }
     public static function resolve( $url, $resource = null ) {
         $wanted = self::normalize_url( $url ); if ( is_wp_error( $wanted ) ) { return $wanted; } $matches = [];
         foreach ( $GLOBALS['posts'] as $post ) { if ( rtrim( get_permalink( $post->ID ), '/' ) === $wanted['identity'] ) { $matches[] = $post; } }
@@ -121,6 +121,19 @@ function fixture( $civ = '501', $version = 3, $status = 'publish' ) {
 }
 function planned( $n = 1, $civ = '501', $version = 3, $status = 'publish' ) { list( $content, $configuration ) = fixture( $civ, $version, $status ); return ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $configuration, [ 'operation_id' => op( $n ) ] ) ); }
 $checks = 0;
+foreach ( [ ['example.test', 'www.example.test'], ['www.example.test', 'example.test'] ] as [ $site_host, $alias_host ] ) {
+    reset_native();
+    $options['home'] = 'https://' . $site_host;
+    foreach ( [ '501', '502' ] as $civ ) {
+        list( $delivery, $configuration ) = fixture( $civ );
+        $delivery['url'] = 'https://' . $alias_host . '/article/';
+        $operation = op( (int) $civ - 500 );
+        $plan = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $delivery, $configuration, [ 'operation_id' => $operation ] ) );
+        $saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, $operation ) );
+        check( $plan['target']['target_url'] === home_url( '/article' ) && get_permalink( $saved['post_id'] ) === home_url( '/article/' ), 'Plan and publish at the canonical WordPress permalink.' );
+    }
+    check( 1 === $inserts && 2 === $saves, 'A newer delivery through the same www alias updates the original post.' );
+}
 check( ! method_exists( \Elementor\Plugin::instance()->elements_manager, 'get_element' ), 'Fixture exercises the Elementor 3.30.3 public registries without the newer shortcut.' );
 foreach ( [ [ 'publish', 'preserve', 'publish' ], [ 'draft', 'preserve', 'draft' ], [ 'draft', 'publish', 'publish' ], [ 'publish', 'draft', 'draft' ] ] as [ $initial, $publication, $desired ] ) {
     reset_native(); existing_page( 20, 'services' ); existing_page( 10, 'article', $initial, 20 );

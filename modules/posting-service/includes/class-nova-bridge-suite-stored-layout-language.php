@@ -2,6 +2,7 @@
 /** Resolve an authenticated delivery locale against WordPress's installed language provider. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
 final class Nova_Bridge_Suite_Stored_Layout_Language {
     private static function error( string $message ): WP_Error {
         return new WP_Error( 'nova_stored_layout_language', $message, [ 'status' => 409 ] );
@@ -61,7 +62,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         return $languages;
     }
 
-    private static function context( string $language, string $type = '', ?string $url = null ) {
+    private static function context( string $language, string $type = '', ?string $url = null, bool $resolve_delivery_host = false ) {
         $provider = self::provider();
         $records = self::languages( $provider );
         if ( is_wp_error( $records ) ) { return $records; }
@@ -83,6 +84,10 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
             if ( 'wpml' === $provider && false === apply_filters( 'wpml_is_translated_post_type', null, $type ) ) { return self::error( 'WPML does not translate the mapped post type.' ); }
         }
         if ( null !== $url ) {
+            if ( $resolve_delivery_host ) {
+                $url = Nova_WordPress_Delivery_Host::canonicalize( $url, $context['home'], array_column( $records, 'home' ) );
+                $context['delivery_url'] = $url;
+            }
             $target = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url );
             if ( is_wp_error( $target ) || null !== parse_url( $url, PHP_URL_QUERY ) ) { return self::error( 'The delivery requires an exact native pretty permalink.' ); }
             // /en/ belongs to English even when the default language also owns the root of this host.
@@ -162,10 +167,10 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
             $url = $parts['origin'] . ( '/' === $url[0] ? $url : rtrim( $installation['path'], '/' ) . '/' . $url );
         }
         if ( self::provider() !== 'core' ) {
-            $context = self::context( $language, '', $url );
-            if ( is_wp_error( $context ) ) { return $context; }
+            $context = self::context( $language, '', $url, true );
+            return is_wp_error( $context ) ? $context : $context['delivery_url'];
         }
-        return $url;
+        return Nova_WordPress_Delivery_Host::canonicalize( $url, self::site_home() );
     }
 
     public static function resolve( string $url, ?string $resource, string $language ) {

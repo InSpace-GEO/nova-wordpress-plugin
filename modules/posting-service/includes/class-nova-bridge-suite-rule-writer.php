@@ -1,6 +1,7 @@
 <?php
 /** Journaled, source-free native Elementor documents from frozen local rendering rules. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-posting-url-scope.php';
 
 final class Nova_Bridge_Suite_Rule_Writer_Failure extends RuntimeException {
     public $reason;
@@ -84,6 +85,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
         $language = $content['language'] ?? '';
         if ( ! is_string( $language ) || '' === $language || strtolower( explode( '-', str_replace( '_', '-', $language ) )[0] ) !== strtolower( explode( '-', str_replace( '_', '-', get_locale() ) )[0] ) ) { self::fail( 'locale', 'The delivery language does not match this WordPress site. Local rules do not choose a multilingual destination automatically.' ); }
         if ( ! is_string( $content['url'] ?? null ) || ! in_array( $profile['post_type'], [ 'page', 'post' ], true ) ) { self::fail( 'url', 'The initial delivery route supports canonical WordPress pages and posts with a simple slug permalink.' ); }
+        $content['url'] = Nova_Bridge_Suite_Posting_Url_Scope::canonical_site_url( $content['url'], $language );
         $identity = self::origin_path( $content['url'] ); $home = self::origin_path( home_url( '/' ) );
         if ( $identity[0] !== $home[0] || strpos( $identity[1], $home[1] . '/' ) !== 0 ) { self::fail( 'url_origin', 'The delivery URL must belong to this WordPress origin and installation path.' ); }
         $relative = substr( $identity[1], strlen( $home[1] ) + 1 );
