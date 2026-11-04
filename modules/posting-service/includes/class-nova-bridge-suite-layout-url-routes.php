@@ -5,11 +5,11 @@ require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
 
 final class Nova_Bridge_Suite_Layout_URL_Routes {
     /** Only a fixed public namespace followed by the native slug can serve as a selector. */
-    public static function prefix( string $resource, array $source = [] ): ?string {
-        try { return self::registered_prefix( $resource, $source ); }
+    public static function selector( string $resource, array $source = [] ): ?array {
+        try { return self::registered_selector( $resource, $source ); }
         catch ( Throwable $error ) { return null; } // An unavailable builder/language provider cannot prove a second route.
     }
-    private static function registered_prefix( string $resource, array $source ): ?string {
+    private static function registered_selector( string $resource, array $source ): ?array {
         global $wp_rewrite;
         if ( 0 !== strpos( $resource, 'post_type:' ) || ! is_object( $wp_rewrite ) ) { return null; }
         $name = substr( $resource, 10 ); $object = get_post_type_object( $name );
@@ -32,8 +32,11 @@ final class Nova_Bridge_Suite_Layout_URL_Routes {
             if ( count( $catalog['languages'] ?? [] ) !== 1 || empty( $catalog['source'] ) ) { return null; }
         }
         $home = wp_parse_url( get_option( 'home', home_url( '/' ) ) );
-        if ( ! is_array( $home ) || empty( $home['host'] ) || isset( $home['query'] ) || isset( $home['fragment'] ) ) { return null; }
-        $segments = array_merge( array_values( array_filter( explode( '/', trim( $home['path'] ?? '', '/' ) ), 'strlen' ) ), $parts );
+        if ( ! is_array( $home ) || empty( $home['host'] ) || isset( $home['user'] ) || isset( $home['pass'] ) || isset( $home['query'] ) || isset( $home['fragment'] ) ) { return null; }
+        $home_path = $home['path'] ?? '';
+        if ( false !== strpos( $home_path, '//' ) ) { return null; }
+        $home_segments = '' === trim( $home_path, '/' ) ? [] : explode( '/', trim( $home_path, '/' ) );
+        $segments = array_merge( $home_segments, $parts );
         foreach ( $segments as $key => $segment ) {
             if ( '' === $segment || preg_match( '/%(?![a-f0-9]{2})/i', $segment ) ) { return null; }
             $decoded = rawurldecode( $segment );
@@ -50,7 +53,8 @@ final class Nova_Bridge_Suite_Layout_URL_Routes {
             if ( empty( $object->hierarchical ) && false !== strpos( trim( substr( $native_path, strlen( $path ) ), '/' ), '/' ) ) { return null; }
         }
         // A bare slug is still the fallback on a subdirectory installation. Only an endpoint's own prefix identifies it.
-        return $parts ? $path : '/';
+        $installation_path = $home_segments ? '/' . implode( '/', array_slice( $segments, 0, count( $home_segments ) ) ) . '/' : '/';
+        return [ 'path_prefix' => $parts ? $path : '/', 'installation_path' => $installation_path ];
     }
 
     /** Only reclassify a previous default if this installation approved the native layout. */
@@ -68,7 +72,8 @@ final class Nova_Bridge_Suite_Layout_URL_Routes {
                 $record = Nova_Bridge_Suite_Layout_Recipes::delivery_record( $recipe_id, $default['revision'] );
                 if ( ! is_wp_error( $record ) ) { $source = $record['source_reference'] ?? []; }
             }
-            return [ 'prefix' => self::prefix( $resource, $source ), 'recipe_id' => $recipe_id, 'resource_id' => $resource ];
+            $selector = self::selector( $resource, $source );
+            return $selector ? $selector + [ 'recipe_id' => $recipe_id, 'resource_id' => $resource ] : null;
         }
         return null;
     }

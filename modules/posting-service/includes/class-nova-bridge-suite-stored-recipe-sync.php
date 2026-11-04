@@ -34,25 +34,27 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
     }
 
     /** Plan before creating/updating remote templates. The final UUID is filled after local writer approval. */
-    private static function route_plan( $client, array $record, array $reply, array $defaults, ?string $previous_id, ?array $replace ) {
+    private static function route_plan( $client, array $record, array $reply, array $defaults, ?string $previous_id, ?array $replace, ?string $confirmed_prefix ) {
         $type = $record['posting_page_type'] ?? ( 'post_type:post' === $record['resource_id'] ? 'informative' : 'service' );
         $body = $reply['body']; $selected = $defaults[$type] ?? null; $modern = array_key_exists( 'routes', $body );
         $routes = $modern ? Nova_Bridge_Suite_Layout_URL_Routes::index( $body['routes'] ) : [];
         if ( is_wp_error( $routes ) ) { return $routes; }
-        $prefix = Nova_Bridge_Suite_Layout_URL_Routes::prefix( $record['resource_id'], $record['source_reference'] ?? [] );
+        $selector = Nova_Bridge_Suite_Layout_URL_Routes::selector( $record['resource_id'], $record['source_reference'] ?? [] );
+        $prefix = $selector['path_prefix'] ?? null;
         // Keep an installation's original single default until there are two destinations to distinguish.
         $has_type_routes = in_array( $type, array_column( $routes, 'page_type' ), true );
         $multiple = $has_type_routes || ( $selected && $selected !== $previous_id );
         $scoped = $modern && $multiple && null !== $prefix && '/' !== $prefix;
         $migration = null;
         if ( null !== $replace && ( $replace['page_type'] !== $type || $replace['template_id'] !== $selected || $replace['defaults_revision'] !== $body['revision'] || $scoped ) ) { return self::default_conflict( $type, $selected, $body['revision'] ); }
-        if ( $scoped && isset( $routes[$type . ':' . $prefix] ) && $routes[$type . ':' . $prefix]['template_id'] !== $previous_id ) {
+        $existing = $scoped ? ( $routes[$type . ':' . $prefix] ?? null ) : null;
+        if ( $existing && ( $existing['template_id'] !== $previous_id || ( isset( $existing['installation_path'] ) && $existing['installation_path'] !== $selector['installation_path'] ) ) ) {
             return self::error( 'route_conflict', 'Another ' . $type . ' layout already handles URLs under ' . $prefix . '. WordPress registers the same URL pattern for both destinations. Give one destination a distinct permalink base before syncing.' );
         }
         $existing_binding = $scoped && $previous_id && ( $routes[$type . ':' . $prefix]['template_id'] ?? null ) === $previous_id;
         if ( $selected && $selected !== $previous_id && ! $existing_binding ) {
             $owner = Nova_Bridge_Suite_Layout_URL_Routes::previous_default( $client->site_id(), $selected, $type );
-            $other_prefix = $owner['prefix'] ?? null;
+            $other_prefix = $owner['path_prefix'] ?? null;
             if ( ! $modern && null !== $prefix && null !== $other_prefix && $prefix !== $other_prefix ) {
                 return self::error( 'routes_unavailable', 'The two WordPress destinations have distinct permalink paths. Update posting service to support URL routes, then sync this saved layout again. The existing default was kept.' );
             }
@@ -63,8 +65,8 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
             }
             if ( $modern && null !== $other_prefix && '/' !== $other_prefix && $other_prefix !== $prefix ) {
                 $key = $type . ':' . $other_prefix;
-                if ( isset( $routes[$key] ) && $routes[$key]['template_id'] !== $selected ) { return self::error( 'route_conflict', 'The current default cannot be moved to ' . $other_prefix . ' because another template already uses that route.' ); }
-                $routes[$key] = [ 'page_type' => $type, 'path_prefix' => $other_prefix, 'template_id' => $selected ];
+                if ( isset( $routes[$key] ) && ( $routes[$key]['template_id'] !== $selected || ( isset( $routes[$key]['installation_path'] ) && $routes[$key]['installation_path'] !== $owner['installation_path'] ) ) ) { return self::error( 'route_conflict', 'The current default cannot be moved to ' . $other_prefix . ' because another template or installation already uses that route.' ); }
+                $routes[$key] = [ 'page_type' => $type, 'path_prefix' => $other_prefix, 'installation_path' => $owner['installation_path'], 'template_id' => $selected ];
                 unset( $defaults[$type] );
                 $migration = $owner + [ 'template_id' => $selected ];
             }
@@ -72,10 +74,10 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         foreach ( $routes as $key => $row ) {
             if ( $row['page_type'] !== $type ) { continue; }
             if ( null === $prefix ) { return self::error( 'route_unknown', 'WordPress cannot verify a fixed permalink base alongside existing ' . $type . ' URL routes. The current routing was kept.' ); }
-            if ( $row['template_id'] === $previous_id && $row['path_prefix'] !== $prefix ) { unset( $routes[$key] ); }
+            if ( $row['template_id'] === $previous_id && $row['path_prefix'] === $confirmed_prefix && $row['path_prefix'] !== $prefix && ( $row['installation_path'] ?? null ) === $selector['installation_path'] ) { unset( $routes[$key] ); }
         }
         if ( $scoped && $selected && $selected === $previous_id ) { unset( $defaults[$type] ); }
-        return [ 'type' => $type, 'prefix' => $scoped ? $prefix : null, 'defaults' => $defaults, 'routes' => $routes, 'modern' => $modern, 'migration' => $migration ];
+        return [ 'type' => $type, 'selector' => $scoped ? $selector : null, 'defaults' => $defaults, 'routes' => $routes, 'modern' => $modern, 'migration' => $migration ];
     }
 
     public static function sync_editor( array $connection, callable $load, bool $saving = false, string $recipe_id = '', $client = null, $locks = null, string $recover_template_id = '', ?array $replace_default = null ) {
@@ -90,10 +92,12 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
             $previous = $recipe_id ? Nova_Bridge_Suite_Mapping_Sync::scope_state( $client->site_id(), 'recipe:' . $recipe_id ) : null;
             if ( $saving && isset( $previous['pending'] ) ) { return self::error( 'sync_pending', 'Sync the saved revision to reconcile its pending remote operation before saving another revision.' ); }
             $saved = $load(); if ( is_wp_error( $saved ) ) { return $saved; }
+            $last = get_option( self::status_key( $connection, $saved['id'] ), null );
+            $confirmed_prefix = 'synced' === ( $last['status'] ?? '' ) && true === ( $last['verified'] ?? false ) && ( $last['template_id'] ?? '' ) === ( $previous['template']['id'] ?? null ) ? ( $last['route_prefix'] ?? null ) : null;
             $attempt = [ 'status' => 'pending', 'recipe_revision' => $saved['revision'], 'page_type' => $saved['posting_page_type'] ?? 'service', 'checked_at' => gmdate( 'Y-m-d\TH:i:s\Z' ), 'message' => 'Posting-service default confirmation has not completed.' ];
             $remembered = self::remember( $connection, $saved['id'], $attempt );
             $record = Nova_Bridge_Suite_Layout_Recipes::delivery_record( $saved['id'], $saved['revision'] );
-            $result = ! $remembered ? self::error( 'status_storage', 'The saved layout is local; its synchronization status could not be retained. Retry synchronization.' ) : ( is_wp_error( $record ) ? $record : self::synchronize( $connection, $client, $record, $recover_template_id, $replace_default ) );
+            $result = ! $remembered ? self::error( 'status_storage', 'The saved layout is local; its synchronization status could not be retained. Retry synchronization.' ) : ( is_wp_error( $record ) ? $record : self::synchronize( $connection, $client, $record, $recover_template_id, $replace_default, $confirmed_prefix ) );
             $saved['posting_sync'] = ( is_wp_error( $result ) ? [ 'status' => 'failed', 'code' => $result->get_error_code(), 'message' => $result->get_error_message() ] : $result ) + $attempt;
             if ( is_wp_error( $result ) && is_array( $result->get_error_data()['default_replacement'] ?? null ) ) { $saved['posting_sync']['default_replacement'] = $result->get_error_data()['default_replacement']; }
             if ( ! self::remember( $connection, $saved['id'], $saved['posting_sync'] ) ) { $saved['posting_sync'] = [ 'status' => 'failed', 'code' => 'nova_stored_recipe_status_storage', 'message' => 'The last synchronization result could not be retained. Review and sync this saved revision again.' ] + $attempt; }
@@ -102,7 +106,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         } finally { $locks->unlock( $lock ); }
     }
 
-    private static function synchronize( array $connection, $client, array $record, string $recover_template_id, ?array $replace_default ) {
+    private static function synchronize( array $connection, $client, array $record, string $recover_template_id, ?array $replace_default, ?string $confirmed_prefix ) {
         $default = Nova_Bridge_Suite_Layout_Recipes::defaults()[$record['resource_id']] ?? [];
         if ( ( $default['id'] ?? '' ) !== $record['id'] || ( $default['revision'] ?? 0 ) !== $record['revision'] ) { return self::error( 'default_changed', 'Reload the current saved creation default before synchronizing.' ); }
         $draft = Nova_Bridge_Suite_Stored_Layout::from_recipe( $record ); if ( is_wp_error( $draft ) ) { return $draft; }
@@ -110,15 +114,15 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         $reply = $client->site_request( 'GET', '/template-defaults' ); $defaults = self::defaults( $reply ); if ( is_wp_error( $defaults ) ) { return $defaults; }
         $scope = 'recipe:' . $record['id']; $previous = Nova_Bridge_Suite_Mapping_Sync::scope_state( $client->site_id(), $scope );
         if ( isset( $previous['template']['page_type'] ) && $previous['template']['page_type'] !== $page_type ) { return self::error( 'page_type_changed', 'Create a separate template for another NOVA content type. The synchronized template keeps its existing default and page type.' ); }
-        $plan = self::route_plan( $client, $record, $reply, $defaults, $previous['template']['id'] ?? null, $replace_default );
+        $plan = self::route_plan( $client, $record, $reply, $defaults, $previous['template']['id'] ?? null, $replace_default, $confirmed_prefix );
         if ( is_wp_error( $plan ) ) { return $plan; }
         $sync = new Nova_Bridge_Suite_Mapping_Sync( $client, $scope );
         $state = $sync->synchronize( $draft, $recover_template_id ); if ( is_wp_error( $state ) ) { return $state; }
         $state = $sync->activate( $draft, [ 'actor_user_id' => (int) ( $connection['actor_user_id'] ?? 0 ) ] ); if ( is_wp_error( $state ) ) { return $state; }
         // Approve native authority before selecting a default which can receive deliveries immediately.
         $id = $state['template']['id'];
-        $prefix = $plan['prefix'];
-        if ( $prefix ) { $plan['routes'][$page_type . ':' . $prefix] = [ 'page_type' => $page_type, 'path_prefix' => $prefix, 'template_id' => $id ]; }
+        $prefix = $plan['selector']['path_prefix'] ?? null;
+        if ( $prefix ) { $plan['routes'][$page_type . ':' . $prefix] = $plan['selector'] + [ 'page_type' => $page_type, 'template_id' => $id ]; }
         else { $plan['defaults'][$page_type] = $id; }
         $prior_routes = $plan['modern'] ? Nova_Bridge_Suite_Layout_URL_Routes::index( $reply['body']['routes'] ) : [];
         if ( ! self::same( $defaults, $plan['defaults'] ) || ! self::same( $prior_routes, $plan['routes'] ) ) {
@@ -132,7 +136,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         if ( $plan['migration'] ) {
             $moved = $plan['migration']; $key = self::status_key( $connection, $moved['recipe_id'] ); $old_status = get_option( $key, null );
             if ( ( $old_status['template_id'] ?? '' ) === $moved['template_id'] && 'synced' === ( $old_status['status'] ?? '' ) ) {
-                self::remember( $connection, $moved['recipe_id'], array_merge( $old_status, [ 'default_selected' => false, 'route_prefix' => $moved['prefix'], 'defaults_revision' => $readback['body']['revision'], 'message' => 'Posting service confirmed URLs under ' . $moved['prefix'] . ' for this layout.' ] ) );
+                self::remember( $connection, $moved['recipe_id'], array_merge( $old_status, [ 'default_selected' => false, 'route_prefix' => $moved['path_prefix'], 'defaults_revision' => $readback['body']['revision'], 'message' => 'Posting service confirmed URLs under ' . $moved['path_prefix'] . ' for this layout.' ] ) );
             }
         }
         return [ 'status' => 'synced', 'verified' => true, 'default_selected' => ! $prefix, 'route_prefix' => $prefix, 'defaults_revision' => $readback['body']['revision'], 'template_id' => $id, 'template_revision' => $state['template']['revision'], 'local_revision' => $record['revision'], 'recipe_revision' => $record['revision'], 'mapping_version' => $state['template']['definition']['version'], 'page_type' => $page_type, 'message' => $prefix ? 'Posting service confirmed URLs under ' . $prefix . ' for this layout.' : 'Posting service confirmed this saved layout as the default for ' . $page_type . ' content.' ];
