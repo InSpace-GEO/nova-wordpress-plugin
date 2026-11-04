@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.1.2
+Stable tag: 1.1.3
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+= 1.1.3 =
+Deliveries can use the site's hostname with or without www. WordPress publishes at its configured address. The layout preview highlights selected Custom HTML fields on optimized pages and preserves selection for previously saved block mappings.
+
 = 1.1.2 =
 Selecting a Custom HTML field highlights its text, link, or image in the mapping preview. Click the preview to select the matching field, even when the same question appears twice. Selecting an answer opens its FAQ section. The editor identifies structured data fields that have no visible element.
 

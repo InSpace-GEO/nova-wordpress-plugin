@@ -47,4 +47,10 @@ $new=good(Target::creation('post_type:page','https://site.example/sub/parent/new
 $new=good(Target::creation('taxonomy:product_cat','https://site.example/sub/product-category/floor/new-category/'),'Plan new category hierarchy.');check($new['parent']===10 && $new['slug']==='new-category','Category parent comes from the actual native URL.');
 bad(Target::creation('taxonomy:product_cat','https://site.example/sub/wrong/new-category/'),'create_route');bad(Target::creation('post_type:page',$links[1]),'target_exists');bad(Target::creation('post_type:page','https://site.example/sub/missing/new/'),'target_not_found');bad(Target::creation('post_type:page','https://site.example/sub/new/', 'en'),'create_language_unsupported');
 $post=good(Target::creation('post_type:post','https://site.example/sub/blog/new-post/'),'Plan native fixed-prefix post permalinks.');check($post['slug']==='new-post' && $post['parent']===0,'Static blog route is not mistaken for a page parent.');$options['permalink_structure']='/%year%/%postname%/';bad(Target::creation('post_type:post','https://site.example/sub/2026/new-post/'),'create_route');
+require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-language.php';
+$options['home'] = 'https://www.site.example';
+$options['permalink_structure'] = '/%postname%/';
+$delivery_url = Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( 'https://site.example/test-article/', 'nl-NL' );
+$post = good( Target::creation( 'post_type:post', $delivery_url, 'nl-NL' ), 'Create a native Post from a bare-host delivery on a www installation.' );
+check( $post['target_url'] === 'https://www.site.example/test-article' && $post['parent'] === 0, 'Native Post routing uses the canonical permalink and retains the supplied path.' );
 echo "PASS $checks mapped URL ownership and routing checks.\n";

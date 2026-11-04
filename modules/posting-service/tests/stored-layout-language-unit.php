@@ -103,4 +103,8 @@ $groups[21] = ['nl-nl'=>21,'en'=>91]; $groups[20] = ['de-de'=>20];
 bad( Language::check_sibling( 21, $dutch, 20 ), 'Conflicting editions block before replacing existing native content' );
 check( $group_saves === 1, 'Conflicting preflight cannot detach another editorial group' );
 bad( Language::link_sibling( 21, $dutch, 20 ), 'Never overwrite an unrelated translation group' );
+$homes['en'] = 'https://www.example.test/en/';
+bad( Language::delivery_url( 'https://example.test/en/article/', 'en' ), 'The bare host is registered to another language and must not be rewritten.' );
+$homes['en'] = 'https://www.example.org/en/';
+check( 'https://www.example.org/en/article/' === good( Language::delivery_url( 'https://example.org/en/article/', 'en' ), 'Localize the alias of a dedicated language host' ), 'Use the language’s canonical host and preserve its path.' );
 echo "Stored-layout Polylang checks: $checks passed.\n";

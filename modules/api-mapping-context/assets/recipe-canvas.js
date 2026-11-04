@@ -47,9 +47,9 @@
 	}
 	function customHtmlTargets( document ) {
 		var matches = new Map();
-		function add( key, node, range ) {
+		function add( key, node, range, precision ) {
 			if ( /^[a-f0-9]{32}$/.test( key ) ) {
-				matches.set( key, matches.has( key ) ? null : { owner: node, node: node, precision: 'field', customHtml: true, range: range } );
+				matches.set( key, matches.has( key ) ? null : { owner: node, node: node, precision: precision || 'field', customHtml: true, range: range } );
 			}
 		}
 		document.querySelectorAll( '[data-nova-preview-fields]' ).forEach( function ( node ) {
@@ -57,11 +57,33 @@
 		} );
 		var walker = document.createTreeWalker( document.body, 128 /* SHOW_COMMENT */ ), start;
 		while ( ( start = walker.nextNode() ) ) {
+			var block = /^nova-preview-block:([a-f0-9]{32})$/.exec( start.data );
+			if ( block ) {
+				var region = singleBlockRegion( start );
+				if ( region ) { add( block[1], region, null, 'region' ); }
+				continue;
+			}
 			var match = /^nova-preview:([a-f0-9]{32})$/.exec( start.data ), text = start.nextSibling;
 			if ( ! match || ! text || text.nodeType !== 3 || ! text.nextSibling || text.nextSibling.nodeType !== 8 || text.nextSibling.data !== '/nova-preview' ) { continue; }
 			var range = document.createRange(); range.selectNodeContents( text ); add( match[1], text.parentElement, range );
 		}
 		return matches;
+	}
+	// Older saved layouts mapped the whole HTML block. Outline it only when one
+	// element represents the complete visible region; never guess among siblings.
+	function singleBlockRegion( start ) {
+		var root = null;
+		for ( var node = start.nextSibling; node; node = node.nextSibling ) {
+			if ( node.nodeType === 8 ) {
+				if ( node.data === '/nova-preview-block' ) { return root; }
+				if ( node.data.startsWith( 'nova-preview-block:' ) ) { return null; }
+			} else if ( node.nodeType === 3 && node.textContent.trim() ) { return null; }
+			else if ( node.nodeType === 1 && ! node.matches( 'style,script,link,meta,template' ) ) {
+				if ( root ) { return null; }
+				root = node;
+			}
+		}
+		return null;
 	}
 	function locate( document, item, config, htmlTargets ) {
 		var locator = item && item.locator; if ( ! locator || locator.reference_id !== config.referenceId ) { return null; }

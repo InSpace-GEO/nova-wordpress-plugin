@@ -23,6 +23,9 @@ visual_ok( $design['recipe_preset']['bindings'] === [] && $design['recipe_preset
 visual_ok( $design['sample'] instanceof stdClass, 'Empty manual sample exports as a JSON object, never an array.' );
 visual_ok( $design['source_reference']['reference_id'] === 11 && $design['source_reference']['resource_id'] === 'post_type:page', 'Source identity is explicit.' );
 visual_ok( $design['visual_preview']['status'] === 'available' && strpos( $design['visual_preview']['url'],'nova_recipe_canvas=') !== false, 'Authenticated correlated canvas URL exists.' );
+parse_str( parse_url( $design['visual_preview']['url'], PHP_URL_QUERY ), $canvas_query );
+visual_ok( '1' === ( $canvas_query['ao_noptimize'] ?? null ) && isset( $canvas_query['authenticated-preview'], $canvas_query['nova_recipe_digest'] )
+    && ! str_contains( $design['source_reference']['url'], 'ao_noptimize' ), 'Only the signed canvas URL requests the unoptimized document; public source URLs are unchanged.' );
 visual_ok( $design['preview_fields'][0]['locator']['reference_id'] === 11 && $design['preview_fields'][0]['field_id'] === $design['fields'][0]['field_id'], 'Canvas IDs belong to the captured native inventory.' );
 visual_ok( $design['fields'][0]['current_value'] === 'Original example', 'Current native values are shown independently of mapping selection.' );
 visual_ok( serialize($posts[11]) === $source_before && serialize($options) === $settings_before && $writes === $writes_before, 'Capture has no page/settings/backend writes.' );

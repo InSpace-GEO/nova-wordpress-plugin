@@ -110,7 +110,8 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             }
             if ( 'acf' === $builder ) { $locator = [ 'strategy' => 'unbound', 'reason' => 'The theme decides where this custom field is rendered. Select its declared field from the inventory.' ]; }
             if ( empty( $locator['node_id'] ) && 'core' !== $locator['strategy'] ) { $locator['strategy'] = 'unbound'; }
-            if ( 'gutenberg' === $builder && str_contains( $field['target'], '/nova_html_slots/' ) ) {
+            if ( 'gutenberg' === $builder && ( str_contains( $field['target'], '/nova_html_slots/' )
+                || ( 'unbound' === $locator['strategy'] && str_ends_with( $field['target'], '/innerHTML' ) ) ) ) {
                 require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
                 $locator = Nova_Mapping_Gutenberg_HTML::preview_locator( $design['blueprint'], $field ) ?? $locator;
             }
@@ -146,7 +147,9 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             $design['visual_preview'] = [ 'status' => 'unavailable', 'reason' => 'WordPress could not open this example on the admin domain. Its fields are available in the list.' ];
             return $design;
         }
-        $url = add_query_arg( [ 'nova_recipe_canvas' => $session, 'nova_recipe_digest' => $source['native_digest'] ], $url );
+        // The isolated canvas relies on exact HTML markers and nonce-bearing scripts.
+        // Keep Autoptimize's public-page rewriting out of this signed preview request.
+        $url = add_query_arg( [ 'nova_recipe_canvas' => $session, 'nova_recipe_digest' => $source['native_digest'], 'ao_noptimize' => '1' ], $url );
         $design['visual_preview'] = [ 'status' => 'available', 'url' => $url, 'session_id' => $session, 'digest' => $source['native_digest'], 'reference_id' => $source['reference_id'], 'reference_type' => $source['reference_type'], 'reason' => 'Click content to choose its purpose. Site scripts and forms are disabled in this isolated design view; hidden or theme-controlled fields remain in the inventory.' ];
         foreach ( $design['preview_fields'] as &$field ) { $field['locator']['reference_id'] = $source['reference_id']; } unset( $field );
         foreach ( $design['preview_containers'] as &$container ) { $container['locator']['reference_id'] = $source['reference_id']; } unset( $container );

@@ -37,13 +37,24 @@ foreach ( array_merge( [ '' ], $airports ) as $destination ) {
 
 $GLOBALS['wake_options']['home'] = $base . '/eindhoven';
 $scope = [ 'url_scope_enabled' => true, 'url_scope_excluded_paths' => [] ];
+$www_host = 'www.' . parse_url( $base, PHP_URL_HOST );
+$www_url = 'https://' . $www_host;
+function is_multisite() { return ! empty( $GLOBALS['network_hosts'] ); }
+function get_sites( $args ) { return isset( $GLOBALS['network_hosts'][$args['domain']] ) ? [ 2 ] : []; }
 foreach ( [
     [ $base . '/eindhoven', true ], [ $base . '/eindhoven/', true ], [ $base . '/eindhoven/article/?campaign=x', true ],
     [ '/eindhoven/article/', true ], [ '/schiphol/article/', false ], [ '/eindhoven-extra/article/', false ],
     [ $base . '/Eindhoven/article/', false ], [ 'https://EAZZYPARK.fixture.invalid:443/eindhoven/article/', true ],
     [ 'https://foreign.fixture.invalid/eindhoven/article/', false ], [ 'https://eazzypark.fixture.invalid.attacker.invalid/eindhoven/article/', false ],
     [ $base . ':444/eindhoven/article/', false ], [ $base . '/%65indhoven/article/', true ],
+    [ $www_url . '/eindhoven/article/', true ], [ $www_url . '/schiphol/article/', false ],
+    [ $www_url . ':444/eindhoven/article/', false ], [ 'http://' . $www_host . '/eindhoven/article/', false ],
+    [ 'https://www.' . $www_host . '/eindhoven/article/', false ],
 ] as [ $url, $expected ] ) { delivery_check( $expected === Nova_Bridge_Suite_Posting_Url_Scope::owns( $scope, $url ), 'Origin and segment-boundary routing: ' . $url ); }
+$network_hosts = [ $www_host => true ];
+delivery_check( false === Nova_Bridge_Suite_Posting_Url_Scope::owns( $scope, $www_url . '/eindhoven/article/' ), 'A hostname registered to a different network site is not an alias.' );
+$network_hosts = [];
+delivery_check( false === Nova_Bridge_Suite_Posting_Url_Scope::owns( [ 'url_scope_enabled' => true, 'url_scope_excluded_paths' => [ '/eindhoven/private' ] ], $www_url . '/eindhoven/private/article/' ), 'A www alias cannot bypass a path exclusion.' );
 foreach ( [ '//foreign.fixture.invalid/eindhoven/', $base . '/eindhoven/../schiphol/', $base . '/eindhoven/%2e%2e/schiphol/', $base . '/eindhoven%2fschiphol/', $base . '/eindhoven%5carticle/', $base . '/eindhoven\\article/', $base . '/eindhoven//article/', $base . '/eindhoven/%zz', $base . '/eindhoven/#fragment', 'https://user:password@eazzypark.fixture.invalid/eindhoven/' ] as $invalid ) {
     delivery_check( is_wp_error( Nova_Bridge_Suite_Posting_Url_Scope::owns( $scope, $invalid ) ), 'Ambiguous URLs require local review, never publication or a silent skip.' );
 }

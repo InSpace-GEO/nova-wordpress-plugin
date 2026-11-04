@@ -71,7 +71,7 @@ final class Nova_Bridge_Suite_Static_Term_Writer {
         $valid = self::validate_plan( $plan, $operation ); if ( is_wp_error( $valid ) ) { return $valid; }
         $key = self::key( $operation ); if ( null !== get_option( $key, null ) ) { return self::recover( $plan, $operation ); }
         $capability = self::capability(); if ( is_wp_error( $capability ) ) { return $capability; }
-        $target = Nova_Bridge_Suite_Mapped_Content_Target::creation( 'taxonomy:product_cat', $plan['identity']['url'], $plan['identity']['language'] ); if ( is_wp_error( $target ) ) { return $target; }
+        $target = Nova_Bridge_Suite_Static_Recipe_Adapter::creation_target( $plan['identity']['url'], $plan['identity']['language'] ); if ( is_wp_error( $target ) ) { return $target; }
         if ( self::digest( $target ) !== self::digest( $plan['target'] ) ) { return self::error( 'target_changed', 'The native category route changed after planning.' ); }
         $journal = [ 'plan_digest' => $plan['plan_digest'], 'phase' => 'writing', 'term_id' => 0 ];
         if ( ! add_option( $key, $journal, '', false ) ) { return self::recover( $plan, $operation ); }

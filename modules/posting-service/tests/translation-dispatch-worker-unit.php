@@ -28,6 +28,7 @@ $checks = 0;
 $scope = [ 'url_scope_enabled' => true, 'url_scope_excluded_paths' => [ '/site/private' ] ];
 foreach ( [
     [ 'https://fr.fixture.invalid/site/article/', true ],
+    [ 'https://www.fr.fixture.invalid/site/article/', true ],
     [ 'article/', true ],
     [ '/site/article/', true ],
     [ '/another-installation/article/', false ],

@@ -1,6 +1,7 @@
 <?php
 /** Optional installation ownership for installations sharing a NOVA site credential. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
 
 final class Nova_Bridge_Suite_Posting_Url_Scope {
     private static function error( string $message ) {
@@ -80,8 +81,25 @@ final class Nova_Bridge_Suite_Posting_Url_Scope {
                 if ( is_wp_error( $home ) ) { return $home; }
                 $target = $home['origin'] . ( '/' === $target[0] ? $target : rtrim( $home['path'], '/' ) . '/' . $target );
             }
+        } else {
+            $target = self::canonical_for_route( $target, $language, $route );
         }
         return self::url( $target );
+    }
+
+    private static function canonical_for_route( $url, string $language, ?array $route ) {
+        $home = $route['home'] ?? get_option( 'home', home_url( '/' ) );
+        $canonical = Nova_WordPress_Delivery_Host::canonicalize( $url, $home );
+        if ( $canonical === $url || ! $route ) { return $canonical; }
+        // Let the provider protect hosts explicitly assigned to a different language.
+        $provider = $route['provider'];
+        $verified = $provider::delivery_url( $url, $language );
+        return is_string( $verified ) ? $verified : $url;
+    }
+
+    public static function canonical_site_url( $url, string $language ) {
+        $route = self::language_route( $language );
+        return is_wp_error( $route ) ? $url : self::canonical_for_route( $url, $language, $route );
     }
 
     /** Separate siblings only when both destinations and the distinct content identities are known. */

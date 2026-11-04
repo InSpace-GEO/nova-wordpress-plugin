@@ -45,13 +45,13 @@ final class Nova_Mapping_Gutenberg_HTML {
 
     /** Preview markers are derived from the captured block, never persisted into its blueprint. */
     public static function preview_locator( array $blueprint, array $field ): ?array {
-        if ( ! preg_match( '~^(/document/[0-9]+(?:/innerBlocks/[0-9]+)*)/nova_html_slots/([a-zA-Z0-9_]+)$~D', $field['target'], $m ) ) { return null; }
+        if ( ! preg_match( '~^(/document/[0-9]+(?:/innerBlocks/[0-9]+)*)/(?:innerHTML|nova_html_slots/([a-zA-Z0-9_]+))$~D', $field['target'], $m ) ) { return null; }
         $block = Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $m[1] );
         if ( 'core/html' !== ( $block['blockName'] ?? '' ) ) { return null; }
         if ( 'schema_value' === $field['kind'] ) {
             return [ 'strategy' => 'unbound', 'reason' => 'Structured data has no visible element on the page.' ];
         }
-        return [ 'strategy' => 'custom_html', 'marker' => self::marker( $m[1], $block['innerHTML'], $m[2] ), 'precision' => 'field' ];
+        return [ 'strategy' => 'custom_html', 'marker' => self::marker( $m[1], $block['innerHTML'], $m[2] ?? 'block' ), 'precision' => isset( $m[2] ) ? 'field' : 'region' ];
     }
 
     private static function marker( string $path, string $html, string $key ): string {
@@ -82,7 +82,8 @@ final class Nova_Mapping_Gutenberg_HTML {
                 $out .= substr( $html, $end, $start - $end ) . $raw;
                 $end = $start + $span['length'];
             }
-            $block['innerHTML'] = $out . substr( $html, $end );
+            $id = self::marker( $path, $html, 'block' );
+            $block['innerHTML'] = '<!--nova-preview-block:' . $id . '-->' . $out . substr( $html, $end ) . '<!--/nova-preview-block-->';
             $block['innerContent'] = [ $block['innerHTML'] ];
         }
         return $blocks;
