@@ -34,6 +34,7 @@ final class Nova_Bridge_Suite_Posting_Settings {
         $value['enabled'] = $value['actor_user_id'] > 0 && is_string( $value['webhook_secret'] ) && '' !== $value['webhook_secret'] && null === ( new Nova_Bridge_Suite_Posting_Client( $value ) )->connection_error();
         $value['paused'] = false;
         $value['url_scope_enabled'] = ! empty( $value['url_scope_enabled'] );
+        $value['receive_shared_layouts'] = ! empty( $value['receive_shared_layouts'] );
         return $value;
     }
 
@@ -54,6 +55,9 @@ final class Nova_Bridge_Suite_Posting_Settings {
         $old = is_array( $old ) ? $old : [];
         if ( ! is_array( $input ) || ! current_user_can( 'manage_options' ) ) { return $old; }
         $next = $old;
+        if ( array_key_exists( 'receive_shared_layouts', $input ) ) {
+            $next['receive_shared_layouts'] = in_array( $input['receive_shared_layouts'], [ '1', 1, true ], true );
+        }
         $next += [ 'url_scope_enabled' => false, 'url_scope_excluded_paths' => [] ];
         foreach ( [ 'base_url', 'site_id' ] as $key ) {
             if ( isset( $input[ $key ] ) && is_string( $input[ $key ] ) ) { $next[ $key ] = trim( $input[ $key ] ); }
@@ -153,6 +157,11 @@ final class Nova_Bridge_Suite_Posting_Settings {
         echo '</select><br><span class="description">' . ( $users ? 'Choose an account that can publish the content types you map, then save the connection.' : 'Give a user on this site permission to publish content, then select that user here.' ) . '</span></p>';
         submit_button( 'Save NOVA connection' );
         echo '<details><summary>Multi-site WordPress</summary><p><label><input type="checkbox" name="' . esc_attr( self::OPTION ) . '[url_scope_enabled]" value="1" ' . checked( $settings['url_scope_enabled'], true, false ) . '> Only process deliveries belonging to this WordPress installation</label><br><span class="description">Use this when several installations share a NOVA website identifier. This installation handles deliveries under <code>' . esc_html( get_option( 'home', home_url( '/' ) ) ) . '</code>.</span></p>';
+        $imported = is_callable( [ 'Nova_Bridge_Suite_Shared_Layouts', 'has_imports' ] ) && Nova_Bridge_Suite_Shared_Layouts::has_imports( $settings, $settings['site_id'] );
+        echo '<input type="hidden" name="' . esc_attr( self::OPTION ) . '[receive_shared_layouts]" value="0">';
+        echo '<p><label><input type="checkbox" name="' . esc_attr( self::OPTION ) . '[receive_shared_layouts]" value="1" ' . checked( $imported || $settings['receive_shared_layouts'], true, false ) . ( $imported ? ' disabled' : '' ) . '> Only receive shared layouts on this installation</label><br><span class="description">';
+        echo $imported ? 'This connection uses imported layouts. Make mapping changes on the installation that exports them.' : 'Select this before connecting a new receiving installation to prevent automatic template uploads. Importing a layout also enables this protection.';
+        echo '</span></p>';
         echo '<p><label for="nova-posting-excluded-paths">Excluded paths, one per line</label><br><textarea class="large-text" rows="4" id="nova-posting-excluded-paths" name="' . esc_attr( self::OPTION ) . '[url_scope_excluded_paths]">' . esc_textarea( implode( "\n", (array) $settings['url_scope_excluded_paths'] ) ) . '</textarea><br><span class="description">Enter paths served by other installations, such as /eindhoven. Each path includes its subpaths.</span></p></details>';
         echo '</form></details><details class="nova-mapping-advanced"><summary>Delivery status and technical details</summary><p>Ready notification URL: <code>' . esc_html( rest_url( 'nova-bridge/v1/posting/ready' ) ) . '</code></p><div id="nova-posting-status"></div></details>';
     }

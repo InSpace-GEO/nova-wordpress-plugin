@@ -2,6 +2,17 @@
 /** Editor revision updates use the real adapter with a conditional HTTP service seam. */
 require __DIR__ . '/static-category-unit.php';
 $checks = 0;
+function wp_cache_delete( $key, $group ) {}
+class Static_Editor_Lock_DB extends Static_Query_DB {
+    private $owned = [];
+    public function get_var( $query ) {
+        [ $sql, $args ] = $query;
+        if ( 'SELECT GET_LOCK(%s, 0)' === $sql && ! isset( $this->owned[$args[0]] ) ) { $this->owned[$args[0]] = true; return 1; }
+        if ( 'SELECT RELEASE_LOCK(%s)' === $sql && isset( $this->owned[$args[0]] ) ) { unset( $this->owned[$args[0]] ); return 1; }
+        throw new RuntimeException( 'Unexpected layout authority lock request: ' . $sql );
+    }
+}
+$wpdb = new Static_Editor_Lock_DB();
 class Static_Editor_Client extends Static_Setup_Client {
     public $requests = []; public $failure = ''; public $conflict = false;
     public $defaults = null; public $defaults_revision = 1; public $default_failure = ''; public $create_failure = false;

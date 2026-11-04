@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.0.7
+Stable tag: 1.1.0
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+= 1.1.0 =
+Export approved layouts and their revisions from one WordPress installation and import them on others using the same NOVA site ID. Receiving installations can publish without changing the shared mappings.
+Fix title-only drafts when WPML creates translations of a featured image during delivery.
+
 = 1.0.7 =
 Map a Cornerstone page or post from an existing example. Deliveries apply the saved layout through Cornerstone so the result remains editable in the builder.
 

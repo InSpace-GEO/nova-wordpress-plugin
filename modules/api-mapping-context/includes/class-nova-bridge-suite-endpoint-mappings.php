@@ -212,6 +212,12 @@ final class Nova_Bridge_Suite_Endpoint_Mappings {
         $resources = self::resources(); if ( is_wp_error( $resources ) ) { return $resources; }
         $state = self::load(); if ( is_wp_error( $state ) ) { return $state; }
         $result = []; $configured = 0; $required = 0; $managed_configured = 0;
+        $shared = [];
+        if ( is_callable( [ 'Nova_Bridge_Suite_Shared_Layouts', 'imported_summaries' ] ) ) {
+            foreach ( Nova_Bridge_Suite_Shared_Layouts::imported_summaries( Nova_Bridge_Suite_Posting_Settings::connection() ) as $import ) {
+                $shared[$import['resource_id']][] = array_intersect_key( $import, array_flip( [ 'template_id', 'revision', 'page_type', 'label' ] ) );
+            }
+        }
         foreach ( $resources as $resource ) {
             if ( ! is_array( $resource ) || ! is_string( $resource['id'] ?? null ) ) { continue; }
             $item = array_intersect_key( $resource, array_flip( [ 'id', 'resource_id', 'label', 'type', 'post_type', 'taxonomy', 'route', 'methods', 'availability', 'targets_complete', 'creation_supported', 'can_inspect_existing', 'reasons', 'capabilities', 'native_write_supported', 'system_managed', 'native_mapping_available', 'provider_status', 'native_provider', 'coming_soon', 'content_relevance' ] ) );
@@ -234,10 +240,13 @@ final class Nova_Bridge_Suite_Endpoint_Mappings {
             $item['default_mapping'] = $record ? [ 'id' => $record['mapping_id'], 'revision' => $record['revision'], 'label' => $record['label'], 'system_managed' => $item['system_managed'] ] : null;
             $recipe_default = ! $item['system_managed'] && class_exists( 'Nova_Bridge_Suite_Layout_Recipes' ) ? Nova_Bridge_Suite_Layout_Recipes::default_metadata( $resource['id'] ) : null;
             if ( $recipe_default ) { $item['recipe_default'] = $recipe_default; $item['default_mapping'] = $recipe_default + [ 'format' => 'nova-layout-recipe/v1', 'system_managed' => false ]; $record = [ 'selected_fields' => [] ]; }
-            $item['coverage'] = [ 'configured' => !! $record, 'selected_fields' => $record ? count( $record['selected_fields'] ) : 0, 'required' => $item['coverage_required'], 'system_managed' => $item['system_managed'] ];
-            if ( $item['coverage_required'] ) { ++$required; if ( $record ) { ++$configured; if ( $item['system_managed'] ) { ++$managed_configured; } } } $result[] = $item;
+            if ( isset( $shared[$resource['id']] ) ) { $item['shared_layouts'] = $shared[$resource['id']]; }
+            $available = !! $record || ! empty( $item['shared_layouts'] );
+            $item['coverage'] = [ 'configured' => $available, 'selected_fields' => $record ? count( $record['selected_fields'] ) : 0, 'required' => $item['coverage_required'], 'system_managed' => $item['system_managed'] ];
+            if ( $item['coverage_required'] ) { ++$required; if ( $available ) { ++$configured; if ( $item['system_managed'] ) { ++$managed_configured; } } } $result[] = $item;
         }
-        return self::response( [ 'resources' => $result, 'coverage' => [ 'total' => count( $result ), 'required' => $required, 'configured' => $configured, 'system_managed' => $managed_configured, 'unconfigured' => $required - $configured ], 'local_only' => true, 'native_write_supported' => false ] );
+        $receives = is_callable( [ 'Nova_Bridge_Suite_Layout_Recipes', 'receives_shared_layouts' ] ) && Nova_Bridge_Suite_Layout_Recipes::receives_shared_layouts();
+        return self::response( [ 'resources' => $result, 'receive_only' => $receives, 'coverage' => [ 'total' => count( $result ), 'required' => $required, 'configured' => $configured, 'system_managed' => $managed_configured, 'unconfigured' => $required - $configured ], 'local_only' => true, 'native_write_supported' => false ] );
     }
 
     public static function creation( $request ) {

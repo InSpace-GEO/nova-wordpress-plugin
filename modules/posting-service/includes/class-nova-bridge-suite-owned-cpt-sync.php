@@ -1,6 +1,7 @@
 <?php
 /** Automatic publishing descriptions for the two CPTs owned by this plugin. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
 
 final class Nova_Bridge_Suite_Owned_CPT_Sync {
     public static function bootstrap(): void { add_action( 'wp_loaded', [ __CLASS__, 'refresh' ], 100 ); }
@@ -9,7 +10,7 @@ final class Nova_Bridge_Suite_Owned_CPT_Sync {
     public static function refresh(): void {
         if ( ! class_exists( 'Nova_Bridge_Suite_Posting_Settings' ) || ! function_exists( 'rest_get_server' ) ) { return; }
         $connection = Nova_Bridge_Suite_Posting_Settings::connection();
-        if ( empty( $connection['enabled'] ) || empty( $connection['site_id'] ) ) { return; }
+        if ( empty( $connection['enabled'] ) || empty( $connection['site_id'] ) || Nova_Bridge_Suite_Shared_Layouts::is_subscriber( $connection ) ) { return; }
         rest_get_server(); // Registers the active CPT's public context callbacks and schema.
         $types = [];
         if ( class_exists( 'SEORAI\\ServicePageCPT\\Plugin', false ) && post_type_exists( 'service_page' ) ) { $types['service_page'] = [ 'page_type' => 'service', 'select_default' => true ]; }
@@ -154,6 +155,7 @@ final class Nova_Bridge_Suite_Owned_CPT_Sync {
     /** Synchronize only this owned type, preserving all other site templates and defaults. */
     public static function synchronize( array $connection, string $post_type, string $page_type, $client = null, bool $select_default = true ) {
         if ( empty( $connection['enabled'] ) ) { return self::error( 'connection', 'Complete the NOVA connection details before synchronizing.' ); }
+        if ( Nova_Bridge_Suite_Shared_Layouts::is_subscriber( $connection ) ) { return Nova_Bridge_Suite_Shared_Layouts::subscriber_error(); }
         $built = self::build( $post_type, $page_type ); if ( is_wp_error( $built ) ) { return $built; }
         $client = $client ?: new Nova_Bridge_Suite_Posting_Client( $connection );
         $invalid = $client->connection_error(); if ( is_wp_error( $invalid ) ) { return $invalid; }

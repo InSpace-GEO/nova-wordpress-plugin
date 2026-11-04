@@ -31,6 +31,11 @@ final class Nova_Bridge_Suite_Layout_Recipes_Admin {
 
     public static function render(): void {
         if ( ! current_user_can( 'manage_options' ) ) { return; }
+        if ( Nova_Bridge_Suite_Layout_Recipes::receives_shared_layouts() ) {
+            echo '<p>This installation receives shared layouts. Make changes on the installation that exports them.</p>';
+            echo '<p><a class="button" href="' . esc_url( admin_url( 'options-general.php?page=nova-settings&tab=layouts#nova-shared-layouts' ) ) . '">Import shared layouts</a></p>';
+            return;
+        }
         echo '<section id="nova-layout-recipes-app" class="nlr"><p role="status">Loading template choices…</p></section>';
         echo '<noscript><p>Enable JavaScript to create and review your content template.</p></noscript>';
     }

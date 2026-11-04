@@ -56,6 +56,15 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         return self::error( 'conflict', 'Another administrator changed these templates. Reload before saving.', 409 );
     }
     public static function defaults(): array { $state = self::state(); return is_wp_error( $state ) ? [] : $state['defaults']; }
+    public static function receives_shared_layouts(): bool {
+        return is_callable( [ 'Nova_Bridge_Suite_Shared_Layouts', 'is_subscriber' ] )
+            && Nova_Bridge_Suite_Shared_Layouts::is_subscriber( Nova_Bridge_Suite_Posting_Settings::connection() );
+    }
+    /** Include superseded recipes so older queued deliveries can keep their exact revisions. */
+    public static function saved_recipe_ids(): array {
+        $state = self::state();
+        return is_wp_error( $state ) ? [] : array_keys( $state['profiles'] );
+    }
     private static function posting_page_type( string $resource ): ?string {
         if ( 'taxonomy:product_cat' === $resource ) { return 'category'; }
         return 0 === strpos( $resource, 'post_type:' ) ? ( 'post_type:post' === $resource ? 'informative' : 'service' ) : null;
@@ -429,6 +438,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         return self::response( [ 'preview_document' => $html, 'preview_receipt' => self::receipt( $recipe, $content ), 'summary' => $result['summary'], 'content_schema' => $result['content_schema'], 'warnings' => $result['warnings'], 'engine_version' => $result['engine_version'], 'plan_digest' => $result['plan_digest'] ] );
     }
     public static function save( $request ) {
+        if ( self::receives_shared_layouts() ) { return self::error( 'receive_only', 'Edit the layout on the installation that exports it, then import the updated file here.', 409 ); }
         $body = self::body( $request ); if ( is_wp_error( $body ) ) { return $body; }
         $connection = class_exists( 'Nova_Bridge_Suite_Posting_Settings' ) ? Nova_Bridge_Suite_Posting_Settings::connection() : [];
         $load = static function () use ( $request ) { return self::save_local( $request ); };
@@ -442,6 +452,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     }
     /** Explicit retry reconciles the same saved revision without creating another local version. */
     public static function sync( $request ) {
+        if ( self::receives_shared_layouts() ) { return self::error( 'receive_only', 'This installation receives shared layouts. Import the file from the installation that manages them.', 409 ); }
         $body = self::body( $request ); if ( is_wp_error( $body ) ) { return $body; }
         if ( ! self::uuid( $body['id'] ?? null ) || ! is_int( $body['revision'] ?? null ) || $body['revision'] < 1 ) { return self::error( 'identity', 'Supply the saved template ID and revision.' ); }
         $saved = self::record( $body['id'], $body['revision'] ); if ( is_wp_error( $saved ) ) { return $saved; }

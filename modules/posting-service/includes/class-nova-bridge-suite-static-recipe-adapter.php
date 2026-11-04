@@ -1,6 +1,7 @@
 <?php
 /** Explicit stock-field compatibility for reviewed, scalar WooCommerce category recipes. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
 
 final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     public const MODE = 'static_recipe_v1';
@@ -13,6 +14,7 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     /** Serialize editor saves and retries. A lost PUT acknowledgement must be reconciled first. */
     public static function sync_editor( array $connection, callable $load, bool $saving = false, $client = null, $locks = null ) {
         if ( ! current_user_can( 'manage_options' ) || empty( $connection['enabled'] ) ) { return self::error( 'permission', 'Sign in as an administrator and complete the NOVA connection details before synchronizing.' ); }
+        if ( Nova_Bridge_Suite_Shared_Layouts::is_subscriber( $connection ) ) { return Nova_Bridge_Suite_Shared_Layouts::subscriber_error(); }
         $client = $client ?: new Nova_Bridge_Suite_Posting_Client( $connection );
         $invalid = $client->connection_error(); if ( is_wp_error( $invalid ) ) { return $invalid; }
         $key = self::key( 'editor', $client->site_id() );
@@ -148,6 +150,7 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     /** Local CLI/admin setup only. Unknown template creates require an explicitly recovered UUID. */
     public static function sync_and_approve( array $connection, string $recipe_id, int $revision, string $client_id, string $domain_id, string $page_type = 'category', ?string $recovered_template_id = null, $client = null, $locks = null ) {
         if ( ! current_user_can( 'manage_options' ) || ! Nova_Bridge_Suite_Posting_Protocol::decimal_id( $client_id ) || ! Nova_Bridge_Suite_Posting_Protocol::decimal_id( $domain_id ) ) { return self::error( 'permission', 'An administrator must explicitly approve the client and domain identity.' ); }
+        if ( Nova_Bridge_Suite_Shared_Layouts::is_subscriber( $connection ) ) { return Nova_Bridge_Suite_Shared_Layouts::subscriber_error(); }
         $client = $client ?: new Nova_Bridge_Suite_Posting_Client( $connection ); $invalid = $client->connection_error(); if ( is_wp_error( $invalid ) ) { return $invalid; }
         $record = Nova_Bridge_Suite_Layout_Recipes::delivery_record( $recipe_id, $revision ); if ( is_wp_error( $record ) ) { return $record; }
         $projection = self::project_record( $record, $page_type ); if ( is_wp_error( $projection ) ) { return $projection; }

@@ -66,6 +66,7 @@ foreach ( [ '999', '28abc', -28, [ 28 ] ] as $invalid_actor ) {
 $admin = false;
 check( Nova_Bridge_Suite_Posting_Settings::sanitize( $input ) === $saved, 'Nonadministrator cannot replace connection.' );
 $admin = true;
+check( Nova_Bridge_Suite_Posting_Settings::sanitize( $input + [ 'receive_shared_layouts' => '1' ] )['receive_shared_layouts'] === true, 'A new receiver can prevent mapping uploads on its first connection save.' );
 foreach ( [ 'http://posting.example', 'https://user:password@posting.example', 'https://posting.example/path', 'https://posting.example?token=value', 'https://posting.example/#fragment' ] as $url ) {
     check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'base_url' => $url ] ) ) === $saved, 'Only a credential-free HTTPS origin is accepted.' );
 }

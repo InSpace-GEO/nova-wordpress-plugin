@@ -105,6 +105,16 @@ $blog_types = [ 'blog', 'blog_two' ];
 $GLOBALS['wp_rest_additional_fields']['blog_two'] = $GLOBALS['wp_rest_additional_fields']['blog'];
 Nova_Bridge_Suite_Posting_Client::$seed_defaults = [ 'service' => '44444444-4444-4444-8444-444444444444' ];
 Nova_Bridge_Suite_Posting_Settings::$connection = [ 'enabled' => true, 'site_id' => '11111111-1111-4111-8111-111111111111', 'base_url' => 'https://posting.example' ];
+$primary_connection = Nova_Bridge_Suite_Posting_Settings::$connection;
+$role_key = 'nova_shared_layout_index_' . hash( 'sha256', $primary_connection['base_url'] . "\n" . $primary_connection['site_id'] );
+foreach ( [ 'preset', 'imported' ] as $role ) {
+    Nova_Bridge_Suite_Posting_Settings::$connection = $primary_connection + [ 'receive_shared_layouts' => 'preset' === $role ];
+    if ( 'imported' === $role ) { $options[$role_key] = [ 'received' ]; }
+    $prior_options = $options; Nova_Bridge_Suite_Owned_CPT_Sync::refresh();
+    check( $prior_options === $options && ! Nova_Bridge_Suite_Posting_Client::$instances && ! Nova_Bridge_Suite_Mapping_Sync::$syncs, 'Subscriber auto refresh does not contact the service or create retry markers, including on a newly configured installation.' );
+    check( 'nova_shared_layout_subscriber' === Nova_Bridge_Suite_Owned_CPT_Sync::synchronize( Nova_Bridge_Suite_Posting_Settings::$connection, 'service_page', 'service' )->get_error_code(), 'Direct provisioning of a new owned CPT default also stops.' );
+}
+unset( $options[$role_key] ); Nova_Bridge_Suite_Posting_Settings::$connection = $primary_connection;
 Nova_Bridge_Suite_Owned_CPT_Sync::refresh();
 check( 3 === Nova_Bridge_Suite_Mapping_Sync::$syncs, 'Both ambiguous Blog profiles and a Service profile are synchronized unselected.' );
 foreach ( Nova_Bridge_Suite_Posting_Client::$instances as $used ) { check( [] === $used->writes && $used->defaults === Nova_Bridge_Suite_Posting_Client::$seed_defaults, 'Automatic provisioning does not change an existing Service default.' ); }

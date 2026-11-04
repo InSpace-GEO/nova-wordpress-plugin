@@ -1,5 +1,33 @@
 # Release verification
 
+## 1.1.0 release
+
+The release is based on the published 1.0.7 commit. All 104 local suites passed. The 156-file ZIP tested on both staging hosts has SHA-256 `4877520a076b9617665944a9856296ee5fb9abba2b72640d1ce43b90a59b0cb2`.
+
+On two independent WordPress 7.1.4 installations, the source exported approved Page and Post layouts. The receiver rejected a different image with the same attachment ID, rendered the correct local file, and completed a queued revision 1 delivery after revision 2 had been imported. A revision 2 delivery updated the same Page. The receiver also published a Post while its mapping saves and default updates were blocked. These tests used real WordPress and Elementor with simulated posting-service traffic.
+
+In a separate staging installation with WPML 4.9.5, the release recovered a title-only draft from the previous pilot and reused its original attachment without a second download. A fresh delivery rendered the body and set the featured image while WPML created the translated attachments.
+
+We installed the public 1.0.7 ZIP with X 10.8.12 and Cornerstone 7.9.7, saved a mapping, published a Page and removed the example. After upgrading to this ZIP, a new delivery using the existing mapping updated the same Page. Its body and image rendered and the saved data reopened in Cornerstone. Fresh Page and Post mappings also passed creation and update checks in 1.1.0.
+
+## 1.1.0 shared layouts staging candidate
+
+All 102 local suites passed. We installed the same candidate ZIP on two isolated WordPress 7.1.4 installations. The authoring site ran Elementor 4.1.4 and the receiving site ran Elementor 3.35.9. The WordPress editor, import handlers, delivery queue, builder output and served images were real. A simulated posting service supplied deliveries and recorded outbound requests.
+
+Attachment 42 on the two installations contained different images. Import identified the missing background by filename and layout control. The receiver subsequently rendered the matching file from its own attachment 84. A revision 1 delivery queued before revision 2 was imported still published using revision 1 and sent a success receipt. A revision 2 delivery updated the same native page using attachment 95. The test also created a Page and a Post from the imported layouts after the original example was deleted.
+
+The canonical import superseded a competing local layout with the same template and revision. After import, Save and Sync on the receiver refused mapping changes. Direct attempts to create a remote template, change its revision or change its default produced zero outgoing requests. Template reads and delivery receipts still reached the simulated service. The authoring installation retained its usual ability to send mappings and defaults. Both temporary WordPress installations were removed.
+
+Tested ZIP SHA-256 is `ca64d5293bc0cbfe24c958fb9749914a36bdcc0ba05fdf5ea05d1a1244e3ca95`.
+
+### Featured images on a multilingual receiving site
+
+The first two-site test used locally stored background images. A separate test exercised a delivery that supplied a native Page body and a featured image to download. On isolated WordPress 7.1.4 with WPML 4.9.5 configured to translate attachments into three languages, the original plugin reserved draft 9 and downloaded the image once. WPML created attachment 10 and translations 11 and 12. All three carried the same NOVA image marker. The writer stopped before saving the Page body or thumbnail.
+
+With the revised writer, the same operation recovered draft 9, wrote the fitted body, set attachment 10 as its featured image and verified the result. Both translations were retained and recovery performed zero additional downloads. A fresh delivery created draft 14, rendered the intended body and selected the original featured image on its first attempt. The original image and its two translations were created from a single download.
+
+All 102 local suites passed, including coverage for conflicting attachment groups and interrupted document saves. An unchanged reservation created by the revised writer can resume. A partial document save or an intervening user edit still requires reconciliation. The 153 runtime files installed on staging matched the revised ZIP. Its SHA-256 is `6e3bdbf86be94d9093c258b7110cd65fc282230a7f580cfbcd8483f3699e0139`.
+
 ## 1.0.7 staging candidate
 
 The isolated `inspace-seo.com` lab ran WordPress 7.1.2, Themeco X 10.8.12 and Cornerstone 7.9.7. We saved a fixed layout from a native Page and another from a native Post through the mapping endpoints, then deleted both example items. With fitted test deliveries, NOVA created each target and updated it a second time. HTTP requests found the expected heading, formatted body, button text and destination, and newly imported image. Both updates retained the target’s original WordPress ID and URL. Cornerstone’s own document reader returned the new mapped values, and the saved presentation settings survived. We also checked that a publishing user without Cornerstone’s Posts permission could not publish that destination.

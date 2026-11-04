@@ -44,7 +44,10 @@ function wp_unique_post_slug( $slug, $id, $status, $type, $parent ) { foreach ( 
 function add_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key][] = $fn; }
 function remove_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key] = array_values( array_filter( $GLOBALS['filters'][$key] ?? [], static function ( $v ) use ( $fn ) { return $v !== $fn; } ) ); }
 function wp_insert_post( $data, $error = false ) { foreach ( $GLOBALS['filters']['wp_insert_post_data'] ?? [] as $fn ) { $data = $fn( $data, $data, $data ); } $p = new WP_Post(); $p->ID = 10 + count( $GLOBALS['posts'] ); foreach ( wp_unslash( $data ) as $k => $v ) { $p->$k = $v; } $GLOBALS['posts'][$p->ID] = $p; ++$GLOBALS['inserts']; if ( $GLOBALS['crash_insert'] ) { $GLOBALS['crash_insert'] = false; throw new RuntimeException( 'Lost insert response' ); } return $p->ID; }
-function wp_update_post( $data, $error = false ) { $p = get_post( $data['ID'] ); if ( ! $p ) { return new WP_Error( 'missing', 'Missing native ID' ); } foreach ( wp_unslash( $data ) as $k => $v ) { if ( $k !== 'ID' ) { $p->$k = $v; } } if ( isset( $data['post_content'] ) ) { ++$GLOBALS['saves']; } else { ++$GLOBALS['publishes']; } return $p->ID; }
+function wp_update_post( $data, $error = false ) {
+    if ( isset( $data['post_content'] ) && ! empty( $GLOBALS['interrupt_content_save'] ) ) { unset( $GLOBALS['interrupt_content_save'] ); throw new RuntimeException( 'Interrupted before content save' ); }
+    $p = get_post( $data['ID'] ); if ( ! $p ) { return new WP_Error( 'missing', 'Missing native ID' ); } foreach ( wp_unslash( $data ) as $k => $v ) { if ( $k !== 'ID' ) { $p->$k = $v; } } if ( isset( $data['post_content'] ) ) { ++$GLOBALS['saves']; } else { ++$GLOBALS['publishes']; } return $p->ID;
+}
 class Layout_DB { public $posts = 'wp_posts'; public $postmeta = 'wp_postmeta'; public function prepare( $q, ...$args ) { return [ $q, $args ]; } public function get_var( $q ) { if ( strpos( $q[0], 'p.post_name' ) !== false ) { foreach ( $GLOBALS['posts'] as $post ) { if ( $post->post_type === $q[1][0] && (int) $post->post_parent === $q[1][1] && $post->post_name === $q[1][2] && $post->post_status !== 'trash' && ( strpos( $post->post_content_filtered, 'nova.stored-layout-document/v1:' ) === 0 || array_key_exists( '_nova_stored_layout_owner', $GLOBALS['meta'][$post->ID] ?? [] ) ) ) { return $post->ID; } } return null; } return '1'; } public function get_col( $q ) { $ids = []; foreach ( $GLOBALS['posts'] as $p ) { if ( $p->post_content_filtered === $q[1][0] && $p->post_type === $q[1][1] ) { $ids[] = $p->ID; } } return $ids; } }
 $wpdb = new Layout_DB();
 class Nova_Bridge_Suite_Mapped_Content_Target {
@@ -89,6 +92,16 @@ function fixture( $builder, $type = 'post', $civ = '501', $status = 'publish', $
 }
 function planned( $builder, $type = 'post', $civ = '501', $n = 1, $status = 'publish' ) { [ $content, $config ] = fixture( $builder, $type, $civ, $status ); return ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $config, [ 'operation_id' => op( $n ) ] ) ); }
 $checks = 0;
+reset_native();
+[ $source, $config ] = fixture( 'core', 'page', '501', 'publish', true );
+$plan = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $source, $config, [ 'operation_id' => op( 1 ) ] ) );
+$interrupt_content_save = true;
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) ) ) && '' === $posts[10]->post_content, 'A mapped ACF field and empty draft are checkpointed before the native save.' );
+$proof = ok( Nova_Bridge_Suite_Stored_Layout_Writer::recover( $plan, op( 1 ) ) );
+check( $proof['safe_to_apply'] && 10 === $proof['post_id'], 'The interrupted draft is recoverable while its native state matches.' );
+update_field( 'field_intro', 'Edited by the site owner', 10 );
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) ) ) && is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::recover( $plan, op( 1 ) ) ), 'An intervening ACF edit invalidates a previously safe draft retry.' );
+check( 0 === $saves && get_post_meta( 10, 'intro', true ) === 'Edited by the site owner', 'The custom field and unpublished draft survive the retry.' );
 foreach ( [ 'core', 'gutenberg' ] as $builder ) {
     foreach ( [ 'post', 'page', 'portfolio' ] as $type ) {
         foreach ( [ 'draft', 'publish' ] as $status ) {
