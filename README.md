@@ -63,6 +63,17 @@ WPML and Polylang store the mapped values on the native post for each language. 
 
 ## Development
 
-The plugin derives from NOVA Bridge Suite commit 7e124d48d914b805a31bee340eb6f7fe338d61cc. Retained wire names and option keys preserve saved mappings. Set `NOVA_WP_CORE_FIXTURE` to a local WordPress `wp-includes` directory and run `python tools/test.py` with PHP and Node on your path. Build the runtime ZIP with `python tools/package.py OUTPUT_DIRECTORY`.
+Start each change from the latest `main`. Use `feature/<short-description>` for new functionality (for example, `feature/share-layouts`) and `hotfix/<short-description>` for bug fixes (for example, `hotfix/wpml-featured-image`).
 
-For a stable release, publish the generated ZIP and `wordpress-update.json` together on the same GitHub release. Use the version number as the release title (e.g. `1.0.1`), prefix the tag with `v` (e.g. `v1.0.1`), and mark the stable release as latest. WordPress reads the manifest from the latest release and downloads the ZIP pinned to that version.
+Open a pull request into `main` and describe how you verified the change. To run the local suite, set `NOVA_WP_CORE_FIXTURE` to a WordPress `wp-includes` directory and run `python tools/test.py` with PHP and Node on your path. For changes to publishing, check the rendered result on staging. After the PR merges, GitHub automatically deletes its source branch in this repository.
+
+The plugin derives from NOVA Bridge Suite commit `7e124d48d914b805a31bee340eb6f7fe338d61cc`. Retained wire names and option keys preserve saved mappings.
+
+## Manual releases
+
+Merging a PR puts the change on `main`. Publishing a GitHub release makes the update available to WordPress installations. Documentation-only changes need no plugin release.
+
+1. Before release, use a PR to set the same new version in the plugin header and `NOVA_BRIDGE_SUITE_VERSION` in `nova-wordpress-plugin.php`, and in the `Stable tag` in `readme.txt`. Add the user-facing changes to the changelog in `readme.txt`. This can be part of the feature or hotfix PR.
+2. After merge, check out the exact `main` commit to be released and run `python tools/package.py OUTPUT_DIRECTORY`. Test the generated installable ZIP on staging.
+3. Manually create a GitHub release at that same commit. For version `X.Y.Z`, use tag `vX.Y.Z` and title `X.Y.Z`. Attach both generated files, `nova-wordpress-plugin-X.Y.Z.zip` and `wordpress-update.json`, then publish the stable release as **Latest**.
+4. Verify that the public manifest reports the new version and that the versioned ZIP downloads without GitHub credentials. Sites discover the release at their next WordPress update check and can install it automatically if they have enabled auto-updates. [Public update manifest](https://github.com/InSpace-GEO/nova-wordpress-plugin/releases/latest/download/wordpress-update.json)
