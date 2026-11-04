@@ -18,7 +18,9 @@ WordPress suggests the eligible site member with the most published posts, pages
 
 The picker finds native publishing capabilities assigned through a role or directly to a site member. It also checks network super admins who belong to the site. If another plugin grants publishing permission only through a filter, an existing selection remains usable while that permission is effective. To make a new account discoverable, give it the corresponding WordPress role or direct capability.
 
-Under **Layouts**, choose an example, map its fields and save directly from **Content rules** in step 3. Stay on that screen to check whether the posting service confirmed the default for the selected NOVA page type, retry a sync or explicitly replace a different default. The posting service adapts the article during delivery.
+Under **Layouts**, choose an example, map its fields and save directly from **Content rules** in step 3. Check the sync result on that screen. The posting service selects a template before it adapts the article.
+
+Two WordPress destinations can share a NOVA page type when their permalinks distinguish them. For example, assign **Service** to both **Pages** and a **Masterclass** post type registered at `/masterclass/`. A Service item at `/masterclass/budgeting/` uses the Masterclass layout. A Service item at `/advice/` uses the Pages layout. An explicit template assignment for an individual NOVA URL takes priority. If both destinations publish directly at the root, WordPress reports the conflict and keeps the confirmed routing in place.
 
 In **2. Choose a design**, open **Reference item** to browse or type to filter the list. Use **Use an item ID** for an example outside the list. Selecting the same example for the same WordPress destination resumes the mapping. To rebuild it from a changed example, choose **Capture a fresh layout** in step 2. In Elementor, **Page layout and template settings** starts with recognized design settings selected for a new layout. **Select all** and **Deselect all** change them together. Saved layouts retain their previous choices. Unrelated registered metadata is available separately and is opt-in.
 

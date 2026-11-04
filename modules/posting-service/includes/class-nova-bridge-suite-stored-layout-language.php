@@ -103,6 +103,23 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         return is_wp_error( $context ) ? $context : $context['home'];
     }
 
+    /** A site's registered permastruct can be shared when its native languages use the same path and CPT base. */
+    public static function same_route_for_languages( string $post_type, string $base ): bool {
+        $provider = self::provider();
+        if ( 'core' === $provider ) { return true; }
+        $records = self::languages( $provider );
+        if ( is_wp_error( $records ) || ! $records ) { return false; }
+        $home = wp_parse_url( self::site_home() );
+        foreach ( $records as $record ) {
+            $url = is_string( $record['home'] ) ? wp_parse_url( $record['home'] ) : null;
+            if ( ! is_array( $url ) || empty( $url['host'] ) || isset( $url['query'] ) || rtrim( $url['path'] ?? '', '/' ) !== rtrim( $home['path'] ?? '', '/' ) ) { return false; }
+            if ( $base && 'wpml' === $provider && $base !== apply_filters( 'wpml_get_translated_slug', $base, $post_type, $record['code'], 'post' ) ) { return false; }
+            // Polylang Pro can localize arbitrary CPT bases; do not assume another language keeps the same slug.
+            if ( $base && 'polylang' === $provider && count( $records ) > 1 ) { return false; }
+        }
+        return true;
+    }
+
     public static function is_multilingual_post_provider(): bool {
         return 'core' !== self::provider();
     }
