@@ -110,6 +110,10 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             }
             if ( 'acf' === $builder ) { $locator = [ 'strategy' => 'unbound', 'reason' => 'The theme decides where this custom field is rendered. Select its declared field from the inventory.' ]; }
             if ( empty( $locator['node_id'] ) && 'core' !== $locator['strategy'] ) { $locator['strategy'] = 'unbound'; }
+            if ( 'gutenberg' === $builder && str_contains( $field['target'], '/nova_html_slots/' ) ) {
+                require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
+                $locator = Nova_Mapping_Gutenberg_HTML::preview_locator( $design['blueprint'], $field ) ?? $locator;
+            }
             $field['locator'] = $locator; $fields[] = $field;
             $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator' ] ) );
         }

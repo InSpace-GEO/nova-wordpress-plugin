@@ -45,8 +45,27 @@
 			if ( image.getAttribute( 'src' ) !== source ) { image.setAttribute( 'src', source ); if ( image.getAttribute( 'srcset' ) ) { image.removeAttribute( 'srcset' ); } } if ( image.getAttribute( 'loading' ) !== 'eager' ) { image.setAttribute( 'loading', 'eager' ); }
 		} );
 	}
-	function locate( document, item, config ) {
+	function customHtmlTargets( document ) {
+		var matches = new Map();
+		function add( key, node, range ) {
+			if ( /^[a-f0-9]{32}$/.test( key ) ) {
+				matches.set( key, matches.has( key ) ? null : { owner: node, node: node, precision: 'field', customHtml: true, range: range } );
+			}
+		}
+		document.querySelectorAll( '[data-nova-preview-fields]' ).forEach( function ( node ) {
+			node.getAttribute( 'data-nova-preview-fields' ).split( ' ' ).forEach( function ( key ) { add( key, node, null ); } );
+		} );
+		var walker = document.createTreeWalker( document.body, 128 /* SHOW_COMMENT */ ), start;
+		while ( ( start = walker.nextNode() ) ) {
+			var match = /^nova-preview:([a-f0-9]{32})$/.exec( start.data ), text = start.nextSibling;
+			if ( ! match || ! text || text.nodeType !== 3 || ! text.nextSibling || text.nextSibling.nodeType !== 8 || text.nextSibling.data !== '/nova-preview' ) { continue; }
+			var range = document.createRange(); range.selectNodeContents( text ); add( match[1], text.parentElement, range );
+		}
+		return matches;
+	}
+	function locate( document, item, config, htmlTargets ) {
 		var locator = item && item.locator; if ( ! locator || locator.reference_id !== config.referenceId ) { return null; }
+		if ( locator.strategy === 'custom_html' ) { return htmlTargets && htmlTargets.get( locator.marker ) || null; }
 		var strategy = locator.strategy, id = String( locator.node_id || '' ), control = controlPath( locator ), owner, selector;
 		if ( strategy === 'elementor' ) {
 			if ( ! safeId.test( id ) ) { return null; }
@@ -95,15 +114,30 @@
 		function hideConsent() { document.documentElement.classList.add( 'nrc-hide-consent' ); document.documentElement.classList.toggle( 'nrc-consent-present', !! document.querySelector( consent ) ); }
 		function mark( node, name, on ) { if ( ! node ) { return; } node.classList.toggle( name, on ); if ( on ) { marked.add( node ); } }
 		function highlight( id, scroll ) {
-			if ( id && ! targets.has( id ) && ! containerTargets.has( id ) ) { return false; }
+			if ( id && ! targets.has( id ) && ! containerTargets.has( id ) && ! fields.some( function ( field ) { return field.id === id; } ) ) { return false; }
+			if ( win.CSS && win.CSS.highlights ) { win.CSS.highlights.delete( 'nova-preview-selection' ); }
 			selected = id; marked.forEach( function ( node ) { node.classList.remove( 'nrc-selected' ); } );
-			var target = targets.get( id ) || containerTargets.get( id ); if ( target ) { mark( target.node, 'nrc-selected', true ); if ( scroll && visible( target.node, win ) ) { var bounds = target.node.getBoundingClientRect(); win.scrollTo( { top: Math.max( 0, ( win.scrollY || 0 ) + bounds.top - Math.max( 0, ( win.innerHeight - bounds.height ) / 2 ) ), left: win.scrollX || 0, behavior: 'smooth' } ); } } return true;
+			var target = targets.get( id ) || containerTargets.get( id );
+			if ( ! target ) { return false; }
+			if ( scroll && target.customHtml ) {
+				var details = target.node.closest( 'details' );
+				while ( details ) { details.open = true; details = details.parentElement && details.parentElement.closest( 'details' ); }
+			}
+			var exactText = target.range && win.Highlight && win.CSS && win.CSS.highlights;
+			if ( ! exactText || target.node.textContent.trim() === target.range.toString().trim() ) { mark( target.node, 'nrc-selected', true ); }
+			if ( exactText ) { win.CSS.highlights.set( 'nova-preview-selection', new win.Highlight( target.range ) ); }
+			if ( scroll && visible( target.node, win ) ) {
+				var bounds = ( target.range || target.node ).getBoundingClientRect();
+				win.scrollTo( { top: Math.max( 0, ( win.scrollY || 0 ) + bounds.top - Math.max( 0, ( win.innerHeight - bounds.height ) / 2 ) ), left: win.scrollX || 0, behavior: 'smooth' } );
+			}
+			return true;
 		}
 		function bind() {
 			prepareMedia( document, config, fields );
 			marked.forEach( function ( node ) { node.classList.remove( 'nrc-target', 'nrc-selected', 'nrc-assigned', 'nrc-protected' ); } ); marked.clear(); targets.clear(); containerTargets.clear();
 			var nodeFlags = new Map();
-			var statuses = fields.map( function ( item ) { var target = locate( document, item, config ), shown = !! ( target && visible( target.node, win ) ); if ( target ) { targets.set( item.id, target ); var flags = nodeFlags.get( target.node ) || { assigned: false, writable: false }; flags.assigned = flags.assigned || item.assigned; flags.writable = flags.writable || item.writable; nodeFlags.set( target.node, flags ); } return { field_id: item.id, target: item.target, visible: shown, precision: target ? target.precision : 'none', assigned: item.assigned, writable: item.writable, reason: ! target ? 'no_verified_locator' : ! shown ? 'not_visible_in_static_canvas' : '' }; } );
+			var htmlTargets = fields.some( function ( field ) { return field.locator.strategy === 'custom_html'; } ) ? customHtmlTargets( document ) : null;
+			var statuses = fields.map( function ( item ) { var target = locate( document, item, config, htmlTargets ), shown = !! ( target && visible( target.node, win ) ); if ( target ) { targets.set( item.id, target ); var flags = nodeFlags.get( target.node ) || { assigned: false, writable: false }; flags.assigned = flags.assigned || item.assigned; flags.writable = flags.writable || item.writable; nodeFlags.set( target.node, flags ); } return { field_id: item.id, target: item.target, visible: shown, precision: target ? target.precision : 'none', assigned: item.assigned, writable: item.writable, reason: ! target ? 'no_verified_locator' : ! shown ? 'not_visible_in_static_canvas' : '' }; } );
 			nodeFlags.forEach( function ( flags, node ) { mark( node, 'nrc-target', true ); mark( node, 'nrc-assigned', flags.assigned ); mark( node, 'nrc-protected', ! flags.writable ); } );
 			var groupStatuses = containers.map( function ( item ) { var target = locate( document, item, config ); if ( target ) { containerTargets.set( item.id, target ); } return { container_id: item.id, target: item.target, visible: !! ( target && visible( target.node, win ) ), precision: target ? 'region' : 'none', assigned: item.assigned, writable: item.writable }; } );
 			highlight( targets.has( selected ) || containerTargets.has( selected ) ? selected : '', false ); var fingerprint = JSON.stringify( [ statuses, groupStatuses ] ); if ( fingerprint !== lastStatuses ) { lastStatuses = fingerprint; send( 'bindings', { fields: statuses, containers: groupStatuses, viewport: { width: win.innerWidth, height: win.innerHeight } } ); }
@@ -120,6 +154,10 @@
 			targets.forEach( function ( target ) { if ( target.owner.contains( node ) && visible( target.node, win ) && ! owners.includes( target.owner ) ) { owners.push( target.owner ); } } );
 			var owner = owners.find( function ( candidate ) { return ! owners.some( function ( other ) { return other !== candidate && candidate.contains( other ); } ); } ), ids = [], groupIds = [];
 			if ( owner ) { targets.forEach( function ( target, id ) { if ( target.owner === owner && visible( target.node, win ) ) { ids.push( id ); } } ); }
+			if ( ids.length > 1 ) {
+				var hit = ids.filter( function ( id ) { var range = targets.get( id ).range; return range && Array.from( range.getClientRects() ).some( function ( r ) { return event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom; } ); } );
+				if ( hit.length === 1 ) { ids = hit.concat( ids.filter( function ( id ) { return ! targets.get( id ).range; } ) ); }
+			}
 			var groups = []; containerTargets.forEach( function ( target, id ) { if ( target.owner.contains( node ) && visible( target.node, win ) ) { groups.push( { id: id, node: target.owner } ); } } ); groups.sort( function ( a, b ) { return a.node === b.node ? 0 : a.node.contains( b.node ) ? 1 : b.node.contains( a.node ) ? -1 : 0; } ); groupIds = groups.map( function ( group ) { return group.id; } );
 			if ( ids.length || groupIds.length ) { highlight( ids[0] || groupIds[0], false ); send( 'pick', { field_ids: ids, container_ids: groupIds } ); return; }
 			var leaf = node && node.closest ? node.closest( 'h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,img,a,button' ) : null;
@@ -129,7 +167,7 @@
 		document.addEventListener( 'auxclick', function ( event ) { event.preventDefault(); event.stopImmediatePropagation(); }, true );
 		document.addEventListener( 'keydown', function ( event ) { if ( event.target && event.target.closest && event.target.closest( 'form,input,select,textarea,[contenteditable]' ) ) { event.preventDefault(); event.stopImmediatePropagation(); } }, true );
 		function init() {
-			ready = true; var style = document.createElement( 'style' ); style.textContent = consent.split( ',' ).map( function ( selector ) { return 'html.nrc-hide-consent ' + selector; } ).join( ',' ) + '{display:none!important;visibility:hidden!important;pointer-events:none!important}html.nrc-consent-present,html.nrc-consent-present body{overflow:auto!important}.nrc-target{cursor:crosshair!important}.nrc-target:hover{outline:2px dashed #8511D9!important;outline-offset:3px}.nrc-assigned{outline:2px solid #2E9E50!important;outline-offset:3px}.nrc-protected{outline-style:dotted!important}.nrc-selected{outline:3px solid #8511D9!important;outline-offset:4px}.nrc-map-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:#f0ebf7;border:1px solid #d9c4ee;border-radius:8px;color:#242424;text-align:center;cursor:crosshair}.nrc-map-placeholder strong{font-size:20px}.nrc-map-placeholder p{margin:8px 0;font-size:14px}'; document.head.appendChild( style ); hideConsent(); prepareMedia( document, config, fields );
+			ready = true; var style = document.createElement( 'style' ); style.textContent = '::highlight(nova-preview-selection){background:#ead4ff;color:#28103b}' + consent.split( ',' ).map( function ( selector ) { return 'html.nrc-hide-consent ' + selector; } ).join( ',' ) + '{display:none!important;visibility:hidden!important;pointer-events:none!important}html.nrc-consent-present,html.nrc-consent-present body{overflow:auto!important}.nrc-target{cursor:crosshair!important}.nrc-target:hover{outline:2px dashed #8511D9!important;outline-offset:3px}.nrc-assigned{outline:2px solid #2E9E50!important;outline-offset:3px}.nrc-protected{outline-style:dotted!important}.nrc-selected{outline:3px solid #8511D9!important;outline-offset:4px}.nrc-map-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:#f0ebf7;border:1px solid #d9c4ee;border-radius:8px;color:#242424;text-align:center;cursor:crosshair}.nrc-map-placeholder strong{font-size:20px}.nrc-map-placeholder p{margin:8px 0;font-size:14px}'; document.head.appendChild( style ); hideConsent(); prepareMedia( document, config, fields );
 			send( 'ready', { limitations: [ 'Site scripts, forms, embedded frames and network requests are disabled in this canvas. It shows the rendered initial state; dynamic components can differ from the live page.' ], viewport: { width: win.innerWidth, height: win.innerHeight } } );
 			if ( win.MutationObserver ) { new win.MutationObserver( function ( changes ) { var significant = changes.some( function ( change ) { if ( change.type !== 'attributes' || change.attributeName !== 'class' ) { return true; } var strip = function ( classes ) { return String( classes || '' ).split( /\s+/ ).filter( function ( name ) { return name && ! name.startsWith( 'nrc-' ); } ).sort().join( ' ' ); }; return strip( change.oldValue ) !== strip( change.target.getAttribute( 'class' ) ); } ); if ( significant ) { schedule(); } } ).observe( document.body, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: [ 'class', 'id', 'style', 'hidden', 'aria-hidden', 'src' ] } ); }
 			if ( win.ResizeObserver ) { new win.ResizeObserver( schedule ).observe( document.body ); }

@@ -43,6 +43,51 @@ final class Nova_Mapping_Gutenberg_HTML {
         return $fields;
     }
 
+    /** Preview markers are derived from the captured block, never persisted into its blueprint. */
+    public static function preview_locator( array $blueprint, array $field ): ?array {
+        if ( ! preg_match( '~^(/document/[0-9]+(?:/innerBlocks/[0-9]+)*)/nova_html_slots/([a-zA-Z0-9_]+)$~D', $field['target'], $m ) ) { return null; }
+        $block = Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $m[1] );
+        if ( 'core/html' !== ( $block['blockName'] ?? '' ) ) { return null; }
+        if ( 'schema_value' === $field['kind'] ) {
+            return [ 'strategy' => 'unbound', 'reason' => 'Structured data has no visible element on the page.' ];
+        }
+        return [ 'strategy' => 'custom_html', 'marker' => self::marker( $m[1], $block['innerHTML'], $m[2] ), 'precision' => 'field' ];
+    }
+
+    private static function marker( string $path, string $html, string $key ): string {
+        return substr( hash( 'sha256', $path . ':' . hash( 'sha256', $html ) . ':' . $key ), 0, 32 );
+    }
+
+    /** Called only on the authorized preview copy, before WordPress renders its native blocks. */
+    public static function preview_blocks( array $blocks, string $parent = '/document' ): array {
+        foreach ( $blocks as $index => &$block ) {
+            $path = $parent . '/' . $index;
+            if ( ! empty( $block['innerBlocks'] ) ) { $block['innerBlocks'] = self::preview_blocks( $block['innerBlocks'], $path . '/innerBlocks' ); }
+            if ( 'core/html' !== ( $block['blockName'] ?? '' ) ) { continue; }
+            $html = $block['innerHTML']; $out = ''; $end = 0;
+            try { $spans = self::plan( $html )['spans']; }
+            catch ( InvalidArgumentException $ignored ) { continue; }
+            foreach ( $spans as $start => $span ) {
+                if ( 'schema' === $span['kind'] ) { continue; }
+                $raw = substr( $html, $start, $span['length'] );
+                if ( 'text' === $span['kind'] ) {
+                    $raw = '<!--nova-preview:' . self::marker( $path, $html, $span['key'] ) . '-->' . $raw . '<!--/nova-preview-->';
+                } else {
+                    $keys = [];
+                    foreach ( $span['attributes'] as $key ) { $keys[] = self::marker( $path, $html, $key ); }
+                    $tag = new WP_HTML_Tag_Processor( $raw ); $tag->next_tag();
+                    $tag->set_attribute( 'data-nova-preview-fields', implode( ' ', $keys ) );
+                    $raw = $tag->get_updated_html();
+                }
+                $out .= substr( $html, $end, $start - $end ) . $raw;
+                $end = $start + $span['length'];
+            }
+            $block['innerHTML'] = $out . substr( $html, $end );
+            $block['innerContent'] = [ $block['innerHTML'] ];
+        }
+        return $blocks;
+    }
+
     private static function plan( string $html ): array {
         static $cache = [];
         $hash = hash( 'sha256', $html );
