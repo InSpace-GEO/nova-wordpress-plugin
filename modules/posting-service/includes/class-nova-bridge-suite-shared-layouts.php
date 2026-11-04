@@ -134,6 +134,10 @@ final class Nova_Bridge_Suite_Shared_Layouts {
                 $seen[$key] = true;
             }
         }
+        require_once __DIR__ . '/class-nova-bridge-suite-shared-layout-dependencies.php';
+        foreach ( $entries as $i => $entry ) {
+            $entries[$i]['shareable'] = Nova_Bridge_Suite_Shared_Layout_Dependencies::supports_builder( $entry['builder'] ?? '' );
+        }
         usort( $entries, static function ( $a, $b ) { return [ $a['label'], $a['template_id'], $b['revision'] ] <=> [ $b['label'], $b['template_id'], $a['revision'] ]; } );
         return [ 'templates' => $entries ];
     }

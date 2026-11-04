@@ -18,6 +18,10 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
         $this->remaps = $remaps;
     }
 
+    public static function supports_builder( string $builder ): bool {
+        return in_array( $builder, [ 'core', 'gutenberg', 'elementor', 'flatsome', 'enfold' ], true );
+    }
+
     /** Only public media-library filenames and fingerprints travel with the layout. */
     public static function capture( array $record ) {
         $scan = new self( null );
@@ -39,7 +43,7 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
             return new WP_Error( 'nova_shared_layout_manifest', 'Choose a saved fixed layout with a complete native blueprint.' );
         }
         $blueprint =& $record['recipe']['blueprint'];
-        if ( ! in_array( $builder, [ 'core', 'gutenberg', 'elementor', 'flatsome', 'enfold' ], true ) ) {
+        if ( ! self::supports_builder( $builder ) ) {
             $this->unsupported( $builder, 'This builder has no portable layout importer.' );
         } else {
             $this->page_template( $blueprint['template'] ?? '', $record['resource_id'] ?? '' );

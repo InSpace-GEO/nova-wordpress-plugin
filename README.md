@@ -32,7 +32,7 @@ A successful import makes this installation receive-only for that NOVA connectio
 
 The importer checks site-specific references. For a supported image control, it uses the source file’s contents and media type to verify the local attachment. If the correct file is missing or ambiguous, the prompt identifies it and accepts the ID of an equivalent local attachment. Upload the original file to the receiving Media Library if necessary, then retry the same file. Linked objects that the importer cannot verify are identified before any revision in that file is enabled.
 
-This transfer is for user-authored fixed layouts on WordPress post types. The template must be present in the delivery’s publishing configuration. WordPress’s optional local rendering rules for deliveries without a selected template are a separate feature.
+Sharing supports fixed layouts for WordPress post types built with the WordPress editor, Gutenberg, Elementor, Flatsome or Enfold. The export picker identifies builders that can publish locally but cannot yet share layouts, including Cornerstone. Each delivery must include its selected template in its publishing configuration.
 
 ## Supported paths
 

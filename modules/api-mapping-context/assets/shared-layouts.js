@@ -24,7 +24,7 @@
         pick.append(file);
         const upload = button('Import layouts');
         const unresolved = element('div');
-        const selectInfo = element('p', 'The newest approved revision of each template is selected. Include earlier revisions for deliveries that are already waiting.');
+        const selectInfo = element('p', 'The latest approved revision is selected when it can be shared. Include earlier revisions for deliveries that are already waiting.');
         panel.append(element('h3', 'Export from this installation'), selectInfo, choices, download,
             element('h3', 'Import on this installation'),
             element('p', 'Importing makes this installation receive-only for this NOVA connection. The file takes precedence for the template IDs and revisions it contains. All references are checked before the revisions become available.'),
@@ -101,15 +101,20 @@
             const newest = new Map();
             for (const row of data.templates) newest.set(row.template_id, Math.max(newest.get(row.template_id) || 0, row.revision));
             for (const row of data.templates) {
+                const name = [row.label || row.page_type, row.resource_id, 'revision ' + row.revision].filter(Boolean).join(' · ');
+                if (row.shareable === false) {
+                    const builder = row.builder || 'this builder';
+                    choices.append(element('div', name + ' · Sharing is unavailable for ' + builder + ' layouts.'));
+                    continue;
+                }
                 const check = element('input'); check.type = 'checkbox'; check.checked = newest.get(row.template_id) === row.revision;
                 check.addEventListener('change', controls);
                 selected.push({check, id: row.template_id, revision: row.revision});
                 const label = element('label');
-                const name = [row.label || row.page_type, row.resource_id, 'revision ' + row.revision].filter(Boolean).join(' · ');
                 label.append(check, document.createTextNode(' ' + name + (row.origin === 'imported' ? ' (imported)' : '')));
                 const line = element('div'); line.append(label); choices.append(line);
             }
-            if (!selected.length) choices.append(element('p', 'No approved layouts available to export. You can still import a file from another installation.'));
+            if (!selected.length) choices.append(element('p', 'No shareable layout revisions are available. You can still import a file from another installation.'));
             selectInfo.hidden = !selected.length;
             ready = true; controls();
         }

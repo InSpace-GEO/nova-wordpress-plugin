@@ -59,6 +59,13 @@ check( ! str_contains( wp_json_encode( $file ), $connection['token'] ) && ! str_
 check( array_column( stored_ok( Nova_Bridge_Suite_Shared_Layouts::catalog( $connection ) )['templates'], 'revision' ) === [ 2, 1 ], 'Source can select active and historical approvals without resaving.' );
 $source_options = $GLOBALS['wpdb'];
 $GLOBALS['wpdb'] = clone $source_options;
+$profile_key = 'nova_publishing_profile_' . hash( 'sha256', $connection['site_id'] . ':' . $native_template . ':2' );
+$cornerstone_profile = get_option( $profile_key );
+$cornerstone_profile['local']['stored_layout']['builder'] = 'cornerstone';
+update_option( $profile_key, $cornerstone_profile );
+$mixed_catalog = stored_ok( Nova_Bridge_Suite_Shared_Layouts::catalog( $connection ) )['templates'];
+check( [ 2 => false, 1 => true ] === array_column( $mixed_catalog, 'shareable', 'revision' ), 'The catalog identifies the unsupported Cornerstone revision while retaining its earlier transferable Elementor revision.' );
+$GLOBALS['wpdb'] = clone $source_options;
 $matched = stored_ok( Nova_Bridge_Suite_Shared_Layouts::import_selected( $connection, $copied, [], $locks ) );
 check( 2 === $matched['unchanged'] && Nova_Bridge_Suite_Shared_Layouts::is_subscriber( $connection ), 'A first real import that matches locally authored layouts still switches the entire site into receiving mode.' );
 $never_load = static function () { throw new RuntimeException( 'A subscriber must not save an authoring revision.' ); };
