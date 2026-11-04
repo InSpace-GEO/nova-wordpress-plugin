@@ -67,6 +67,11 @@ $active = [ 'en' => ['default_locale'=>'en_US'], 'de' => ['default_locale'=>'de_
 $homes = [ 'en'=>'https://en.site.test/', 'de'=>'https://de.site.test/', 'de-at'=>'https://at.site.test/' ];
 $worker = true;
 $sitepress = new class { public function get_active_languages() { return $GLOBALS['active']; } };
+wpml_check( Language::same_route_for_languages( 'service_page', 'masterclass' ), 'Language domains sharing the same public path can use a fixed CPT route.' );
+wpml_check( ! Language::same_route_for_languages( 'service_page', 'services' ), 'A translated CPT base cannot be represented by one path prefix.' );
+$homes['de'] = 'https://en.site.test/de/';
+wpml_check( ! Language::same_route_for_languages( 'service_page', 'masterclass' ), 'Language subdirectories cannot silently route translated CPT items to Pages.' );
+$homes['de'] = 'https://de.site.test/';
 $wp_rewrite = new class { public function get_extra_permastruct( $type ) { return '/services/%' . $type . '%'; } };
 $posts = $details = [];
 $url = 'https://de.site.test/article/';

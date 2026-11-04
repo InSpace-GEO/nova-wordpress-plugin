@@ -200,6 +200,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 break;
             case 'gutenberg':
                 require_once $adapters . 'gutenberg-document.php';
+                require_once $adapters . 'gutenberg-html.php';
                 break;
         }
     }
@@ -209,7 +210,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             'provider' => $this->builder, 'version' => $this->version(), 'capabilities' => $this->metadata(), 'warnings' => $warnings ];
     }
 
-    public function capture( int $post_id ) {
+    public function capture( int $post_id, bool $discover_custom_html = true ) {
         $post = get_post( $post_id );
         if ( ! $post || ! current_user_can( 'manage_options' ) || ! current_user_can( 'edit_post', $post_id ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'permission', 'Administrator access and permission to inspect this content item are required.', 403 ); }
         $blueprint = [ 'document' => [], 'template' => (string) get_page_template_slug( $post_id ), 'meta' => $this->page_meta( $post_id ) ];
@@ -236,6 +237,9 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 $blueprint['document'] = 'divi5' === $this->builder
                     ? ( new WP_Block_Parser() )->parse( $checked )
                     : parse_blocks( (string) $post->post_content );
+                if ( 'gutenberg' === $this->builder && $discover_custom_html ) {
+                    $blueprint['document'] = Nova_Mapping_Gutenberg_HTML::capture( $blueprint['document'] );
+                }
             } elseif ( 'beaver' === $this->builder ) {
                 if ( ! function_exists( 'nova_mapping_bb_get_layout_nodes' ) || ! get_post_meta( $post_id, '_fl_builder_enabled', true ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'The selected item does not contain an active Beaver layout.' ); }
                 $blueprint['document'] = self::arrays( nova_mapping_bb_flat_to_tree( nova_mapping_bb_get_layout_nodes( $post_id ) ) );
@@ -556,6 +560,11 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                     foreach ( nova_mapping_divi5_editorial_fields( $node ) as list( $control, $format, $kind ) ) {
                         $add( $path . '/attrs/' . $control, $format, $kind );
                     }
+                } elseif ( 'core/html' === $name && isset( $node[Nova_Mapping_Gutenberg_HTML::SLOTS] ) ) {
+                    foreach ( Nova_Mapping_Gutenberg_HTML::fields( $node, $path, $node_protected ) as $field ) {
+                        $result['fields'][] = $field + [ 'context' => $node_context, 'reason' => $node_protected ? 'The owning block is locked.' : '' ]
+                            + $this->provenance( $node, $path, $field['target'] );
+                    }
                 } elseif ( in_array( $name, [ 'core/heading', 'core/paragraph', 'core/list-item', 'core/html', 'core/quote', 'core/preformatted' ], true ) && empty( $node['innerBlocks'] ) ) {
                     $add( $path . '/innerHTML', 'core/heading' === $name ? 'text' : 'html', 'core/heading' === $name ? 'heading' : 'body' );
                 } elseif ( 'core/image' === $name && empty( $node['innerBlocks'] ) ) {
@@ -722,6 +731,10 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             $this->shortcode_helpers(); $document = nova_mapping_wpb_compact_to_shortcodes( $document ); $payload['layout'] = [ 'raw_shortcodes' => $document ];
         } elseif ( in_array( $this->builder, [ 'gutenberg', 'divi5' ], true ) ) {
             if ( ! function_exists( 'serialize_blocks' ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'provider', 'The native WordPress block serializer is unavailable.' ); }
+            if ( 'gutenberg' === $this->builder ) {
+                try { $document = Nova_Mapping_Gutenberg_HTML::render_blocks( $document ); }
+                catch ( InvalidArgumentException $error ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'custom_html', $error->getMessage() ); }
+            }
             $document = serialize_blocks( $document );
             if ( 'divi5' === $this->builder ) { $checked = nova_mapping_divi5_validate_create_document( $document ); if ( is_wp_error( $checked ) ) { return $checked; } $payload['layout'] = [ 'native_document' => $document ]; }
             else { $payload['native_document'] = $document; }

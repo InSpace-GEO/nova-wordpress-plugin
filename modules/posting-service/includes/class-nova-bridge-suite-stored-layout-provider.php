@@ -60,6 +60,11 @@ final class Nova_Bridge_Suite_Stored_Layout_Provider {
         }
         if ( in_array( $builder, [ 'core', 'gutenberg' ], true ) ) {
             $checked = self::content_payload( $builder, $payload ); if ( is_wp_error( $checked ) ) { return $checked; }
+            if ( 'gutenberg' === $builder && str_contains( $payload['native_document'], '<!-- wp:html' )
+                && function_exists( 'has_filter' ) && false !== has_filter( 'content_save_pre', 'wp_filter_post_kses' )
+                && wp_unslash( wp_filter_post_kses( wp_slash( $payload['native_document'] ) ) ) !== $payload['native_document'] ) {
+                return self::error( 'WordPress would strip markup from this Custom HTML layout. Select a publishing user allowed to save its HTML, or remove the restricted markup.' );
+            }
             return [ 'wordpress' => (string) $wp_version, 'builder' => $builder, 'provider_version' => 'known-post-v1', 'bridge' => defined( 'NOVA_BRIDGE_SUITE_VERSION' ) ? NOVA_BRIDGE_SUITE_VERSION : '' ];
         }
         $adapter = self::extension( $builder ); return is_wp_error( $adapter ) ? $adapter : $adapter->publication_probe( $type, $payload, $status );

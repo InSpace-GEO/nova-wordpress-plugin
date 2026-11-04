@@ -46,6 +46,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         return $post && function_exists( 'has_blocks' ) && has_blocks( $post->post_content ) ? 'gutenberg' : 'core';
     }
     private static function capture( array $resource, int $id, string $builder, string $mode, array $declared_fields = [], bool $include_document_settings = true ) {
+        if ( 'gutenberg' === $builder ) { return Nova_Bridge_Suite_Recipe_Builders::adapter( $builder )->capture( $id, false ); }
         if ( 'core' === $builder ) { return Nova_Bridge_Suite_Recipe_Core::design( $resource, $id, $mode, $declared_fields ); }
         if ( 'acf' === $builder ) { return Nova_Bridge_Suite_Recipe_ACF::design( $resource['post_type'] ?? '', $id, 'taxonomy' === $resource['type'] ? '' : (string) get_page_template_slug( $id ), $resource['taxonomy'] ?? '' ); }
         return Nova_Bridge_Suite_Recipe_Builders::capture( $builder, $id, $include_document_settings );
@@ -77,6 +78,9 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             // Compare the original page's links/structure without re-reading those blocks;
             // the signed receipt above still authenticates the complete captured snapshot.
             $expected = $recipe['blueprint'];
+            if ( 'gutenberg' === $recipe['builder'] ) {
+                $expected['document'] = Nova_Mapping_Gutenberg_HTML::source_blocks( $expected['document'] );
+            }
             if ( 'flatsome' === $recipe['builder'] && class_exists( 'Nova_Bridge_Suite_Recipe_Flatsome' ) ) {
                 $expected = Nova_Bridge_Suite_Recipe_Flatsome::linked_blueprint( $expected );
             }
