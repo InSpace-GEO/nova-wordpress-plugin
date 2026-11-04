@@ -14,8 +14,33 @@ function wp_get_attachment_url( $id ) { return wp_attachment_is_image( $id ) ? '
 function wp_get_attachment_metadata( $id ) { return [ 'width' => 1, 'height' => 1 ]; }
 function wp_generate_attachment_metadata( $id, $file ) { return [ 'width' => 1, 'height' => 1 ]; }
 function wp_update_attachment_metadata( $id, $data ) { return true; }
+function apply_filters( $name, $value, ...$args ) {
+    if ( 'wpml_element_language_details' === $name && 'attachment' === $args[0]['element_type'] ) {
+        return $GLOBALS['media_languages'][$args[0]['element_id']] ?? null;
+    }
+    return $value;
+}
 function media_handle_sideload( $file, $post_id, $description, $data ) {
+    $raw = $data;
+    foreach ( $GLOBALS['filters']['wp_insert_attachment_data'] ?? [] as $filter ) {
+        $data = $filter( $data, $raw, $raw );
+    }
     $p = new WP_Post(); $p->ID = 100 + $GLOBALS['attachment_count']++; $p->post_type = 'attachment'; $p->post_status = 'inherit'; $p->post_name = 'image-' . $p->ID; $p->post_content_filtered = $data['post_content_filtered']; $p->post_parent = $post_id; $GLOBALS['posts'][$p->ID] = $p;
+    if ( ! empty( $GLOBALS['clone_media'] ) ) {
+        // WPML clones the whole WP_Post and replaces ID and post_parent when translating an upload.
+        $translated = clone $p; $translated->ID = 100 + $GLOBALS['attachment_count']++; $translated->post_parent = 0;
+        // wp_insert_post keeps WPML's WP_Post object as the raw argument to the attachment filter.
+        $translated_data = (array) $translated;
+        foreach ( $GLOBALS['filters']['wp_insert_attachment_data'] ?? [] as $filter ) {
+            $translated_data = $filter( $translated_data, (array) $translated, $translated );
+        }
+        $translated->post_content_filtered = $translated_data['post_content_filtered'];
+        $GLOBALS['posts'][$translated->ID] = $translated;
+        $GLOBALS['media_languages'] = [
+            $p->ID => (object) [ 'trid' => 81, 'language_code' => 'nl', 'source_language_code' => null ],
+            $translated->ID => (object) [ 'trid' => 81, 'language_code' => 'en', 'source_language_code' => 'nl' ],
+        ];
+    }
     if ( $GLOBALS['crash_image'] ) { $GLOBALS['crash_image'] = false; throw new RuntimeException( 'Lost sideload response' ); }
     return $p->ID;
 }
@@ -88,9 +113,37 @@ reset_media(); existing_page(); $meta[10]['_thumbnail_id'] = 17; $p = media_plan
 foreach ( $p['payload']['nova_media'] as &$entry ) { $entry['url'] = ''; $entry['clear'] = true; } unset( $entry, $p['plan_digest'] ); $p['plan_digest'] = hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $p ) );
 ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $p, op( 1 ) ) ); check( get_post_thumbnail_id( 10 ) === 0 && image_settings()['background_image'] === [ 'id' => 0, 'url' => '' ] && $media_downloads === 0, 'An explicit clear empties both native image controls without a download.' );
 
-reset_media(); existing_page(); $payload = [ 'content' => '<p>Native core body</p>', 'nova_media' => [ '/native_post/featured_image' => [ 'kind' => 'featured', 'url' => 'https://images.example.test/core.png' ] ] ];
+reset_media(); existing_page(); $clone_media = true;
+$payload = [ 'content' => '<p>Native core body</p>', 'nova_media' => [ '/native_post/featured_image' => [ 'kind' => 'featured', 'url' => 'https://images.example.test/core.png' ] ] ];
 ok( Nova_Bridge_Suite_Stored_Layout_Provider::apply( 'core', 10, $payload, [ 'title' => 'Native core' ], 'core-operation' ) );
-check( get_post_thumbnail_id( 10 ) === 100 && get_post( 10 )->post_content === '<p>Native core body</p>', 'Featured image support works with the generic content provider, independent of Elementor.' );
+check( get_post_thumbnail_id( 10 ) === 100 && get_post( 10 )->post_content === '<p>Native core body</p>' && 2 === $attachment_count && 1 === $media_downloads, 'The core Page receives its body and original featured image when WPML translates the attachment during the first download.' );
+$clone_media = false;
+
+reset_media(); $p = media_plan();
+$strip_filtered_content = static function ( $data ) { $data['post_content_filtered'] = ''; return $data; };
+add_filter( 'wp_insert_attachment_data', $strip_filtered_content, 10 );
+$crash_image = true;
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $p, op( 1 ) ) ) && 0 === $saves && '' === get_post( 10 )->post_content, 'A lost attachment response interrupts the reserved draft before its body has been written.' );
+ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $p, op( 1 ) ) );
+check( $attachment_count === 1 && $media_downloads === 1 && $saves === 1 && get_post_thumbnail_id( 10 ) === 100, 'WordPress attachment filtering retains the marker, so retry writes the body and uses the original attachment.' );
+remove_filter( 'wp_insert_attachment_data', $strip_filtered_content, 10 );
+
+reset_media(); $clone_media = true; $p = media_plan(); $crash_image = true;
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $p, op( 1 ) ) ) && 0 === $saves && '' === get_post( 10 )->post_content && '' === get_post_meta( 10, '_elementor_data', true ), 'Legacy interrupted image import retains a title-only draft and two WPML attachment rows.' );
+check( $posts[100]->post_content_filtered === $posts[101]->post_content_filtered && $posts[100]->post_content_filtered !== '', 'Both translated attachment rows carry the source marker.' );
+$media_languages[101]->trid = 82;
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $p, op( 1 ) ) ) && 0 === $saves && 1 === $media_downloads, 'Unrelated groups remain blocked without a second download.' );
+$media_languages[101]->trid = 81;
+$media_languages[100]->source_language_code = 'de';
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $p, op( 1 ) ) ) && 0 === $saves && 1 === $media_downloads, 'A group of marked translations without an identifiable original remains blocked.' );
+$media_languages[100]->source_language_code = null;
+$result = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $p, op( 1 ) ) );
+check( $inserts === 1 && $saves === 1 && $media_downloads === 1 && $attachment_count === 2 && get_post_thumbnail_id( 10 ) === 100 && image_settings()['background_image']['id'] === 100, 'The existing reservation completes with its original WPML attachment; no duplicate post or image download is created on replay.' );
+$later = clone $posts[100]; $later->ID = 102; $posts[102] = $later;
+$media_languages[102] = (object) [ 'trid' => 81, 'language_code' => 'de', 'source_language_code' => 'nl' ];
+ok( Nova_Bridge_Suite_Stored_Layout_Writer::verify( $p, $result ) );
+check( $media_downloads === 1 && $posts[102]->post_content_filtered === $posts[100]->post_content_filtered, 'A translation added later preserves the durable result without changing translation rows or downloading again.' );
+$clone_media = false;
 $bad = $p['payload']; $bad['nova_media']['/document/0/settings/background_image/url']['id_target'] = '/document/0/settings/another/id';
 check( is_wp_error( Nova_Bridge_Suite_Native_Media::validate( 'elementor', $bad ) ), 'Malformed URL/ID pairs cannot retarget unrelated native settings.' );
 reset_media(); $p = media_plan(); check( is_wp_error( Nova_Bridge_Suite_Native_Media::resolve( 'elementor', 10, $p['payload'], op( 1 ), false ) ) && $media_downloads === 0, 'Unstarted imports fail read-only verification instead of being mistaken for an optional skip.' );

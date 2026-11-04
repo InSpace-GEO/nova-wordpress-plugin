@@ -10,6 +10,14 @@ The canonical import superseded a competing local layout with the same template 
 
 Tested ZIP SHA-256 is `ca64d5293bc0cbfe24c958fb9749914a36bdcc0ba05fdf5ea05d1a1244e3ca95`.
 
+### Featured images on a multilingual receiving site
+
+The first two-site test used locally stored background images. A separate test exercised a delivery that supplied a native Page body and a featured image to download. On isolated WordPress 7.1.4 with WPML 4.9.5 configured to translate attachments into three languages, the original plugin reserved draft 9 and downloaded the image once. WPML created attachment 10 and translations 11 and 12. All three carried the same NOVA image marker. The writer stopped before saving the Page body or thumbnail.
+
+With the revised writer, the same operation recovered draft 9, wrote the fitted body, set attachment 10 as its featured image and verified the result. Both translations were retained and recovery performed zero additional downloads. A fresh delivery created draft 14, rendered the intended body and selected the original featured image on its first attempt. The original image and its two translations were created from a single download.
+
+All 102 local suites passed, including coverage for conflicting attachment groups and interrupted document saves. An unchanged reservation created by the revised writer can resume. A partial document save or an intervening user edit still requires reconciliation. The 153 runtime files installed on staging matched the revised ZIP. Its SHA-256 is `6e3bdbf86be94d9093c258b7110cd65fc282230a7f580cfbcd8483f3699e0139`.
+
 ## 1.0.7 staging candidate
 
 The isolated `inspace-seo.com` lab ran WordPress 7.1.2, Themeco X 10.8.12 and Cornerstone 7.9.7. We saved a fixed layout from a native Page and another from a native Post through the mapping endpoints, then deleted both example items. With fitted test deliveries, NOVA created each target and updated it a second time. HTTP requests found the expected heading, formatted body, button text and destination, and newly imported image. Both updates retained the target’s original WordPress ID and URL. Cornerstone’s own document reader returned the new mapped values, and the saved presentation settings survived. We also checked that a publishing user without Cornerstone’s Posts permission could not publish that destination.

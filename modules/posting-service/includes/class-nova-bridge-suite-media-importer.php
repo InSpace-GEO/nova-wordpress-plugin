@@ -11,12 +11,30 @@ final class Nova_Bridge_Suite_Media_Importer {
         if ( null === get_option( $key, null ) ) { add_option( $key, $value, '', false ); } else { update_option( $key, $value, false ); }
         wp_cache_delete( $key, 'options' ); return get_option( $key, null ) === $value;
     }
-    private static function existing( string $marker ): int {
+    private static function existing( string $marker, int $known_id = 0, int $parent_id = 0 ): int {
         global $wpdb;
         if ( ! isset( $wpdb->posts ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->posts ) ) { throw new RuntimeException( 'Media storage unavailable.' ); }
         $ids = $wpdb->get_col( $wpdb->prepare( 'SELECT ID FROM `' . $wpdb->posts . '` WHERE post_type = %s AND post_content_filtered = %s ORDER BY ID', 'attachment', $marker ) );
-        if ( ! is_array( $ids ) || ! empty( $wpdb->last_error ) || count( $ids ) > 1 ) { throw new RuntimeException( 'Media recovery is ambiguous.' ); }
-        return $ids ? (int) $ids[0] : 0;
+        if ( ! is_array( $ids ) || ! empty( $wpdb->last_error ) ) { throw new RuntimeException( 'Media recovery is ambiguous.' ); }
+        if ( count( $ids ) <= 1 ) { return $ids ? (int) $ids[0] : 0; }
+        // WPML can copy the complete attachment row, including our marker, to every language.
+        // Only accept such siblings if WPML identifies one translation group and one original.
+        $group = 0; $original = 0; $languages = [];
+        foreach ( $ids as $candidate ) {
+            $details = apply_filters( 'wpml_element_language_details', null, [ 'element_type' => 'attachment', 'element_id' => (int) $candidate ] );
+            $trid = (int) ( $details->trid ?? 0 ); $language = $details->language_code ?? '';
+            if ( ! $trid || ( $group && $trid !== $group ) || ! is_string( $language ) || '' === $language
+                || isset( $languages[$language] ) || ! property_exists( $details, 'source_language_code' ) ) { throw new RuntimeException( 'Media recovery is ambiguous.' ); }
+            $group = $trid; $languages[$language] = (int) $candidate;
+            if ( null === $details->source_language_code ) {
+                if ( $original ) { throw new RuntimeException( 'Media recovery is ambiguous.' ); }
+                $original = (int) $candidate;
+            }
+        }
+        if ( ! $original ) { throw new RuntimeException( 'Media recovery is ambiguous.' ); }
+        if ( $known_id && in_array( $known_id, $languages, true ) ) { return $known_id; }
+        if ( ! $known_id && $parent_id && (int) ( get_post( $original )->post_parent ?? 0 ) === $parent_id ) { return $original; }
+        throw new RuntimeException( 'Media recovery is ambiguous.' );
     }
     /** Returns the retained attachment, or zero for a known optional-media failure. */
     public static function resolve( string $op, string $url, int $post_id, string $alt = '' ): int {
@@ -25,12 +43,12 @@ final class Nova_Bridge_Suite_Media_Importer {
         if ( is_array( $record ) && 'skipped' === ( $record['state'] ?? '' ) ) { return 0; }
         if ( is_array( $record ) && 'complete' === ( $record['state'] ?? '' ) ) {
             $id = (int) ( $record['attachment_id'] ?? 0 );
-            if ( ! $id || self::existing( $marker ) !== $id || ! wp_attachment_is_image( $id ) ) { throw new RuntimeException( 'Retained image is unavailable.' ); }
+            if ( ! $id || self::existing( $marker, $id ) !== $id || ! wp_attachment_is_image( $id ) ) { throw new RuntimeException( 'Retained image is unavailable.' ); }
             if ( '' !== $alt ) { update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( $alt ) ); }
             return $id;
         }
         if ( null !== $record && ( ! is_array( $record ) || 'preparing' !== ( $record['state'] ?? '' ) ) ) { throw new RuntimeException( 'Invalid media journal.' ); }
-        $id = self::existing( $marker );
+        $id = self::existing( $marker, 0, $post_id );
         if ( ! $id ) {
             if ( ! current_user_can( 'upload_files' ) || ! wp_http_validate_url( $url ) || ! preg_match( '#^https?://#i', $url ) ) { return self::skip( $key, $op, 'invalid_or_forbidden' ); }
             if ( ! self::save( $key, [ 'state' => 'preparing' ] ) ) { throw new RuntimeException( 'Cannot retain media progress.' ); }
@@ -48,17 +66,22 @@ final class Nova_Bridge_Suite_Media_Importer {
                 if ( ! is_array( $info ) || ! isset( $types[$info['mime'] ?? ''] ) || empty( $info[0] ) || empty( $info[1] ) || (float) $info[0] * (float) $info[1] > 40000000 ) { return self::skip( $key, $op, 'invalid_image' ); }
                 $name = 'nova-' . substr( hash( 'sha256', $op . ':' . $url ), 0, 20 ) . '.' . $types[$info['mime']];
                 $file = [ 'name' => $name, 'tmp_name' => $tmp ];
-                $protect = static function ( $data, $postarr, $raw ) use ( $marker ) { if ( ( $raw['post_content_filtered'] ?? null ) === $marker ) { $data['post_content_filtered'] = $marker; } return $data; };
-                add_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX, 3 );
-                try { $id = media_handle_sideload( $file, $post_id, null, [ 'post_content_filtered' => $marker ] ); } finally { remove_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX ); }
+                $protect = static function ( $data, $postarr, $raw ) use ( $marker ) {
+                    // WPML passes a WP_Post to wp_insert_post when creating an attachment translation.
+                    $input = (array) $raw;
+                    if ( ( $input['post_content_filtered'] ?? null ) === $marker ) { $data['post_content_filtered'] = $marker; }
+                    return $data;
+                };
+                add_filter( 'wp_insert_attachment_data', $protect, PHP_INT_MAX, 3 );
+                try { $id = media_handle_sideload( $file, $post_id, null, [ 'post_content_filtered' => $marker ] ); } finally { remove_filter( 'wp_insert_attachment_data', $protect, PHP_INT_MAX ); }
                 if ( is_wp_error( $id ) || ! $id ) {
-                    if ( self::existing( $marker ) ) { throw new RuntimeException( 'Media insertion needs recovery.' ); }
+                    if ( self::existing( $marker, 0, $post_id ) ) { throw new RuntimeException( 'Media insertion needs recovery.' ); }
                     return self::skip( $key, $op, 'sideload' );
                 }
                 $id = (int) $id;
             } finally { if ( is_file( $tmp ) ) { @unlink( $tmp ); } }
         }
-        if ( self::existing( $marker ) !== $id || ! wp_attachment_is_image( $id ) ) { throw new RuntimeException( 'Image attachment could not be verified.' ); }
+        if ( self::existing( $marker, $id ) !== $id || ! wp_attachment_is_image( $id ) ) { throw new RuntimeException( 'Image attachment could not be verified.' ); }
         if ( ! wp_get_attachment_metadata( $id ) ) {
             if ( ! function_exists( 'wp_generate_attachment_metadata' ) ) { require_once ABSPATH . 'wp-admin/includes/image.php'; }
             $file = get_attached_file( $id ); $metadata = $file ? wp_generate_attachment_metadata( $id, $file ) : false;
@@ -84,7 +107,7 @@ final class Nova_Bridge_Suite_Media_Importer {
         if ( ! is_array( $record ) ) { throw new RuntimeException( 'Invalid media journal.' ); }
         if ( 'skipped' === ( $record['state'] ?? '' ) ) { return [ 'state' => 'skipped', 'attachment_id' => 0 ]; }
         $id = (int) ( $record['attachment_id'] ?? 0 );
-        if ( 'complete' !== ( $record['state'] ?? '' ) || ! $id || self::existing( self::marker( $op, $url ) ) !== $id || ! wp_attachment_is_image( $id ) ) { throw new RuntimeException( 'Retained image is unavailable.' ); }
+        if ( 'complete' !== ( $record['state'] ?? '' ) || ! $id || self::existing( self::marker( $op, $url ), $id ) !== $id || ! wp_attachment_is_image( $id ) ) { throw new RuntimeException( 'Retained image is unavailable.' ); }
         return [ 'state' => 'complete', 'attachment_id' => $id ];
     }
 }
