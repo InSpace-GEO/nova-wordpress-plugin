@@ -5,7 +5,7 @@ require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-b
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-recipe-visual.php';
 function get_the_ID() { return $GLOBALS['preview_post_id'] ?? 0; }
 $example = <<<'HTML'
-<!-- wp:group --><div class="wp-block-group"><!-- wp:html --><section><h2>Course overview</h2><p>Read the <em>course guide</em> before joining.</p><a href="#schedule">View schedule</a><img src="cover.svg" alt="Course illustration"></section><!-- /wp:html --><!-- wp:html --><section id="schedule"><h2>Schedule</h2><details><summary>What is included?</summary><p id="first-answer">Both sessions.</p></details><details><summary>What is included?</summary><p id="second-answer">Personal feedback.</p></details></section><script type="application/ld+json">{"@type":"Course","name":"Sample course"}</script><!-- /wp:html --></div><!-- /wp:group -->
+<!-- wp:group --><div class="wp-block-group"><!-- wp:html --><section><h2>Course overview</h2><p>Read the <em>course guide</em> before joining.</p><a href="#schedule">View schedule</a><img src="cover.svg" alt="Course illustration"></section><!-- /wp:html --><!-- wp:html --><section id="schedule"><h2>Schedule</h2><details><summary>What is included?</summary><p id="first-answer">Both sessions.</p></details><details><summary>What is included?</summary><p id="second-answer">Personal feedback.</p></details></section><!-- /wp:html --><!-- wp:html --><script type="application/ld+json">{"@type":"Course","name":"Sample course"}</script><!-- /wp:html --></div><!-- /wp:group -->
 HTML;
 $blocks = parse_blocks( $example );
 $bp = [ 'document' => Nova_Mapping_Gutenberg_HTML::capture( $blocks ) ];
@@ -31,6 +31,12 @@ foreach ( $design['preview_fields'] as $field ) {
     $markers[] = $locator['marker'];
 }
 check( count( $markers ) === count( array_unique( $markers ) ), 'Repeated FAQ text has separate markers.' );
+$old = [ 'document' => $blocks ];
+$old_design = Nova_Bridge_Suite_Recipe_Visual::enrich( [ 'builder' => 'gutenberg', 'blueprint' => $old, 'fields' => $adapter->fields( $old ), 'containers' => [] ], [ 'type' => 'post_type', 'post_type' => 'page' ] );
+foreach ( $old_design['preview_fields'] as $old_field ) {
+    $locator = $old_field['locator'];
+    check( 'region' === $locator['precision'] && str_contains( $marked, '<!--nova-preview-block:' . $locator['marker'] . '-->' ), 'Legacy whole-block fields retain a distinct region in the current preview.' );
+}
 $changed = $callback( str_replace( 'Personal feedback.', 'Changed after capture.', $example ) );
 foreach ( $design['fields'] as $field ) {
     if ( 'Personal feedback.' === $field['value'] ) { check( ! str_contains( $changed, $field['locator']['marker'] ), 'An edited block cannot highlight a stale slot.' ); }
