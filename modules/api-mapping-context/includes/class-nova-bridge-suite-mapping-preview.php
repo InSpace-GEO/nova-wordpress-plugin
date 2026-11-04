@@ -87,6 +87,7 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		header( 'X-Frame-Options: SAMEORIGIN' );
 		header( 'Referrer-Policy: no-referrer' );
 		if ( self::$canvas ) {
+			if ( 'post' === $type ) { add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 ); }
 			header( 'Content-Security-Policy: ' . self::canvas_policy() );
 			$script = NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_DIR . 'assets/recipe-canvas.js';
 			wp_enqueue_script( 'nova-recipe-canvas', NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/recipe-canvas.js', [], (string) filemtime( $script ), false );
@@ -97,6 +98,11 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		$script = NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_DIR . 'assets/mapping-preview.js';
 		wp_enqueue_script( 'nova-mapping-preview', NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/mapping-preview.js', [], (string) filemtime( $script ), false );
 		wp_add_inline_script( 'nova-mapping-preview', 'window.NovaMappingPreview=' . wp_json_encode( [ 'referenceId' => $id, 'referenceType' => $type, 'parentOrigin' => self::$parent_origin ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ) . ';', 'before' );
+	}
+	public static function mark_custom_html( string $content ): string {
+		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] || ! str_contains( $content, '<!-- wp:html' ) ) { return $content; }
+		require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
+		return serialize_blocks( Nova_Mapping_Gutenberg_HTML::preview_blocks( parse_blocks( $content ) ) );
 	}
 	private static function wpml_domain_language( int $id, string $post_type, string $url ): string {
 		if ( ! is_callable( [ $GLOBALS['sitepress'] ?? null, 'switch_lang' ] ) || 2 !== (int) apply_filters( 'wpml_setting', null, 'language_negotiation_type' ) ) { return ''; }

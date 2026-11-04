@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+= 1.1.2 =
+Selecting a Custom HTML field highlights its text, link, or image in the mapping preview. Click the preview to select the matching field, even when the same question appears twice. Selecting an answer opens its FAQ section. The editor identifies structured data fields that have no visible element.
+
 = 1.1.1 =
 Capture a fresh Gutenberg Custom HTML layout to map individual headings, text, links, images and FAQ fields while preserving the surrounding markup and styling. Existing layout revisions keep their original bindings.
 Map individual JSON-LD values using a named Custom purpose and guidance. New captures omit unmapped schema on generated pages.
