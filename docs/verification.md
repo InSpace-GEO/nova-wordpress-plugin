@@ -1,5 +1,15 @@
 # Release verification
 
+## 1.1.0 release
+
+The release is based on the published 1.0.7 commit. All 104 local suites passed. The 156-file ZIP tested on both staging hosts has SHA-256 `4877520a076b9617665944a9856296ee5fb9abba2b72640d1ce43b90a59b0cb2`.
+
+On two independent WordPress 7.1.4 installations, the source exported approved Page and Post layouts. The receiver rejected a different image with the same attachment ID, rendered the correct local file, and completed a queued revision 1 delivery after revision 2 had been imported. A revision 2 delivery updated the same Page. The receiver also published a Post while its mapping saves and default updates were blocked. These tests used real WordPress and Elementor with simulated posting-service traffic.
+
+In a separate staging installation with WPML 4.9.5, the release recovered a title-only draft from the previous pilot and reused its original attachment without a second download. A fresh delivery rendered the body and set the featured image while WPML created the translated attachments.
+
+We installed the public 1.0.7 ZIP with X 10.8.12 and Cornerstone 7.9.7, saved a mapping, published a Page and removed the example. After upgrading to this ZIP, a new delivery using the existing mapping updated the same Page. Its body and image rendered and the saved data reopened in Cornerstone. Fresh Page and Post mappings also passed creation and update checks in 1.1.0.
+
 ## 1.1.0 shared layouts staging candidate
 
 All 102 local suites passed. We installed the same candidate ZIP on two isolated WordPress 7.1.4 installations. The authoring site ran Elementor 4.1.4 and the receiving site ran Elementor 3.35.9. The WordPress editor, import handlers, delivery queue, builder output and served images were real. A simulated posting service supplied deliveries and recorded outbound requests.
