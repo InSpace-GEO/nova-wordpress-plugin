@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+= 1.1.1 =
+Capture a fresh Gutenberg Custom HTML layout to map individual headings, text, links, images and FAQ fields while preserving the surrounding markup and styling. Existing layout revisions keep their original bindings.
+Map individual JSON-LD values using a named Custom purpose and guidance. New captures omit unmapped schema on generated pages.
+With a posting-service that supports URL routing, multiple WordPress destinations can share a NOVA page type when their permalink paths distinguish them. Existing single-template setups continue to work.
+
 = 1.1.0 =
 Export approved layouts and their revisions from one WordPress installation and import them on others using the same NOVA site ID. Receiving installations can publish without changing the shared mappings.
 Fix title-only drafts when WPML creates translations of a featured image during delivery.
