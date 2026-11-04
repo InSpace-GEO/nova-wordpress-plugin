@@ -13,7 +13,7 @@ Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge
 = 1.1.1 =
 Capture a fresh Gutenberg Custom HTML layout to map individual headings, text, links, images and FAQ fields while preserving the surrounding markup and styling. Existing layout revisions keep their original bindings.
 Map individual JSON-LD values using a named Custom purpose and guidance. New captures omit unmapped schema on generated pages.
-With a posting-service that supports URL routing, multiple WordPress destinations can share a NOVA page type when their permalink paths distinguish them. Existing single-template setups continue to work.
+Layouts can use distinct WordPress permalink paths to direct the same NOVA page type to different destinations, such as Pages and a custom post type.
 
 = 1.1.0 =
 Export approved layouts and their revisions from one WordPress installation and import them on others using the same NOVA site ID. Receiving installations can publish without changing the shared mappings.
