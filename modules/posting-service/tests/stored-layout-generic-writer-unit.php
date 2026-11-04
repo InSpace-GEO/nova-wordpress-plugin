@@ -34,7 +34,10 @@ function home_url( $path = '/' ) { return 'https://fixture.test' . $path; }
 function wp_parse_url( $url ) { return parse_url( $url ); }
 function get_post( $id ) { return $GLOBALS['posts'][$id] ?? null; }
 function get_post_status( $id ) { return get_post( $id )->post_status ?? false; }
-function get_post_meta( $id, $key, $single = true ) { return $single ? ( $GLOBALS['meta'][$id][$key] ?? '' ) : ( metadata_exists( 'post', $id, $key ) ? [ $GLOBALS['meta'][$id][$key] ] : [] ); }
+function get_post_meta( $id, $key = '', $single = true ) {
+    if ( '' === $key ) { return array_map( static fn( $value ) => [ $value ], $GLOBALS['meta'][$id] ?? [] ); }
+    return $single ? ( $GLOBALS['meta'][$id][$key] ?? '' ) : ( metadata_exists( 'post', $id, $key ) ? [ $GLOBALS['meta'][$id][$key] ] : [] );
+}
 function metadata_exists( $type, $id, $key ) { return array_key_exists( $key, $GLOBALS['meta'][$id] ?? [] ); }
 function update_post_meta( $id, $key, $v ) { if ( $key === ( $GLOBALS['drop_meta'] ?? null ) ) { return false; } $v = wp_unslash( $v ); $GLOBALS['meta'][$id][$key] = is_scalar( $v ) || null === $v ? (string) $v : $v; if ( $key === ( $GLOBALS['crash_meta'] ?? null ) ) { $GLOBALS['crash_meta'] = null; throw new RuntimeException( 'Lost completed metadata save response' ); } return true; }
 function get_page_template_slug( $id ) { $template = get_post_meta( $id, '_wp_page_template', true ); return $template === 'default' ? '' : $template; }

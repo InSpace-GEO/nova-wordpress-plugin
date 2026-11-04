@@ -28,7 +28,14 @@ function did_action( $name ) { return 'elementor/loaded' === $name ? 1 : 0; }
 function do_action( ...$args ) {}
 function wp_cache_delete( ...$unused ) {}
 function wp_allowed_protocols() { return [ 'https', 'http', 'mailto' ]; }
-function wp_is_valid_utf8( $s ) { return true; }
+// WP 6.9's real tag processor uses both UTF-8 validation and the noncharacter check.
+if ( is_file( $core . '/utf8.php' ) ) {
+    function _wp_can_use_pcre_u() { return true; }
+    require_once $core . '/compat-utf8.php';
+    require_once $core . '/utf8.php';
+} else {
+    function wp_is_valid_utf8( $s ) { return true; }
+}
 function is_utf8_charset( $s = null ) { return true; }
 function get_option( $key, $fallback = false ) { return 'blog_charset' === $key ? 'UTF-8' : ( 'home' === $key ? home_url() : $fallback ); }
 function home_url( $path = '' ) { return 'https://lang.test' . $path; }

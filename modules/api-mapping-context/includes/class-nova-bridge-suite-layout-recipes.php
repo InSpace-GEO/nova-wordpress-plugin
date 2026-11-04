@@ -173,7 +173,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( $declared_empty ) { unset( $region['prototype_start'], $region['prototype_count'] ); $region['prototype']['native'] = $candidate['schema_prototype']; }
         if ( 'optional' === $region['kind'] && in_array( $region['source'], [ '/faqs', '/sections', '/images', '/children' ], true ) ) { $region['context'] = 'parent'; }
         $relative = self::relative_meta( $description, $region ); $seen = [];
-        foreach ( $relative['fields'] as $field ) { if ( empty( $field['writable'] ) ) { continue; } $binding = self::binding( $field, true, $region['source'] ); if ( isset( $seen[$binding['source']] ) ) { $binding['source'] = '/fields/f_' . substr( hash( 'sha256', $field['target'] ), 0, 12 ); } $seen[$binding['source']] = true; $region['prototype']['bindings'][] = $binding; }
+        foreach ( $relative['fields'] as $field ) { if ( empty( $field['writable'] ) || ! empty( $field['manual_purpose'] ) ) { continue; } $binding = self::binding( $field, true, $region['source'] ); if ( isset( $seen[$binding['source']] ) ) { $binding['source'] = '/fields/f_' . substr( hash( 'sha256', $field['target'] ), 0, 12 ); } $seen[$binding['source']] = true; $region['prototype']['bindings'][] = $binding; }
         $variants_meta = [];
         if ( ! empty( $candidate['layouts'] ) ) {
             $region['variant_by'] = '/layout'; $region['variants'] = []; $region['default_variant'] = $candidate['layouts'][0]['name'];
@@ -183,7 +183,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     }
     private static function preset( string $builder, string $mode, array $design ): array {
         $recipe = [ 'format' => Nova_Bridge_Suite_Recipe_Engine::FORMAT, 'builder' => $builder, 'mode' => $mode, 'blueprint' => $design['blueprint'], 'bindings' => [], 'regions' => [], 'instructions' => '' ];
-        foreach ( $design['fields'] ?? [] as $field ) { if ( ! empty( $field['writable'] ) && empty( $field['native_media'] ) ) { $recipe['bindings'][] = self::binding( $field ); } }
+        foreach ( $design['fields'] ?? [] as $field ) { if ( ! empty( $field['writable'] ) && empty( $field['native_media'] ) && empty( $field['manual_purpose'] ) ) { $recipe['bindings'][] = self::binding( $field ); } }
         if ( 'static' !== $mode ) {
             foreach ( $design['suggested_regions'] ?? [] as $hint ) { if ( isset( $hint['prototype'] ) ) { $recipe['regions'][] = $hint; continue; } $value = self::region_value( $design['blueprint'], $design, $hint, $builder ); if ( is_wp_error( $value ) ) { continue; } $recipe['regions'][] = $value['region']; }
             $recipe['bindings'] = array_values( array_filter( $recipe['bindings'], static function ( $binding ) use ( $recipe ) { foreach ( $recipe['regions'] as $region ) { if ( self::inside( $binding['target'], $region ) ) { return false; } } return true; } ) );
@@ -375,7 +375,12 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     private static function check_scope( array $native, array $description, array $bindings, array $regions, string $builder, int $depth = 0 ) {
         if ( $depth > 8 ) { return self::error( 'depth', 'Nested content regions exceed eight levels.' ); }
         $allowed = []; foreach ( $description['fields'] ?? [] as $field ) { if ( ! empty( $field['writable'] ) ) { $allowed[$field['target']] = $field; } }
-        foreach ( $bindings as $binding ) { $field = $allowed[$binding['target'] ?? ''] ?? null; $formats = $field['allowed_formats'] ?? [ $field['format'] ?? 'text' ]; if ( ! $field || ! in_array( $binding['format'] ?? '', $formats, true ) ) { return self::error( 'field', 'Only declared writable content fields may receive generated values. Styles, identifiers and bindings remain protected.', 409 ); } }
+        foreach ( $bindings as $binding ) {
+            $field = $allowed[$binding['target'] ?? ''] ?? null;
+            if ( 'schema_value' === ( $field['kind'] ?? '' ) && ! Nova_Mapping_Gutenberg_Schema::custom_purpose( $binding ) ) {
+                return self::error( 'field', 'Each JSON-LD value needs a named Custom purpose and guidance.', 422 );
+            }
+            $formats = $field['allowed_formats'] ?? [ $field['format'] ?? 'text' ]; if ( ! $field || ! in_array( $binding['format'] ?? '', $formats, true ) ) { return self::error( 'field', 'Only declared writable content fields may receive generated values. Styles, identifiers and bindings remain protected.', 409 ); } }
         foreach ( $regions as $region ) {
             $container = null; foreach ( $description['containers'] ?? [] as $candidate ) { if ( $candidate['target'] === ( $region['target'] ?? '' ) ) { $container = $candidate; break; } }
             $list = Nova_Bridge_Suite_Recipe_Engine::get( $native, $region['target'] ?? '', $found );

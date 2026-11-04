@@ -103,6 +103,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             foreach ( $recipe['bindings'] as $binding ) {
                 $path = $binding['target'] ?? ''; $field = $inventory[$path] ?? null;
                 if ( ! is_array( $field ) || empty( $field['writable'] ) || ! in_array( $binding['format'] ?? '', [ 'text', 'html', 'url' ], true ) || isset( $draft['fields'][$path] ) ) { self::fail( 'Every creation binding must address one distinct supported native scalar field.' ); }
+                if ( 'schema_value' === ( $field['kind'] ?? '' ) && ! Nova_Mapping_Gutenberg_Schema::custom_purpose( $binding ) ) { self::fail( 'Each JSON-LD value needs a named Custom purpose and guidance.' ); }
                 $value_type = 'html' === $binding['format'] ? 'rich_text' : ( 'url' === $binding['format'] ? 'url' : 'text' );
                 $label = isset( $binding['label'] ) && '' !== trim( $binding['label'] ) ? $binding['label'] : $field['label'];
                 $draft['fields'][$path] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => ! empty( $binding['required'] ), 'instructions' => $binding['instructions'] ?? '', 'description' => [ 'label' => $label, 'purpose' => 'Content for ' . $label . ( empty( $binding['source'] ) ? '.' : ', described by ' . $binding['source'] . '.' ), 'value_type' => $value_type, 'constraints' => [] ] ];
