@@ -67,6 +67,12 @@ try {
     $shared = record( 'elementor', [ $global ] );
     $manifest = Deps::capture( $shared );
     check( ! is_wp_error( $manifest ) && isset( $manifest['entries']['elementor_global_widget:72'] ), 'Global widget gets a content fingerprint.' );
+    $url_only = $button; $url_only[0]['settings']['image'] = [ 'id' => '', 'url' => 'https://primary.test/wp-content/uploads/hero.png' ];
+    $by_url['https://primary.test/wp-content/uploads/hero.png'] = 42;
+    $component( 73, 'url-only-contact', 'widget', $url_only );
+    $url_record = record( 'elementor', [ array_replace( $global, [ 'templateID' => 73 ] ) ] );
+    $url_manifest = Deps::capture( $url_record );
+    check( ! is_wp_error( $url_manifest ), 'URL-only component media can be verified on export' );
     clear_site(); $kit = 9;
     attach( 42, 'wrong-image', 'wrong pixels', '2026/wrong.png' );
     attach( 142, 'hero', 'original pixels', '2026/hero.png' );
@@ -74,6 +80,12 @@ try {
     $component( 72, 'wrong-contact', 'widget', $wrong );
     $local = $button; $local[0]['id'] = 'local99'; $local[0]['settings']['image'] = [ 'id' => 142, 'url' => 'https://follower.test/uploads/142.png' ];
     $component( 172, 'shared-contact', 'widget', $local );
+    $local_url = $local; $local_url[0]['settings']['image'] = [ 'id' => '', 'url' => 'https://follower.test/wp-content/uploads/142.png' ];
+    $by_url['https://follower.test/wp-content/uploads/142.png'] = 142;
+    $component( 173, 'url-only-contact', 'widget', $local_url );
+    $url_resolved = Deps::resolve( $url_record, $url_manifest );
+    check( ! is_wp_error( $url_resolved ) && $url_resolved['recipe']['blueprint']['document'][0]['templateID'] === 173, 'Equivalent URL-only media uses its verified file fingerprint rather than the installation URL: ' . (is_wp_error($url_resolved)?$url_resolved->get_error_message():json_encode($url_resolved)) );
+    check( ! is_wp_error( Deps::resolve( $url_record, $url_manifest, [ 'elementor_global_widget:73' => 173 ] ) ), 'Explicit equivalent component selection works with URL-only media too' );
     $resolved = Deps::resolve( $shared, $manifest );
     check( ! is_wp_error( $resolved ) && $resolved['recipe']['blueprint']['document'][0]['templateID'] === 172, 'Same numeric IDs with different meanings do not select the wrong global or image.' );
     require_issue( Deps::resolve( $shared, $manifest, [ 'elementor_global_widget:72' => 72 ] ), 'elementor_global_widget:72', true );

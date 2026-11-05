@@ -415,7 +415,11 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
             $ids = []; $collect = static function ( array $nodes ) use ( &$collect, &$ids ): void { foreach ( $nodes as $node ) { $ids[$node['id']] = 'node' . count( $ids ); $collect( $node['elements'] ?? [] ); } }; $collect( $layout['document'] );
             $normalize = static function ( $value ) use ( &$normalize, $nested, $ids ) {
                 if ( ! is_array( $value ) ) {
-                    if ( is_string( $value ) ) { foreach ( $ids as $old => $new ) { $value = str_replace( 'elementor-element-' . $old, 'elementor-element-' . $new, $value ); } }
+                    if ( is_string( $value ) ) {
+                        $media = $nested->entries['attachment-url:' . hash( 'sha256', $value )]['digest'] ?? null;
+                        if ( $media ) { return 'verified-media:' . $media; }
+                        foreach ( $ids as $old => $new ) { $value = str_replace( 'elementor-element-' . $old, 'elementor-element-' . $new, $value ); }
+                    }
                     return $value;
                 }
                 unset( $value[Nova_Bridge_Suite_Elementor_Reusable::COPY] );

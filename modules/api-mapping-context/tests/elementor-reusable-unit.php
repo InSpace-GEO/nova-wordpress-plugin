@@ -58,6 +58,13 @@ check( str_contains( json_encode( $native_copy ), 'letter-spacing:2px' ) && ! st
 check( ! str_contains( json_encode( $native_copy ), '_background_color' ) && str_contains( json_encode( $native_copy, JSON_UNESCAPED_SLASHES ), 'globals/colors?id=primary' ), 'Wrapper styling and its global control map use the corresponding native container controls' );
 library_fixture( 704, 'container', [ widget( 'cycle', 'template', [ 'template_id' => '704' ] ) ] );
 reusable_rejected( fn()=>Reusable::validation_blueprint( [ 'document' => [ widget( 'cycle1', 'template', [ 'template_id' => '704' ] ) ] ] ), 'circular' );
+library_fixture( 705, 'container', [ container( 'anchorbox', [ widget( 'anchorbody', 'text-editor', [ 'editor' => '<p id="details">Detail content</p><a href="#contact">Contact</a>' ] ) ], [ '_element_id' => 'contact', 'custom_css' => '#contact {padding:4px;}' ] ) ] );
+$anchor_example = [ 'document' => [ widget( 'incoming', 'button', [ 'text' => 'Jump to contact', 'link' => [ 'url' => '#contact' ] ] ), widget( 'incoming2', 'text-editor', [ 'editor' => '<p><a href="#details">Read details</a></p>' ] ), widget( 'anchortemplate', 'template', [ 'template_id' => '705' ] ) ] ];
+$anchor_copy = good( $adapter->expand_block( $anchor_example, '/document/2' ), 'Copy anchored template' )['blueprint'];
+$anchor_payload = good( Nova_Bridge_Suite_Recipe_Engine::compile( recipe( $anchor_copy, [], [], 'static' ), [], 'anchors' ), 'Compile anchored copy' )['writer_payload']['elementor_data'];
+check( $anchor_payload[2]['elements'][0]['settings']['_element_id'] === 'contact' && $anchor_payload[0]['settings']['link']['url'] === '#contact', 'Incoming native links retain their copied anchor target' );
+check( str_contains( $anchor_payload[2]['elements'][0]['elements'][0]['settings']['editor'], 'id="details"' ) && str_contains( $anchor_payload[1]['settings']['editor'], 'href="#details"' ), 'Incoming rich-text links retain copied inline HTML IDs too' );
+check( $anchor_payload[2]['elements'][0]['settings']['custom_css'] === '#contact {padding:4px;}', 'Anchor-based styles retain their targets' );
 check( Reusable::reference( widget( 'arbitrary', 'shortcode', [ 'shortcode' => '[unknown id="702"]' ] ) ) === null, 'Unknown shortcodes are not treated as safe library references' );
 check( $before_writes === $writes, 'Copy, inspect and compile perform no persistence' );
 echo 'PASS ' . ( $checks - $before_checks ) . " reusable Elementor checks.\n";

@@ -254,7 +254,8 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             return $this->describe( $blueprint );
         } );
     }
-    public function independent_elements( array $nodes, string $seed ): array { return $this->rebase( $nodes, $seed, true ); }
+    /** Copies receive new builder identities, while authored HTML anchors keep incoming navigation intact. */
+    public function independent_elements( array $nodes, string $seed ): array { return $this->rebase( $nodes, $seed, false ); }
     public function expand_block( array $blueprint, string $target ) {
         return $this->safe( function () use ( $blueprint, $target ) { return $this->describe( Nova_Bridge_Suite_Elementor_Reusable::expand( $blueprint, $target, $this ) ); } );
     }
