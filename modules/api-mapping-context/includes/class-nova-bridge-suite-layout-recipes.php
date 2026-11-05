@@ -328,27 +328,29 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $result = self::presentation_choices( $result, $resource, $source['reference_id'] );
         return self::response( self::field_choices( $result, $resource['id'], $mode, $source['reference_id'] ) );
     }
-    /** Read-only, explicit capture of one reusable UX Block into a sealed native layout. */
+    /** Read-only, explicit capture of one reusable component into a sealed native layout. */
     public static function reusable_block( $request ) {
         $body = self::body( $request ); if ( is_wp_error( $body ) ) { return $body; }
         $resource = self::resource( $body['resource_id'] ?? '' ); if ( is_wp_error( $resource ) ) { return $resource; }
-        $design = $body['design'] ?? []; $mode = $body['mode'] ?? 'static'; $target = $body['target'] ?? null;
-        if ( ( $design['builder'] ?? '' ) !== 'flatsome' || ! is_array( $design['blueprint'] ?? null ) || 'post_type' !== ( $resource['type'] ?? '' ) || ! in_array( $mode, [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $target ) || strlen( $target ) > 1024 || ! preg_match( '#^/document/[0-9]+(?:/children/[0-9]+)*$#D', $target ) || ! class_exists( 'Nova_Bridge_Suite_Recipe_Visual' ) ) {
-            return self::error( 'reusable_block', 'Choose a linked UX Block from the captured Flatsome design.' );
+        $design = $body['design'] ?? []; $mode = $body['mode'] ?? 'static'; $target = $body['target'] ?? null; $builder = $design['builder'] ?? '';
+        $pattern = 'elementor' === $builder ? '#^/document/[0-9]+(?:/elements/[0-9]+)*$#D' : '#^/document/[0-9]+(?:/children/[0-9]+)*$#D';
+        if ( ! in_array( $builder, [ 'flatsome', 'elementor' ], true ) || ! is_array( $design['blueprint'] ?? null ) || 'post_type' !== ( $resource['type'] ?? '' ) || ! in_array( $mode, [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $target ) || strlen( $target ) > 1024 || ! preg_match( $pattern, $target ) || ! class_exists( 'Nova_Bridge_Suite_Recipe_Visual' ) ) {
+            return self::error( 'reusable_block', 'Choose a shared component from the captured design.' );
         }
-        $checked = self::certified( 'flatsome', $design['blueprint'], $design['seal'] ?? '' ); if ( is_wp_error( $checked ) ) { return $checked; }
-        $source = Nova_Bridge_Suite_Recipe_Visual::validate_source( $body, [ 'builder' => 'flatsome', 'mode' => $mode, 'blueprint' => $design['blueprint'] ], $resource );
+        $checked = self::certified( $builder, $design['blueprint'], $design['seal'] ?? '' ); if ( is_wp_error( $checked ) ) { return $checked; }
+        $source = Nova_Bridge_Suite_Recipe_Visual::validate_source( $body, [ 'builder' => $builder, 'mode' => $mode, 'blueprint' => $design['blueprint'] ], $resource );
         if ( is_wp_error( $source ) ) { return $source; }
-        if ( ! $source ) { return self::error( 'reusable_block', 'Capture an example page before choosing which reusable UX Blocks to store.', 409 ); }
-        $adapter = Nova_Bridge_Suite_Recipe_Engine::adapter( 'flatsome' );
-        if ( is_wp_error( $adapter ) || ! is_callable( [ $adapter, 'expand_block' ] ) ) { return self::error( 'reusable_block', 'The installed Flatsome provider cannot capture reusable blocks.', 409 ); }
+        if ( ! $source ) { return self::error( 'reusable_block', 'Capture an example page before choosing which shared components to copy.', 409 ); }
+        $adapter = Nova_Bridge_Suite_Recipe_Engine::adapter( $builder );
+        if ( is_wp_error( $adapter ) || ! is_callable( [ $adapter, 'expand_block' ] ) ) { return self::error( 'reusable_block', 'The installed provider cannot capture reusable components.', 409 ); }
         $result = $adapter->expand_block( $design['blueprint'], $target ); if ( is_wp_error( $result ) ) { return $result; }
         $result = Nova_Bridge_Suite_Recipe_Native_Media::describe( $result, $resource['id'] );
-        $result = self::decorate_design( 'flatsome', $mode, $result );
+        $result = self::decorate_design( $builder, $mode, $result );
         // Capture only exposes choices. It must never opt new fields into the mapping.
         $result['recipe_preset']['bindings'] = []; $result['recipe_preset']['regions'] = []; $result['sample'] = new stdClass();
         $result = Nova_Bridge_Suite_Recipe_Visual::enrich( $result, $resource, $source['reference_id'] ?? 0 );
-        if ( ( $result['visual_preview']['status'] ?? '' ) === 'stale' ) { return self::error( 'reusable_block', 'The example changed while capturing this UX Block. Capture the design again before continuing.', 409 ); }
+        if ( ( $result['visual_preview']['status'] ?? '' ) === 'stale' ) { return self::error( 'reusable_block', 'The example changed while capturing this component. Capture the design again before continuing.', 409 ); }
+        if ( 'elementor' === $builder ) { $result = self::presentation_choices( $result, $resource, $source['reference_id'] ); }
         return self::response( self::field_choices( $result, $resource['id'], $mode, $source['reference_id'] ) );
     }
     public static function region( $request ) {

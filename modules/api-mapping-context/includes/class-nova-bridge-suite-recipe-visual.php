@@ -2,6 +2,8 @@
 /** Native provenance and authenticated visual context; never persists or mutates a page. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+require_once __DIR__ . '/class-nova-bridge-suite-elementor-reusable.php';
+
 final class Nova_Bridge_Suite_Recipe_Visual {
     private static function error( string $message, int $status = 409 ): WP_Error {
         return new WP_Error( 'nova_recipe_visual_source', $message, [ 'status' => $status ] );
@@ -78,6 +80,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             // Compare the original page's links/structure without re-reading those blocks;
             // the signed receipt above still authenticates the complete captured snapshot.
             $expected = $recipe['blueprint'];
+            if ( 'elementor' === $recipe['builder'] ) { $expected = Nova_Bridge_Suite_Elementor_Reusable::linked_blueprint( $expected ); }
             if ( 'gutenberg' === $recipe['builder'] ) {
                 $expected['document'] = Nova_Mapping_Gutenberg_HTML::source_blocks( $expected['document'] );
             }
@@ -136,6 +139,10 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         $validated = self::validate_source( [ 'source_reference' => $source, 'source_receipt' => $source_receipt ], [ 'builder' => $builder, 'mode' => $design['recipe_preset']['mode'], 'blueprint' => $design['blueprint'] ], $resource );
         if ( is_wp_error( $validated ) ) { $design['visual_preview'] = [ 'status' => 'stale', 'reason' => $validated->get_error_message() ]; return $design; }
         $source = $validated; $design['source_reference'] = $source;
+        if ( 'elementor' === $builder && Nova_Bridge_Suite_Recipe_Engine::digest( Nova_Bridge_Suite_Elementor_Reusable::linked_blueprint( $design['blueprint'] ) ) !== $source['native_digest'] ) {
+            $design['visual_preview'] = [ 'status' => 'unavailable', 'reason' => 'Independent component copies can differ from the live example. Map their fields in the list below; the saved copies are used for delivery.' ];
+            return $design;
+        }
         if ( 'flatsome' === $builder && class_exists( 'Nova_Bridge_Suite_Recipe_Flatsome' ) && Nova_Bridge_Suite_Recipe_Engine::digest( Nova_Bridge_Suite_Recipe_Flatsome::linked_blueprint( $design['blueprint'] ) ) !== $source['native_digest'] ) {
             $design['visual_preview'] = [ 'status' => 'unavailable', 'reason' => 'Captured UX Blocks use their saved layout. Select their fields below and review a generated draft; the live example can still show different reusable block content.' ];
             return $design;

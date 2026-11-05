@@ -24,6 +24,16 @@ Two WordPress destinations can share a NOVA page type when their permalinks dist
 
 In **2. Choose a design**, open **Reference item** to browse or type to filter the list. Use **Use an item ID** for an example outside the list. Selecting the same example for the same WordPress destination resumes the mapping. To rebuild it from a changed example, choose **Capture a fresh layout** in step 2. In Elementor, **Design settings copied from your example** starts with recognized design settings selected for a new layout. **Select all** and **Deselect all** change them together. Saved layouts retain their previous choices. Unrelated registered metadata is available separately and is opt-in.
 
+### Shared Elementor components
+
+In **Content rules**, **Shared Elementor components** identifies each **Global widget** and **Saved template**. **Keep shared** preserves the native reference and protects its fields from mapping. Keep the library component available: edits to that shared component also appear on pages that use it.
+
+To give NOVA different content for each page, choose **Create independent copy for mapping**, then select the copied fields and save. This stores the component's native elements and styling in the layout. Each delivered page receives its own copy; NOVA never changes the shared original or its other instances. Nested supported components are captured with it, so the copy no longer needs their library records. Other occurrences stay shared unless selected separately.
+
+This supports Elementor Global widgets, Template widgets and a Shortcode widget containing a single `[elementor-template id="..."]` shortcode. Arbitrary executable shortcodes cannot be converted into native Elementor layouts. Missing, unsupported or circular library references need attention before saving. Existing saved mappings keep their fields and revisions; reopen and sync a revision previously blocked only by a supported shared component, or capture it again to choose independent copies.
+
+When exporting a layout that keeps shared components, the receiving installation needs matching published Elementor library content. Import checks its contents and media before resolving local IDs; matching numbers alone are insufficient. Independent copies carry their captured elements, while their local media dependencies follow the normal import checks.
+
 ## Share a layout across WordPress installations
 
 On the installation where you manage the layout, save the mapping and confirm the posting-service default for its NOVA page type. In **Layouts → Share layouts between installations**, select the revisions and click **Export selected layouts**. Include older revisions if deliveries were already prepared against them.

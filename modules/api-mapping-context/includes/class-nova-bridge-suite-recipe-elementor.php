@@ -2,6 +2,7 @@
 /** Native Elementor prototypes and protected complete-frame compilation. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-theme-presentation.php';
+require_once __DIR__ . '/class-nova-bridge-suite-elementor-reusable.php';
 require_once dirname( __DIR__ ) . '/adapters/elementor/class-document-presentation.php';
 require_once dirname( __DIR__ ) . '/adapters/elementor/class-element-registry.php';
 if ( ! class_exists( '\\NOVA_Mapping_Elementor\\Elementor_Service', false ) ) {
@@ -29,7 +30,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             if ( array_key_exists( 'document_settings', $blueprint ) ) { $check = \NOVA_Mapping_Elementor\Document_Presentation::validate( $blueprint['document_settings'] ); if ( is_wp_error( $check ) ) { return $check; } }
             Nova_Bridge_Suite_Recipe_Engine::json( $blueprint ); $ids = []; $anchors = []; $count = 0;
             $this->walk( $blueprint['document'], function ( $node ) use ( &$ids, &$anchors, &$count ) {
-                if ( ++$count > 2000 || isset( $ids[ $node['id'] ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'The complete Elementor tree exceeds 2000 nodes or contains duplicate native identities.' ); } $ids[ $node['id'] ] = true;
+                if ( ++$count > 2000 || isset( $ids[ $node['id'] ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'The complete Elementor tree exceeds 2000 nodes or contains duplicate native identities.' ); } $ids[ $node['id'] ] = true; Nova_Bridge_Suite_Elementor_Reusable::validate_copy( $node );
                 $anchor = $node['settings']['_element_id'] ?? ''; if ( '' !== $anchor ) { if ( ! is_string( $anchor ) || preg_match( '/[\x00-\x20]/', $anchor ) || isset( $anchors[ $anchor ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Explicit native HTML anchors must be unique within the saved blueprint.' ); } $anchors[ $anchor ] = true; }
                 $scan = static function ( $value, string $key = '' ) use ( &$scan, &$anchors ) { if ( is_array( $value ) ) { foreach ( $value as $name => $child ) { $scan( $child, (string) $name ); } } elseif ( is_string( $value ) && in_array( $key, [ 'title', 'editor', 'html', 'tab_title', 'tab_content' ], true ) ) { foreach ( self::html_anchors( $value ) as $anchor ) { if ( isset( $anchors[ $anchor ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Inline and native HTML anchor targets must be unambiguous within the complete document.' ); } $anchors[ $anchor ] = true; } } }; $scan( $node['settings'] );
                 if ( 'nested-tabs' === ( $node['widgetType'] ?? '' ) && ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $node['settings']['tabs'] ?? null ) || count( $node['settings']['tabs'] ) !== count( $node['elements'] ?? [] ) ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'A complete native nested-tabs document must retain one navigation record per panel.' ); }
@@ -47,6 +48,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
     public function validate_binding( array $native, array $binding ) {
         return $this->safe( function () use ( $native, $binding ) {
             list( $node, $path ) = $this->node_for_target( $native, $binding['target'] ); $widget = $node['widgetType'] ?? ''; $settings = $node['settings'];
+            if ( Nova_Bridge_Suite_Elementor_Reusable::reference( $node ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'This is a shared Elementor component. Create an independent copy for mapping; NOVA never edits the shared original.' ); }
             $value = Nova_Bridge_Suite_Recipe_Engine::get( $native, $binding['target'], $found );
             $cursor = $settings; $dynamic = false;
             foreach ( $path as $part ) {
@@ -201,7 +203,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
         return $this->safe( function () use ( $blueprint, $seed, $context ) {
             $check = $this->validate_blueprint( $blueprint ); if ( is_wp_error( $check ) ) { return $check; }
             if ( isset( $context['recipe']['blueprint']['document'] ) ) { $old = $this->anchors_and_links( $context['recipe']['blueprint']['document'] ); $current = $this->anchors_and_links( $blueprint['document'] ); foreach ( $current['links'] as $anchor ) { if ( isset( $old['anchors'][ $anchor ] ) && ! isset( $current['anchors'][ $anchor ] ) ) { return $this->error( 'A fixed native link still targets the removed example anchor #' . $anchor . '. Bind that navigation link to canonical content or remove the stale sample link before creating a draft.' ); } } }
-            $blueprint['document'] = $this->provider_flags( $this->rebase( $blueprint['document'], $seed . '/document', false, $identity ) );
+            $blueprint['document'] = $this->provider_flags( $this->rebase( Nova_Bridge_Suite_Elementor_Reusable::native_nodes( $blueprint['document'] ), $seed . '/document', false, $identity ) );
             if ( isset( $blueprint['meta']['custom_css'] ) && is_string( $blueprint['meta']['custom_css'] ) ) { $blueprint['meta']['custom_css'] = $this->native_selectors( $blueprint['meta']['custom_css'], $identity['nodes'] ); }
             if ( isset( $blueprint['document_settings']['custom_css'] ) && is_string( $blueprint['document_settings']['custom_css'] ) ) { $blueprint['document_settings']['custom_css'] = $this->native_selectors( $blueprint['document_settings']['custom_css'], $identity['nodes'] ); }
             if ( isset( $blueprint['document_settings']['__retained__']['custom_css'] ) && is_string( $blueprint['document_settings']['__retained__']['custom_css'] ) ) { $blueprint['document_settings']['__retained__']['custom_css'] = $this->native_selectors( $blueprint['document_settings']['__retained__']['custom_css'], $identity['nodes'] ); }
@@ -252,6 +254,11 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             return $this->describe( $blueprint );
         } );
     }
+    /** Copies receive new builder identities, while authored HTML anchors keep incoming navigation intact. */
+    public function independent_elements( array $nodes, string $seed ): array { return $this->rebase( $nodes, $seed, false ); }
+    public function expand_block( array $blueprint, string $target ) {
+        return $this->safe( function () use ( $blueprint, $target ) { return $this->describe( Nova_Bridge_Suite_Elementor_Reusable::expand( $blueprint, $target, $this ) ); } );
+    }
     public function describe( array $blueprint ) {
         return $this->safe( function () use ( $blueprint ) {
             $check = $this->validate_blueprint( $blueprint ); if ( is_wp_error( $check ) ) { return $check; }
@@ -283,7 +290,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                     }
                 }; $visit( $node['settings'], [] );
             }, [], 0 );
-            return [ 'blueprint' => $blueprint, 'fields' => $fields, 'containers' => $containers, 'prototypes' => [], 'capabilities' => $this->capabilities(), 'warnings' => [ 'A captured native example does not declare repetition or semantic grouping. Select and review those regions explicitly.' ] ];
+            return [ 'blueprint' => $blueprint, 'fields' => $fields, 'containers' => $containers, 'reusable_blocks' => Nova_Bridge_Suite_Elementor_Reusable::inventory( $blueprint ), 'prototypes' => [], 'capabilities' => $this->capabilities(), 'warnings' => [ 'A captured native example does not declare repetition or semantic grouping. Select and review those regions explicitly.' ] ];
         } );
     }
     public function starter( string $mode = 'mixed' ): array {
