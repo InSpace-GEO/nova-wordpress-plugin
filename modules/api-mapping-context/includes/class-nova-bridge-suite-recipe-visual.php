@@ -45,12 +45,13 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         if ( count( $detected ) > 1 ) { return self::error( 'This example contains more than one native builder. Choose its actual builder explicitly before mapping.', 422 ); }
         if ( $detected ) { return $detected[0]; }
         $post = get_post( $id );
-        return $post && function_exists( 'has_blocks' ) && has_blocks( $post->post_content ) ? 'gutenberg' : 'core';
+        if ( $post && function_exists( 'has_blocks' ) && has_blocks( $post->post_content ) ) { return 'gutenberg'; }
+        return class_exists( 'Nova_Bridge_Suite_Recipe_ACF' ) && Nova_Bridge_Suite_Recipe_ACF::has_layout( $id ) ? 'acf' : 'core';
     }
     private static function capture( array $resource, int $id, string $builder, string $mode, array $declared_fields = [], bool $include_document_settings = true ) {
         if ( 'gutenberg' === $builder ) { return Nova_Bridge_Suite_Recipe_Builders::adapter( $builder )->capture( $id, false ); }
         if ( 'core' === $builder ) { return Nova_Bridge_Suite_Recipe_Core::design( $resource, $id, $mode, $declared_fields ); }
-        if ( 'acf' === $builder ) { return Nova_Bridge_Suite_Recipe_ACF::design( $resource['post_type'] ?? '', $id, 'taxonomy' === $resource['type'] ? '' : (string) get_page_template_slug( $id ), $resource['taxonomy'] ?? '' ); }
+        if ( 'acf' === $builder ) { return Nova_Bridge_Suite_Recipe_ACF::design( $resource['post_type'] ?? '', $id, 'taxonomy' === $resource['type'] ? '' : (string) get_page_template_slug( $id ), $resource['taxonomy'] ?? '', 'static' === $mode ); }
         return Nova_Bridge_Suite_Recipe_Builders::capture( $builder, $id, $include_document_settings );
     }
     private static function source( array $resource, int $id, string $builder, array $blueprint ) {

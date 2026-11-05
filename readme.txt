@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.1.5
+Stable tag: 1.1.6
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+= 1.1.6 =
+Capture and publish fixed ACF component layouts, including groups, flexible content, repeated columns and image fields. Deliveries keep the captured component order and unselected design settings, and can create or update native posts without the original example. Existing mappings stay unchanged; capture a fresh layout to use the nested ACF fields.
+The mapping preview can scroll through full-height theme containers without enabling site scripts. Supported scroll-reveal content remains visible while hidden menus and responsive variants stay hidden.
+
 = 1.1.5 =
 Elementor Global widgets and saved templates can remain shared in a creation layout. Their fields are protected and clearly identified. Choose Create independent copy for mapping to give each delivered page its own captured content and styling without editing the shared original. Known Elementor template shortcodes can be captured the same way.
 Shared-layout imports verify reusable Elementor components by their contents before selecting local IDs. Missing or circular references report which component needs attention.

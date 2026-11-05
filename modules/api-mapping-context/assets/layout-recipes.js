@@ -681,7 +681,7 @@
 			if ( state.step === 3 && state.mode === 'static' && state.resourceId.startsWith( 'post_type:' ) ) {
 				var editorialFields = editorialFieldsEditor( state );
 				if ( editorialFields ) { panel.append( editorialFields ); }
-				if ( state.builder === 'acf' ) { panel.append( help( 'For automatic posting to ACF fields, capture a native WordPress or page-builder layout and select Editorial custom fields there.' ) ); }
+				if ( state.builder === 'acf' ) { panel.append( help( 'Map the content inside the captured ACF components. Their order, unselected fields and design settings stay in the saved layout. Your theme controls how these fields render.' ) ); }
 
 			}
 			if ( state.step === 3 && [ 'flatsome', 'elementor' ].includes( state.builder ) && ( state.design.reusable_blocks || [] ).length ) { panel.append( reusableBlocksEditor() ); }
