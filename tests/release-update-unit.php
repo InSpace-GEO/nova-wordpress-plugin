@@ -1,6 +1,6 @@
 <?php
 define( 'ABSPATH', __DIR__ );
-function plugin_basename( $file ) { return basename( dirname( $file ) ) . '/' . basename( $file ); }
+function plugin_basename( $file ) { return 'nova-wordpress-plugin/' . basename( $file ); }
 function add_filter( $name, $callback, $priority, $argc ) { $GLOBALS['registered'] = [ $name, $callback, $argc ]; }
 function wp_safe_remote_get( $url, $args ) {
     $GLOBALS['requests'][] = [ $url, $args ];

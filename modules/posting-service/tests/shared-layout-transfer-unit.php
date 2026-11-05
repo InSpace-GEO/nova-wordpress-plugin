@@ -27,7 +27,7 @@ $locks = new Stored_Sync_Lock();
 $native_template = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 $source_recipe = [
     'id' => '77777777-7777-4777-8777-777777777777', 'revision' => 1, 'resource_id' => 'post_type:page',
-    'builder' => 'elementor', 'mode' => 'static', 'posting_page_type' => 'service', 'label' => 'Location page',
+    'builder' => 'elementor', 'mode' => 'static', 'posting_page_type' => 'service', 'posting_page_types' => [ 'service', 'category' ], 'label' => 'Location page',
     'sample' => [ 'never' => 'private authoring sample' ], 'created_by' => 42, 'source_receipt' => 'private source receipt',
     'recipe' => [ 'builder' => 'elementor', 'mode' => 'static', 'instructions' => 'Use the service heading.', 'regions' => [],
         'blueprint' => [ 'document' => [ [ 'id' => 'abc1234', 'elType' => 'widget', 'widgetType' => 'heading',
@@ -37,7 +37,7 @@ $source_recipe = [
 ];
 $client = new QueueClient( $connection );
 $source_recipe['recipe']['blueprint']['document'][] = [ 'id' => 'abc1235', 'elType' => 'widget', 'widgetType' => 'image', 'settings' => [ 'image' => [ 'id' => 41, 'url' => wp_get_attachment_url( 41 ) ] ], 'elements' => [] ];
-$initial = [ 'revision' => 1, 'defaults' => [] ]; $selected = [ 'revision' => 2, 'defaults' => [ 'service' => $native_template ] ];
+$initial = [ 'revision' => 1, 'defaults' => [] ]; $selected = [ 'revision' => 2, 'defaults' => [ 'service' => $native_template, 'category' => $native_template ] ];
 $frozen_versions = [];
 for ( $revision = 1; $revision <= 2; ++$revision ) {
     $source_recipe['revision'] = $revision;
