@@ -10,7 +10,7 @@ class WP_Error {
 function is_wp_error( $v ) { return $v instanceof WP_Error; }
 function trailingslashit( $v ) { return rtrim( $v, '/' ) . '/'; }
 function home_url( $p = '' ) { return 'https://lingua.test/sub' . $p; }
-function get_option( $key, $fallback = false ) { return $key === 'home' ? home_url() : $fallback; }
+function get_option( $key, $fallback = false ) { return $key === 'home' ? home_url() : ( empty( $GLOBALS['pending'] ) ? ( $GLOBALS['associations'][$key] ?? $fallback ) : $fallback ); }
 function get_post( $id ) { return $GLOBALS['original']; }
 function get_permalink( $post ) { return home_url( '/stone/' ); }
 function current_user_can( $cap, ...$args ) { return ! ( $GLOBALS['deny'] ?? false ); }
@@ -55,13 +55,19 @@ function weglot_create_url_object( $link ) {
         private $url;
         public function __construct( $url ) { $this->url = $url; }
         public function getForLanguage( $entry ) {
+            if ( $entry->code === 'en' ) { return $this->url; }
             if ( ! empty( $GLOBALS['directories'] ) ) { return str_replace( 'https://lingua.test/sub', 'https://lingua.test/sub' . ( $entry->code === 'en' ? '' : '/' . $entry->code ), $this->url ); }
             return str_replace( 'https://lingua.test/sub', 'https://' . $entry->code . '.lingua.test/sub', $this->url );
         }
     };
 }
-class Nova_Bridge_Suite_Translation_Source {
-    public static function post_id( $content, $configuration, $source ) { return $GLOBALS['pending'] ? new WP_Error( 'nova_translation_source_pending', 'Waiting' ) : 41; }
+if ( empty( $grouped_source ) ) {
+    class Nova_Bridge_Suite_Translation_Source {
+        public static function post_id( $content, $configuration, $source ) { return $GLOBALS['pending'] ? new WP_Error( 'nova_translation_source_pending', 'Waiting' ) : 41; }
+    }
+} else {
+    require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-translation-source.php';
+    require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-language.php';
 }
 class Nova_Bridge_Suite_Writing_Adapter {
     public static function canonical_json( $v ) { return json_encode( $v ); }
@@ -90,6 +96,10 @@ $local = [ 'routing' => [ 'post_type' => 'blog', 'publication' => 'publish' ], '
 $template = [ 'id' => 'template', 'definition' => [ 'version' => 3 ] ];
 $profile = [ 'site_id' => 'site', 'mode' => 'owned_cpt_v3', 'local' => $local, 'template' => $template, 'profile_digest' => hash( 'sha256', json_encode( $local ) ) ];
 $content = [ 'site_id' => 'site', 'url_id' => '31', 'content_item_id' => '29', 'version_number' => 1, 'language' => 'de-DE', 'configuration' => $template, 'url' => 'https://de.lingua.test/sub/stone/', 'destination_values' => array_combine( array_keys( $fields ), [ 'Stein', '<p>Ein Stein.</p>' ] ) ];
+if ( ! empty( $grouped_source ) ) {
+    $content['url_family'] = [ 'url_group_id' => '90', 'primary_url_id' => '91', 'primary_url' => home_url( '/stone/' ), 'primary_language' => 'en-US' ];
+    $associations['nova_cpt_url_' . hash( 'sha256', 'site:91:en-us' )] = [ 'site_id' => 'site', 'url_id' => '91', 'language' => 'en-US', 'post_id' => 41, 'state' => 'committed' ];
+}
 $ctx = [ 'target_post_id' => 41, 'desired_status' => 'publish', 'operation_id' => 'op' ];
 $pinned = $profile; $pinned['local']['routing']['locale'] = 'nl_NL';
 check( Writer::policy( $content, $pinned )->get_error_code() === 'nova_translation_locale', 'Ignored explicit locale of approved mapping' );

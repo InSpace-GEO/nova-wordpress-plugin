@@ -34,6 +34,36 @@ Deliveries without `url_family` retain the existing `site_id + url_id` family
 behavior. Native ownership and version checks remain scoped to each URL and
 language in both flows.
 
+## TranslatePress and Weglot
+
+These providers retain one native original and render its localized views. The
+plugin resolves the explicit primary URL ID and verifies its committed owner,
+published status, language, native type and permalink. The primary language must
+match the provider's configured source language. The localized item keeps its
+own authored content and version; applying its fields does not overwrite the
+original's native content.
+
+The provider-generated translated permalink must already match the delivery
+destination. This change does not create translated slugs or arbitrary URL
+hierarchies in TranslatePress or Weglot. Existing builder and custom-field support
+is retained; URL-family metadata does not add support for other builder formats.
+
+A grouped delivery arriving before its original is parked with
+`nova_translation_source_pending`, without consuming the publication retry limit.
+When a delivery verifies the original as publicly published, only its matching local
+dependencies become ready. This also supports a frozen original delivery from
+before URL-family metadata was introduced. Existing deliveries without family
+metadata keep their existing retry behavior.
+Draft or scheduled originals published later outside delivery processing may need
+an explicit catch-up. This change adds no general WordPress publication hook.
+
+If source-ready dependencies exceed the current worker batch, one signed,
+nonblocking request to the installation's existing ready endpoint continues the
+work. Only due, newly awakened dependencies qualify. There is no periodic cron,
+generic retry loop, or new endpoint. Failed local loopback requests leave the
+ready work intact for an explicit catch-up. Sites must permit local requests to
+their HTTPS REST endpoint for this automatic continuation.
+
 ## Rollout and verification
 
 This is a draft integration change, not a plugin release. Upgrade all WordPress
@@ -46,3 +76,5 @@ WordPress, WPML and Polylang fixtures. They cover both arrival orders, reciproca
 links, replay, conflicting language slots and primary identities, pre-upgrade
 primary lookup, wrong native URLs, site isolation, and the existing multilingual
 flow. They do not constitute live staging or end-to-end publishing verification.
+Dictionary-provider tests additionally exercise the actual grouped source lookup,
+write/replay and localized custom-field renderers with in-memory provider storage.
