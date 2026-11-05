@@ -54,6 +54,12 @@ final class Nova_Bridge_Suite_Translation_Writer {
         return is_array( $context ) && $context['source'] === $context['language'] ? null : $context;
     }
 
+    /** Resolve aliases through the installed provider without collapsing regional slots. */
+    public static function same_language_slot( string $first, string $second ): bool {
+        $a = self::selection( $first ); $b = self::selection( $second );
+        return is_array( $a ) && is_array( $b ) && $a['provider'] === $b['provider'] && $a['language'] === $b['language'];
+    }
+
     public static function translated_url( array $provider, string $original ) {
         $url = 'weglot' === $provider['provider'] ? Nova_WordPress_Weglot::url( $original, $provider['language'] )
             : Nova_WordPress_TranslatePress::url( $original, $provider['language'] );

@@ -110,7 +110,12 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
 
     /** Compare configured language slots, including native code/locale aliases. */
     public static function same_language_slot( string $first, string $second ): bool {
-        if ( 'core' === self::provider() ) { return self::locale( $first ) === self::locale( $second ); }
+        if ( 'core' === self::provider() ) {
+            if ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) ) {
+                return Nova_Bridge_Suite_Translation_Writer::same_language_slot( $first, $second );
+            }
+            return self::locale( $first ) === self::locale( $second );
+        }
         $a = self::context( $first ); $b = self::context( $second );
         return is_array( $a ) && is_array( $b ) && $a['code'] === $b['code'];
     }

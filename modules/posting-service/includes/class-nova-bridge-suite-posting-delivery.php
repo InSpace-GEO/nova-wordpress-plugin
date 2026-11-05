@@ -10,7 +10,7 @@ final class Nova_Bridge_Suite_Posting_Delivery {
     public const SCHEMA_VERSION = 3;
     public const BOOTSTRAP_OPTION = 'nova_bridge_posting_webhook_bootstrap';
     public const LAST_RUN_OPTION = 'nova_bridge_posting_last_run';
-    private const SAFE_ERRORS = [ 'authentication_required', 'site_ineligible', 'remote_identity_conflict', 'native_commit_reconciliation', 'worker_interrupted', 'target_busy', 'journal_unavailable', 'paused', 'retry_after_out_of_bounds', 'verification_result_invalid', 'mutation_result_unverified', 'other_mutation_unreconciled', 'journal_phase_invalid', 'journal_size', 'nova_posting_transport', 'nova_posting_storage', 'nova_posting_journal', 'nova_posting_journal_size', 'nova_writer_recovery_drift', 'discovery_site', 'discovery_storage', 'discovery_unavailable', 'site_disabled', 'runner_exception' ];
+    private const SAFE_ERRORS = [ 'authentication_required', 'site_ineligible', 'remote_identity_conflict', 'native_commit_reconciliation', 'worker_interrupted', 'target_busy', 'journal_unavailable', 'paused', 'retry_after_out_of_bounds', 'verification_result_invalid', 'mutation_result_unverified', 'other_mutation_unreconciled', 'journal_phase_invalid', 'journal_size', 'nova_posting_transport', 'nova_posting_storage', 'nova_posting_journal', 'nova_posting_journal_size', 'nova_writer_recovery_drift', 'discovery_site', 'discovery_storage', 'discovery_unavailable', 'site_disabled', 'runner_exception', 'nova_translation_continuation' ];
     private static $schema_attempted = null;
     private static $run_queued = false;
     private static $running = false;
@@ -41,6 +41,26 @@ final class Nova_Bridge_Suite_Posting_Delivery {
 
     /** Coalesce wakes within this request; later work needs a new wake or explicit catch-up. */
     private static function queue_run(): void { self::$run_queued = true; }
+
+    /** One signed local wake for remaining source-ready translations after a bounded batch. */
+    public static function continue_dependencies( array $content ) {
+        $connection = Nova_Bridge_Suite_Posting_Settings::connection();
+        if ( empty( $connection['enabled'] ) || ! empty( $connection['paused'] ) ||
+            ( $content['site_id'] ?? null ) !== ( $connection['site_id'] ?? null ) ) { return true; }
+        $raw = wp_json_encode( [ 'event' => 'content.ready', 'site' => $content['site_id'], 'content_id' => $content['content_item_id'], 'version' => $content['version_number'] ] );
+        $timestamp = (string) time();
+        if ( ! is_string( $raw ) || ! is_string( $connection['webhook_secret'] ?? null ) || '' === $connection['webhook_secret'] ) {
+            return new WP_Error( 'nova_translation_continuation', 'Ready translations need an explicit catch-up because the local wake could not be signed.' );
+        }
+        $signature = 'sha256=' . hash_hmac( 'sha256', $timestamp . '.' . $raw, $connection['webhook_secret'] );
+        $valid = self::authenticate( $raw, $timestamp, $signature, $connection );
+        if ( is_wp_error( $valid ) ) { return $valid; }
+        $url = rest_url( 'nova-bridge/v1/posting/ready' );
+        if ( 'https' !== ( wp_parse_url( $url )['scheme'] ?? '' ) ) { return new WP_Error( 'nova_translation_continuation', 'The local ready endpoint requires HTTPS.' ); }
+        $sent = wp_safe_remote_request( $url, [ 'method' => 'POST', 'blocking' => false, 'timeout' => 1, 'redirection' => 0,
+            'sslverify' => true, 'reject_unsafe_urls' => true, 'headers' => [ 'Content-Type' => 'application/json', 'X-Nova-Timestamp' => $timestamp, 'X-Nova-Signature' => $signature ], 'body' => $raw ] );
+        return is_wp_error( $sent ) ? new WP_Error( 'nova_translation_continuation', 'The local wake failed. Ready translations remain available for an explicit catch-up.' ) : true;
+    }
 
     public static function run_queued(): void {
         if ( ! self::$run_queued || self::$running ) { return; }

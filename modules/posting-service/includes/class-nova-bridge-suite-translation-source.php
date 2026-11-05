@@ -112,9 +112,22 @@ final class Nova_Bridge_Suite_Translation_Source {
         $type = $configuration['local']['routing']['post_type'] ?? $configuration['local']['stored_layout']['post_type'] ?? '';
         $languages = [ $source, explode( '-', $source )[0], get_option( 'WPLANG', '' ) ?: 'en_US' ];
         $matches = [];
-        // Dictionary-provider cross-URL source resolution is a separate rollout.
-        $lookup = $content; unset( $lookup['url_family'] );
+        $lookup = $content;
+        if ( isset( $content['url_family'] ) ) {
+            if ( ! Nova_Bridge_Suite_Translation_Writer::same_language_slot( $content['url_family']['primary_language'], $source_language ) ) {
+                return new WP_Error( 'nova_translation_source_language', 'The URL group primary must use the translation provider original language.' );
+            }
+            $anchor = self::group_anchor( $content );
+            if ( is_wp_error( $anchor ) ) { return $anchor; }
+            $lookup['url_id'] = $content['url_family']['primary_url_id'];
+        }
         foreach ( self::records( $lookup, $languages ) as $id => $row ) {
+            if ( isset( $content['url_family'] ) ) {
+                if ( $row['url_id'] !== $content['url_family']['primary_url_id'] ) { continue; }
+                if ( ! self::retained_primary( $content, $row, $id ) ) {
+                    return new WP_Error( 'nova_translation_source_identity', 'The retained original language or permalink differs from the URL group primary.' );
+                }
+            }
             $language = self::language( $row['language'] );
             if ( $source !== $language && ( explode( '-', $language )[0] !== explode( '-', $source )[0] || ( false !== strpos( $source, '-' ) && false !== strpos( $language, '-' ) ) ) ) { continue; }
             $post = get_post( $id );
@@ -123,6 +136,23 @@ final class Nova_Bridge_Suite_Translation_Source {
         if ( ! $matches ) { return new WP_Error( 'nova_translation_source_pending', 'Publish the original-language page for this NOVA URL before delivering its translation.' ); }
         if ( count( $matches ) > 1 ) { return new WP_Error( 'nova_translation_source_ambiguous', 'More than one original page matches this NOVA URL and source language.' ); }
         return current_user_can( 'edit_post', $matches[0] ) ? $matches[0] : new WP_Error( 'nova_translation_source_permission', 'The publishing user cannot edit the original page.' );
+    }
+
+    /** Includes an original delivery frozen before URL-family metadata was introduced. */
+    public static function is_provider_original( array $content ): bool {
+        return ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) ) &&
+            null === Nova_Bridge_Suite_Translation_Writer::provider( $content['language'] ?? '' );
+    }
+
+    public static function depends_on( array $waiting, array $original ): bool {
+        if ( ! isset( $waiting['url_family'] ) || ! self::is_provider_original( $original ) ) { return false; }
+        $expected = Nova_Bridge_Suite_Translation_Writer::delivery_url( $waiting['url_family']['primary_url'], $waiting['url_family']['primary_language'] );
+        $actual = Nova_Bridge_Suite_Translation_Writer::delivery_url( $original['url'] ?? '', $original['language'] );
+        return ! is_wp_error( $expected ) && ! is_wp_error( $actual ) && $expected === $actual &&
+            ( $waiting['site_id'] ?? null ) === ( $original['site_id'] ?? null ) &&
+            ( ! isset( $original['url_family'] ) || $waiting['url_family']['url_group_id'] === $original['url_family']['url_group_id'] ) &&
+            $waiting['url_family']['primary_url_id'] === $original['url_id'] &&
+            Nova_Bridge_Suite_Translation_Writer::same_language_slot( $waiting['url_family']['primary_language'], $original['language'] );
     }
 
     /** Read-only: a different native translation must never be discovered only after the page was replaced. */
