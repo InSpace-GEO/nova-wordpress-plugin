@@ -28,6 +28,37 @@
 	function unique( document, selector ) { var nodes = document.querySelectorAll( selector ); return nodes.length === 1 ? nodes[0] : null; }
 	function controlPath( locator ) { var path = Array.isArray( locator.control_path ) ? locator.control_path.join( '.' ) : String( locator.control_path || '' ); return path.replace( /^\/?(?:settings|core)\//, '' ).replace( /\//g, '.' ).replace( /^settings\./, '' ); }
 	function mediaUrl( value, base ) { if ( typeof value !== 'string' || ! value.trim() ) { return ''; } try { var url = new URL( value, base ); return url.protocol === 'https:' && ! url.username && ! url.password ? url.href : /^data:image\/(?:png|jpeg|gif|webp|avif);base64,/i.test( value ) ? value : ''; } catch ( error ) { return ''; } }
+	// The canvas deliberately disables theme scripts. Release only a viewport-sized
+	// main-content scroll shell, never menus, hidden responsive variants or widgets.
+	function prepareStaticLayout( win, document ) {
+		if ( ! win.getComputedStyle ) { return 0; }
+		var changed = 0, excluded = 'nav,header,footer,[role="navigation"],[role="dialog"],[hidden],[aria-hidden="true"]';
+		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article' ).forEach( function ( main ) {
+			if ( main.closest( excluded ) ) { return; }
+			for ( var ancestor = main; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement ) {
+				var ancestorStyle = win.getComputedStyle( ancestor );
+				if ( ancestorStyle.display === 'none' || ancestorStyle.visibility === 'hidden' ) { return; }
+			}
+			for ( var node = main; node && node !== document.documentElement; node = node.parentElement ) {
+				var style = win.getComputedStyle( node ), rect = node.getBoundingClientRect();
+				if ( node.closest( excluded ) || style.display === 'none' || style.visibility === 'hidden' ) { break; }
+				if ( ! [ 'fixed', 'absolute' ].includes( style.position ) || ! [ 'hidden', 'clip' ].includes( style.overflowY || style.overflow ) || rect.width < win.innerWidth * 0.8 || rect.height < win.innerHeight * 0.8 || node.scrollHeight <= node.clientHeight + 16 ) { continue; }
+				[ [ 'position', 'relative' ], [ 'height', 'auto' ], [ 'max-height', 'none' ], [ 'overflow', 'visible' ], [ 'transform', 'none' ], [ 'top', 'auto' ] ].forEach( function ( rule ) { node.style.setProperty( rule[0], rule[1], 'important' ); } );
+				document.documentElement.style.setProperty( 'overflow-y', 'auto', 'important' ); document.body.style.setProperty( 'overflow-y', 'auto', 'important' ); changed++;
+			}
+			main.querySelectorAll( '[data-scroll],[data-aos],.wow' ).forEach( function ( item ) {
+				if ( item.closest( excluded ) || item.getAttribute( 'data-nova-static-reveal' ) === '1' ) { return; }
+				for ( var parent = item.parentElement; parent && parent !== main; parent = parent.parentElement ) {
+					var parentStyle = win.getComputedStyle( parent ); if ( parentStyle.display === 'none' || parentStyle.visibility === 'hidden' ) { return; }
+				}
+				var style = win.getComputedStyle( item );
+				if ( style.display === 'none' || ( style.opacity !== '0' && style.visibility !== 'hidden' ) ) { return; }
+				item.setAttribute( 'data-nova-static-reveal', '1' );
+				[ [ 'opacity', '1' ], [ 'visibility', 'visible' ], [ 'transform', 'none' ], [ 'animation', 'none' ], [ 'transition', 'none' ] ].forEach( function ( rule ) { item.style.setProperty( rule[0], rule[1], 'important' ); } ); changed++;
+			} );
+		} );
+		return changed;
+	}
 	function prepareMedia( document, config, fields ) {
 		var scope = unique( document, '[data-elementor-id="' + config.referenceId + '"]' ); if ( ! scope ) { return; } fields = fields || [];
 		function nativeValue( owner, type, control ) { var id = owner.getAttribute( 'data-id' ); if ( ! safeId.test( id || '' ) || unique( scope, '[data-id="' + id + '"]' ) !== owner ) { return null; } return fields.find( function ( item ) { return item.writable && item.locator.strategy === 'elementor' && item.locator.reference_id === config.referenceId && item.locator.node_id === id && item.locator.element_type === type && controlPath( item.locator ) === control; } ); }
@@ -193,12 +224,13 @@
 			send( 'ready', { limitations: [ 'Site scripts, forms, embedded frames and network requests are disabled in this canvas. It shows the rendered initial state; dynamic components can differ from the live page.' ], viewport: { width: win.innerWidth, height: win.innerHeight } } );
 			if ( win.MutationObserver ) { new win.MutationObserver( function ( changes ) { var significant = changes.some( function ( change ) { if ( change.type !== 'attributes' || change.attributeName !== 'class' ) { return true; } var strip = function ( classes ) { return String( classes || '' ).split( /\s+/ ).filter( function ( name ) { return name && ! name.startsWith( 'nrc-' ); } ).sort().join( ' ' ); }; return strip( change.oldValue ) !== strip( change.target.getAttribute( 'class' ) ); } ); if ( significant ) { schedule(); } } ).observe( document.body, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: [ 'class', 'id', 'style', 'hidden', 'aria-hidden', 'src' ] } ); }
 			if ( win.ResizeObserver ) { new win.ResizeObserver( schedule ).observe( document.body ); }
-			document.addEventListener( 'load', schedule, true ); win.addEventListener( 'resize', schedule );
+			prepareStaticLayout( win, document );
+			document.addEventListener( 'load', function () { prepareStaticLayout( win, document ); schedule(); }, true ); win.addEventListener( 'resize', schedule );
 			if ( document.fonts && document.fonts.ready ) { document.fonts.ready.then( schedule, function () {} ); }
 			if ( fields.length || containers.length ) { bind(); }
 		}
 		if ( document.readyState === 'loading' ) { document.addEventListener( 'DOMContentLoaded', init ); } else { init(); }
 		return { refresh: schedule, select: highlight };
 	}
-	return { validConfig: validConfig, validMessage: validMessage, normalizeItems: normalizeItems, mediaUrl: mediaUrl, prepareMedia: prepareMedia, locate: locate, visible: visible, mount: mount };
+	return { validConfig: validConfig, validMessage: validMessage, normalizeItems: normalizeItems, mediaUrl: mediaUrl, prepareMedia: prepareMedia, prepareStaticLayout: prepareStaticLayout, locate: locate, visible: visible, mount: mount };
 } ) );

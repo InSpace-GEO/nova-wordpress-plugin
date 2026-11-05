@@ -1,14 +1,30 @@
 <?php
 /** Schema-owned nested ACF/SCF recipes. No field definitions are created here. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/trait-nova-bridge-suite-acf-publication.php';
 
 final class Nova_Bridge_Suite_Recipe_ACF {
+    use Nova_Bridge_Suite_ACF_Publication;
     private $validated_schema = [];
     private $prototype_scopes = [];
     private $validated_blueprint = [];
     private static function error( string $message, int $status = 409 ): WP_Error { return new WP_Error( 'nova_recipe_acf', $message, [ 'status' => $status ] ); }
     public static function available(): bool { return class_exists( 'Nova_Bridge_Suite_Content_Transport' ) && function_exists( 'acf_get_field_groups' ) && function_exists( 'acf_get_fields' ) && function_exists( 'get_field' ) && function_exists( 'update_field' ); }
     public static function register(): void { Nova_Bridge_Suite_Recipe_Engine::register_adapter( 'acf', new self() ); }
+    /** Auto-detect populated layout collections, not ordinary SEO/editorial companion fields. */
+    public static function has_layout( int $id ): bool {
+        if ( ! self::available() || ! ( $post = get_post( $id ) ) || ! current_user_can( 'edit_post', $id ) || '' !== trim( (string) $post->post_content ) ) { return false; }
+        $schema = self::catalog( $post->post_type, $id, (string) get_page_template_slug( $id ) );
+        $contains = static function ( array $field, $value ) use ( &$contains ): bool {
+            if ( in_array( $field['type'] ?? '', [ 'repeater', 'flexible_content' ], true ) ) { return is_array( $value ) && count( $value ) > 0; }
+            if ( 'group' === ( $field['type'] ?? '' ) && is_array( $value ) ) {
+                foreach ( $field['sub_fields'] ?? [] as $child ) { if ( $contains( $child, $value[$child['name']] ?? $value[$child['key']] ?? null ) ) { return true; } }
+            }
+            return false;
+        };
+        foreach ( $schema as $field ) { if ( $contains( $field, get_field( $field['key'], $id, false ) ) ) { return true; } }
+        return false;
+    }
     private static function escape( string $key ): string { return str_replace( [ '~', '/' ], [ '~0', '~1' ], $key ); }
 
     private static function schema( array $field ): array {
@@ -25,6 +41,11 @@ final class Nova_Bridge_Suite_Recipe_ACF {
             $fields = Nova_Bridge_Suite_Content_Transport::acf_schema_for_screen( $screen );
         } else { $fields = Nova_Bridge_Suite_Content_Transport::field_catalog( $post_type, $post_id, $template )['acf']; }
         $result = []; foreach ( $fields as $name => $field ) { $result[$name] = self::schema( $field ); } return $result;
+    }
+    /** Native ACF validation also needs runtime properties omitted from the portable schema. */
+    private static function native_schema( array $blueprint, int $id = 0 ): array {
+        if ( ! empty( $blueprint['taxonomy'] ) ) { return Nova_Bridge_Suite_Content_Transport::acf_schema_for_screen( [ 'taxonomy' => $blueprint['taxonomy'], 'post_id' => $id ? $blueprint['taxonomy'] . '_' . $id : 0 ] ); }
+        return Nova_Bridge_Suite_Content_Transport::field_catalog( $blueprint['post_type'], $id, $blueprint['template'] ?? '' )['acf'];
     }
     private static function children( array $fields ): array { $out = []; foreach ( $fields as $field ) { $out[$field['name']] = self::blank_value( $field ); } return $out; }
     private static function blank_value( array $field ) {
@@ -51,7 +72,7 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         if ( 'google_map' === $type ) { return []; }
         return '';
     }
-    public static function design( string $post_type, int $post_id = 0, string $template = '', string $taxonomy = '' ) {
+    public static function design( string $post_type, int $post_id = 0, string $template = '', string $taxonomy = '', bool $fixed = false ) {
         if ( ! current_user_can( 'manage_options' ) ) { return self::error( 'Administrator access is required to inspect a complete custom-field template.', 403 ); }
         $schema = self::catalog( $post_type, $post_id, $template, $taxonomy );
         if ( ! $schema ) { return self::error( 'No applicable, writable ACF/SCF field schema is installed for this destination.' ); }
@@ -61,11 +82,14 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         if ( $post_id ) {
             if ( $taxonomy ) { $object = get_term( $post_id, $taxonomy ); if ( ! $object || is_wp_error( $object ) || ! current_user_can( 'edit_term', $post_id ) ) { return self::error( 'The term field example cannot be edited by this account.', 403 ); } $object_id = $taxonomy . '_' . $post_id; }
             else { $post = get_post( $post_id ); if ( ! $post || $post->post_type !== $post_type || ! current_user_can( 'edit_post', $post_id ) ) { return self::error( 'The custom-field example cannot be edited by this account.', 403 ); } $object_id = $post_id; }
-            foreach ( $schema as $name => $field ) { foreach ( [ $name, '_' . $name ] as $key ) { if ( ! current_user_can( $taxonomy ? 'edit_term_meta' : 'edit_post_meta', $post_id, $key ) ) { return self::error( 'You cannot inspect the complete metadata for this custom-field example.', 403 ); } } }
+            // ACF owns its protected _name reference keys. Authorize the declared
+            // editorial field, just like Content_Transport::write_fields().
+            foreach ( $schema as $name => $field ) { foreach ( $fixed ? [ $name ] : [ $name, '_' . $name ] as $key ) { if ( ! current_user_can( $taxonomy ? 'edit_term_meta' : 'edit_post_meta', $post_id, $key ) ) { return self::error( 'You cannot inspect the complete metadata for this custom-field example.', 403 ); } } }
             $read = Nova_Bridge_Suite_Content_Transport::read_named_acf( $schema, $object_id );
-            foreach ( $schema as $name => $field ) { if ( array_key_exists( $name, $read ) ) { $document[$name] = self::fill_prototypes( $read[$name], $field ); } }
+            foreach ( $schema as $name => $field ) { if ( array_key_exists( $name, $read ) ) { $document[$name] = $fixed ? $read[$name] : self::fill_prototypes( $read[$name], $field ); } }
         }
         $blueprint = [ 'document' => $document, 'schema' => $schema, 'post_type' => $post_type, 'template' => $template, 'schema_hash' => Nova_Bridge_Suite_Recipe_Engine::digest( $new_schema ) ];
+        if ( $fixed ) { $blueprint['fixed_layout'] = true; $blueprint['post_content'] = isset( $post ) ? (string) $post->post_content : ''; }
         if ( $taxonomy ) { $blueprint['taxonomy'] = $taxonomy; }
         return [ 'blueprint' => $blueprint ] + self::describe( $blueprint );
     }
@@ -96,26 +120,33 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         if ( in_array( $field['type'], [ 'number', 'range' ], true ) ) { return 'number'; }
         if ( 'true_false' === $field['type'] ) { return 'boolean'; } return 'text';
     }
-    private static function walk( array $schema, array $values, string $path, string $label, array &$fields, array &$containers, int $depth = 0 ): void {
+    private static function walk( array $schema, array $values, string $path, string $label, array &$fields, array &$containers, int $depth = 0, bool $fixed = false, bool $editable = true ): void {
         if ( $depth > 12 ) { return; }
         foreach ( $schema as $field ) {
             $name = $field['name']; $target = $path . '/' . self::escape( $name ); $title = trim( $label . ' › ' . ( $field['label'] ?? $name ), ' ›' ); $value = $values[$name] ?? self::blank_value( $field ); $type = $field['type'];
-            if ( 'group' === $type ) { self::walk( $field['sub_fields'] ?? [], is_array( $value ) ? $value : [], $target, $title, $fields, $containers, $depth + 1 ); continue; }
+            $can_edit = $editable && ( ! $fixed || ( empty( $field['readonly'] ) && empty( $field['disabled'] ) ) );
+            if ( 'group' === $type ) { self::walk( $field['sub_fields'] ?? [], is_array( $value ) ? $value : [], $target, $title, $fields, $containers, $depth + 1, $fixed, $can_edit ); continue; }
             if ( in_array( $type, [ 'repeater', 'flexible_content' ], true ) ) {
                 $items = []; foreach ( (array) $value as $index => $row ) {
                     $children = $field['sub_fields'] ?? []; $item_label = 'Row ' . ( $index + 1 );
                     if ( 'flexible_content' === $type ) { foreach ( $field['layouts'] ?? [] as $layout ) { if ( ( $row['acf_fc_layout'] ?? '' ) === $layout['name'] ) { $children = $layout['sub_fields']; $item_label = $layout['label']; break; } } }
-                    $items[] = [ 'index' => $index, 'label' => $item_label ]; self::walk( $children, is_array( $row ) ? $row : [], $target . '/' . $index, $title . ' › ' . $item_label, $fields, $containers, $depth + 1 );
+                    $items[] = [ 'index' => $index, 'label' => $item_label ]; self::walk( $children, is_array( $row ) ? $row : [], $target . '/' . $index, $title . ' › ' . $item_label, $fields, $containers, $depth + 1, $fixed, $can_edit );
                 }
                 $containers[] = [ 'target' => $target, 'label' => $title, 'kind' => $type, 'items' => $items, 'layouts' => $field['layouts'] ?? [], 'required' => ! empty( $field['required'] ), 'min_items' => max( (int) ( $field['min'] ?? 0 ), empty( $field['required'] ) ? 0 : 1 ), 'max_items' => min( 500, (int) ( ( $field['max'] ?? 0 ) ?: 500 ) ), '_field_schema' => $field ]; continue;
             }
             if ( 'link' === $type ) { foreach ( [ 'url' => 'url', 'title' => 'text' ] as $part => $format ) { $fields[] = [ 'target' => $target . '/' . $part, 'label' => $title . ' › ' . ucfirst( $part ), 'format' => $format, 'kind' => $part, 'writable' => true, 'value' => $value[$part] ?? '', 'sample' => ! empty( $value[$part] ) ? $value[$part] : ( 'url' === $part ? 'https://example.com/' : 'Example link' ), 'constraints' => [ 'type' => 'string' ] + ( 'url' === $part ? [ 'format' => 'uri-reference' ] : [] ), 'instructions' => $field['instructions'] ?? '', 'required' => 'url' === $part && ! empty( $field['required'] ) ]; } continue; }
-            $writable = in_array( $type, [ 'text', 'textarea', 'wysiwyg', 'email', 'url', 'oembed', 'number', 'range', 'true_false', 'color_picker', 'date_picker', 'date_time_picker', 'time_picker', 'select', 'radio', 'button_group' ], true ) && empty( $field['multiple'] );
+            if ( $fixed && $can_edit && 'image' === $type && empty( $field['multiple'] ) ) {
+                $url = $value && function_exists( 'wp_get_attachment_url' ) ? ( wp_get_attachment_url( (int) $value ) ?: '' ) : '';
+                $fields[] = [ 'target' => $target, 'label' => $title, 'format' => 'url', 'kind' => 'image_url', 'writable' => true, 'value' => $url, 'sample' => $url,
+                    'required' => false, 'instructions' => $field['instructions'] ?? '', 'native_media' => [ 'kind' => 'acf', 'id_target' => $target ] ];
+                continue;
+            }
+            $writable = $can_edit && in_array( $type, [ 'text', 'textarea', 'wysiwyg', 'email', 'url', 'oembed', 'number', 'range', 'true_false', 'color_picker', 'date_picker', 'date_time_picker', 'time_picker', 'select', 'radio', 'button_group' ], true ) && empty( $field['multiple'] );
             $fields[] = [ 'target' => $target, 'label' => $title, 'format' => self::format( $field ), 'kind' => $type, 'writable' => $writable, 'protected' => ! $writable, 'value' => $value, 'sample' => $writable ? self::sample_value( $field, $value ) : $value, 'required' => ! empty( $field['required'] ), 'instructions' => $field['instructions'] ?? '', 'choices' => $field['choices'] ?? [], 'constraints' => self::constraints( $field ) ];
         }
     }
     public static function describe( array $blueprint ): array {
-        $fields = []; $containers = []; self::walk( array_values( $blueprint['schema'] ?? [] ), $blueprint['document'] ?? [], '/document', '', $fields, $containers );
+        $fields = []; $containers = []; self::walk( array_values( $blueprint['schema'] ?? [] ), $blueprint['document'] ?? [], '/document', '', $fields, $containers, 0, ! empty( $blueprint['fixed_layout'] ) );
         $budget = 0; $suggested = self::suggest( array_values( $blueprint['schema'] ?? [] ), $blueprint['document'] ?? [], '/document', '/acf', $budget );
         return [ 'fields' => $fields, 'containers' => $containers, 'suggested_bindings' => $suggested['bindings'], 'suggested_regions' => $suggested['regions'], 'sample_content' => [ 'acf' => $suggested['sample'] ],
             'warnings' => [ 'ACF fields use the installed schema. Their visual appearance is provided by your theme. Fixed media and relationship IDs remain in the native template.' ] ];
@@ -208,7 +239,7 @@ final class Nova_Bridge_Suite_Recipe_ACF {
     /** Schema scopes come from the selected native collection, never row-key guesses. */
     private function scope_description( array $native, array $scope = [] ): array {
         $out = [ 'fields' => [], 'containers' => [] ];
-        if ( isset( $native['schema'] ) ) { self::walk( array_values( $native['schema'] ), $native['document'], '/document', '', $out['fields'], $out['containers'] ); return $out; }
+        if ( isset( $native['schema'] ) ) { self::walk( array_values( $native['schema'] ), $native['document'], '/document', '', $out['fields'], $out['containers'], 0, ! empty( $native['fixed_layout'] ) ); return $out; }
         $scope = $scope ?: ( $this->prototype_scopes[Nova_Bridge_Suite_Recipe_Engine::digest( $native )] ?? [] );
         foreach ( $native as $index => $row ) { if ( isset( $scope[$index] ) && is_array( $row ) ) { self::walk( $scope[$index], $row, '/' . $index, '', $out['fields'], $out['containers'] ); } }
         return $out;
@@ -339,9 +370,11 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         $payload = [ 'acf' => $blueprint['document'] ];
         $schema = self::catalog( $blueprint['post_type'], 0, $blueprint['template'] ?? '', $blueprint['taxonomy'] ?? '' );
         $bounds = self::validate_constraints( array_values( $schema ), $blueprint['document'] ); if ( is_wp_error( $bounds ) ) { return $bounds; }
-        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $blueprint['document'], $schema ); if ( is_wp_error( $checked ) ) { return $checked; }
+        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $blueprint['document'], ! empty( $blueprint['fixed_layout'] ) ? self::native_schema( $blueprint ) : $schema ); if ( is_wp_error( $checked ) ) { return $checked; }
         $render = static function ( $value ) use ( &$render ): string { if ( is_array( $value ) ) { $html = '<dl>'; foreach ( $value as $key => $child ) { if ( 'acf_fc_layout' === $key ) { continue; } $html .= '<dt>' . esc_html( is_int( $key ) ? 'Item ' . ( $key + 1 ) : ucfirst( str_replace( '_', ' ', $key ) ) ) . '</dt><dd>' . $render( $child ) . '</dd>'; } return $html . '</dl>'; } return is_string( $value ) ? wp_kses_post( $value ) : esc_html( (string) $value ); };
-        return [ 'native_document' => $blueprint['document'], 'writer_payload' => [ 'meta_all' => $payload ], 'preview_html' => $render( $blueprint['document'] ), 'warnings' => [ 'The preview shows stored field values. Your theme controls the visual layout.' ] ];
+        $writer = [ 'meta_all' => $payload ];
+        if ( ! empty( $blueprint['fixed_layout'] ) ) { $writer['acf_layout'] = array_diff_key( $blueprint, [ 'document' => true ] ); }
+        return [ 'native_document' => $blueprint['document'], 'writer_payload' => $writer, 'preview_html' => $render( $blueprint['document'] ), 'warnings' => [ 'The preview shows stored field values. Your theme controls the visual layout.' ] ];
     }
     public static function write_draft( array $payload, array $post_fields ) {
         if ( ! self::available() ) { return self::error( 'The installed ACF/SCF provider is unavailable.', 503 ); }

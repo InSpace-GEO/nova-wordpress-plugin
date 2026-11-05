@@ -19,6 +19,9 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
         require_once $directory . 'class-nova-bridge-suite-recipe-elementor.php';
         require_once $directory . 'class-nova-bridge-suite-recipe-builders.php';
         require_once $directory . 'class-nova-bridge-suite-recipe-core.php';
+        require_once $directory . 'class-nova-bridge-suite-recipe-acf.php';
+        if ( ! class_exists( 'Nova_Bridge_Suite_Content_Transport' ) && class_exists( 'WP_REST_Posts_Controller' ) ) { require_once $directory . 'class-nova-bridge-suite-content-transport.php'; }
+        if ( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::adapter( 'acf' ) ) ) { Nova_Bridge_Suite_Recipe_ACF::register(); }
         // Registered extension adapters remain authoritative. Fill only missing built-ins.
         foreach ( array_merge( [ 'core' ], Nova_Bridge_Suite_Recipe_Builders::BUILDERS ) as $builder ) {
             if ( ! is_wp_error( Nova_Bridge_Suite_Recipe_Engine::adapter( $builder ) ) ) { continue; }
