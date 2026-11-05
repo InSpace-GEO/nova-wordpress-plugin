@@ -78,6 +78,7 @@ class Nova_Bridge_Suite_Document_Mapping { static function resources() { return 
 /** This facade exposes a complete known shape; compilation remains the real Core adapter. */
 class Nova_Bridge_Suite_Recipe_Builders {
  public static $crash_after_insert = false;
+ static function native_carriers( $post ) { return $GLOBALS['test_native_carriers'] ?? []; }
  static function catalog( $type ) { return [ [ 'id' => 'gutenberg', 'label' => 'Fixture native document', 'available' => true, 'modes' => [ 'static', 'mixed', 'rules' ], 'draft' => true ] ]; }
  static function capture( $builder, $id ) { return self::starter( $builder ); }
  static function starter( $builder, $mode = 'mixed' ) { $blueprint = [ 'document' => [ 'title' => 'Design heading', 'intro' => '<p>Design introduction.</p>', 'sections' => [], 'faqs' => [ [ 'question' => '', 'answer' => '' ] ], 'frame' => [ 'footer' => 'Protected footer', 'color' => '#8511D9', 'mobile' => 'stacked' ] ], 'type' => 'post_type', 'post_type' => 'page', 'template' => 'protected-template.php' ]; for ( $i = 0; $i < 7; ++$i ) { $blueprint['document']['sections'][] = [ 'heading' => 'Old card ' . $i, 'body' => '<p>Old card body ' . $i . '</p>', 'style' => [ 'color' => '#8511D9', 'responsive' => [ 'mobile' => '100%' ] ] ]; } return [ 'blueprint' => $blueprint ] + Nova_Bridge_Suite_Recipe_Core::describe( $blueprint ); }
