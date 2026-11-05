@@ -1,6 +1,7 @@
 <?php
 /** Resolve location-specific WordPress objects before approving a shared layout. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-elementor-reusable.php';
 
 final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
     private const FORMAT = 'nova.shared-dependencies/v1';
@@ -110,6 +111,23 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
     }
 
     private function walk( &$value, string $builder, string $path ): void {
+        if ( 'elementor' === $builder && is_array( $value ) && isset( $value['elType'] ) ) {
+            $ref = Nova_Bridge_Suite_Elementor_Reusable::reference( $value );
+            if ( $ref ) {
+                $id = $ref['id']; $unused = null;
+                $this->replace( 'global' === $ref['kind'] ? 'elementor_global_widget' : 'elementor_template', $id, $unused, $path );
+                if ( 'global' === $ref['kind'] ) { $value['templateID'] = $id; }
+                elseif ( 'template' === $ref['kind'] ) { $value['settings']['template_id'] = $id; }
+                else { $value['settings']['shortcode'] = '[elementor-template id="' . $id . '"]'; }
+                // A global widget reads its content from the verified library record; cached instance values are not authority.
+                if ( 'global' !== $ref['kind'] ) {
+                    $settings = $value['settings']; unset( $settings['template_id'], $settings['shortcode'] );
+                    $this->walk( $settings, $builder, $path . '/settings' );
+                    $value['settings'] = array_replace( $value['settings'], $settings );
+                }
+                return;
+            }
+        }
         if ( ! is_array( $value ) ) {
             if ( is_string( $value ) && ( self::local_media_url( $value ) || isset( $this->expected['attachment-url:' . hash( 'sha256', $value )] ) ) ) {
                 if ( ! preg_match( '~^(?:https?://|/)[^\s"\'<>]+$~iD', $value ) ) {
@@ -188,6 +206,7 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
             }
         }
         foreach ( $value as $name => &$child ) {
+            if ( 'elementor' === $builder && Nova_Bridge_Suite_Elementor_Reusable::COPY === $name ) { continue; }
             $location = $path . '/' . $name;
             if ( '__dynamic__' === $name && is_array( $child ) ) {
                 foreach ( $child as $tag ) {
@@ -298,11 +317,11 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
             if ( count( $this->entries ) >= self::MAX_REFERENCES ) { $this->unsupported( $path, 'The layout has too many distinct site objects to share.' ); return; }
             $this->entries[$key] = [];
             if ( $this->inspect_only ) { return; }
-            $label = ( 'attachment' === $type ? 'Media attachment ' : 'Elementor Loop Item ' ) . $source;
+            $label = ( 'attachment' === $type ? 'Media attachment ' : ( 'elementor_loop' === $type ? 'Elementor Loop Item ' : 'Shared Elementor component ' ) ) . $source;
             if ( null === $this->expected ) {
                 $descriptor = $this->describe( $type, $source );
                 if ( ! $descriptor ) {
-                    $this->issue( $key, $type, $label, $source, $label . ' could not be verified on the primary site. Use readable media or a self-contained, published Loop Item and share the revision again.' );
+                    $this->issue( $key, $type, $label, $source, $label . ' could not be verified on the primary site. Use readable media or a published, supported Elementor component and share the revision again.' );
                     return;
                 }
                 $this->entries[$key] = $descriptor + [ 'source_id' => $source ];
@@ -315,7 +334,7 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
                 $this->entries[$key] = $descriptor;
                 $target = $this->find( $type, $descriptor, $this->remaps[$key] ?? null );
                 if ( ! $target ) {
-                    $instruction = 'attachment' === $type ? 'Upload the original file to this installation’s Media Library' : 'Install the matching published Elementor Loop Item on this installation';
+                    $instruction = 'attachment' === $type ? 'Upload the original file to this installation’s Media Library' : 'Install the matching published Elementor library component on this installation';
                     $this->issue( $key, $type, $descriptor['label'], $source, $descriptor['label'] . ' (primary ID ' . $source . ') has no unique local match. ' . $instruction . ', then retry or enter its local ID.', true );
                     return;
                 }
@@ -343,6 +362,7 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
     }
 
     private function describe( string $type, int $id ): ?array {
+        if ( in_array( $type, [ 'elementor_global_widget', 'elementor_template' ], true ) ) { return $this->component_descriptor( $type, $id ); }
         $post = get_post( $id );
         $post_type = 'attachment' === $type ? 'attachment' : 'elementor_library';
         if ( ! $post || $post_type !== $post->post_type || ! empty( $post->post_password ) ) { return null; }
@@ -379,6 +399,45 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
             $descriptor['digest'] = self::digest( $layout );
         }
         return $descriptor;
+    }
+
+    /** Compare rendered dependencies by content, never by the numeric IDs of another installation. */
+    private function component_descriptor( string $type, int $id ): ?array {
+        try {
+            $ref = [ 'kind' => 'elementor_global_widget' === $type ? 'global' : 'template', 'id' => $id ];
+            $library = Nova_Bridge_Suite_Elementor_Reusable::library( $ref );
+            Nova_Bridge_Suite_Elementor_Reusable::validation_blueprint( [ 'document' => $library['nodes'] ] );
+            $post = get_post( $id );
+            $layout = [ 'document' => $library['nodes'], 'settings' => get_post_meta( $id, '_elementor_page_settings', true ), 'kind' => $library['kind'] ];
+            $nested = new self( null ); $nested->inspect_only = $this->inspect_only;
+            $nested->walk( $layout, 'elementor', 'Shared component' );
+            if ( $nested->issues ) { return null; }
+            $ids = []; $collect = static function ( array $nodes ) use ( &$collect, &$ids ): void { foreach ( $nodes as $node ) { $ids[$node['id']] = 'node' . count( $ids ); $collect( $node['elements'] ?? [] ); } }; $collect( $layout['document'] );
+            $normalize = static function ( $value ) use ( &$normalize, $nested, $ids ) {
+                if ( ! is_array( $value ) ) {
+                    if ( is_string( $value ) ) { foreach ( $ids as $old => $new ) { $value = str_replace( 'elementor-element-' . $old, 'elementor-element-' . $new, $value ); } }
+                    return $value;
+                }
+                unset( $value[Nova_Bridge_Suite_Elementor_Reusable::COPY] );
+                $reference = isset( $value['elType'] ) ? Nova_Bridge_Suite_Elementor_Reusable::reference( $value ) : null;
+                if ( $reference ) {
+                    $key = ( 'global' === $reference['kind'] ? 'elementor_global_widget:' : 'elementor_template:' ) . $reference['id'];
+                    $digest = $nested->entries[$key]['digest'] ?? null;
+                    if ( ! $digest ) { throw new InvalidArgumentException( 'Unresolved nested component.' ); }
+                    unset( $value['templateID'], $value['originalWidgetType'] );
+                    if ( 'global' === $reference['kind'] ) { $value['settings'] = []; }
+                    else { unset( $value['settings']['template_id'], $value['settings']['shortcode'] ); }
+                    $value['shared_content'] = $digest;
+                }
+                if ( isset( $value['elType'], $value['id'] ) ) { $value['id'] = $ids[$value['id']] ?? $value['id']; }
+                elseif ( isset( $value['id'], $value['url'] ) && isset( $nested->entries['attachment:' . $value['id']]['digest'] ) ) {
+                    $value['id'] = $nested->entries['attachment:' . $value['id']]['digest']; $value['url'] = 'verified-media';
+                }
+                foreach ( $value as &$child ) { $child = $normalize( $child ); } unset( $child ); return $value;
+            };
+            $styles = array_filter( $nested->entries, static fn( $key ) => str_starts_with( $key, 'elementor_global:' ), ARRAY_FILTER_USE_KEY );
+            return [ 'slug' => $post->post_name, 'label' => ( 'global' === $ref['kind'] ? 'Global widget ' : 'Saved template ' ) . $library['label'], 'digest' => self::digest( [ 'layout' => $normalize( $layout ), 'global_styles' => $styles ] ) ];
+        } catch ( InvalidArgumentException $error ) { return null; }
     }
 
     private function find( string $type, array $expected, $override ): int {

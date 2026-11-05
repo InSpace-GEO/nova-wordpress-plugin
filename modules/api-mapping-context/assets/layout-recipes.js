@@ -268,18 +268,19 @@
 			},
 			captureReusableBlock: function ( target ) { return run( async function () {
 				var block = state.design && ( state.design.reusable_blocks || [] ).find( function ( item ) { return item.target === target && item.mode === 'linked'; } );
-				if ( ! state.recipe || state.builder !== 'flatsome' || ! block ) { throw new Error( 'Choose a linked UX Block from this captured design.' ); }
-				if ( ( state.recipe.regions || [] ).some( function ( region ) { return fieldInside( { target: target }, region ); } ) ) { throw new Error( 'Remove the content region containing this UX Block before capturing it, then rebuild that region using its captured fields.' ); }
+				if ( ! state.recipe || ! [ 'flatsome', 'elementor' ].includes( state.builder ) || ! block ) { throw new Error( 'Choose a shared component from this captured design.' ); }
+				if ( ( state.recipe.regions || [] ).some( function ( region ) { return fieldInside( { target: target }, region ); } ) ) { throw new Error( 'Remove the content region containing this shared component before capturing it, then rebuild that region using its captured fields.' ); }
+				await applyPresentationSelection();
 				var result = designResult( await request( '/reusable-block', { resource_id: state.resourceId, mode: state.mode, target: target,
 					design: { builder: state.builder, blueprint: copy( state.design.blueprint ), seal: state.design.seal },
-					source_reference: state.design.source_reference, source_receipt: state.design.source_receipt } ), 'flatsome' );
+					source_reference: state.design.source_reference, source_receipt: state.design.source_receipt } ), state.builder );
 				var captured = ( result.reusable_blocks || [] ).find( function ( item ) { return item.target === target && item.mode === 'captured'; } );
-				if ( ! captured ) { throw new Error( 'The selected UX Block was not captured. Your existing mapping is retained.' ); }
+				if ( ! captured ) { throw new Error( 'The selected component was not captured. Your existing mapping is retained.' ); }
 				var priorSource = state.design.source_reference, nextSource = result.source_reference;
 				if ( priorSource && ( ! nextSource || nextSource.reference_id !== priorSource.reference_id || nextSource.reference_type !== priorSource.reference_type || nextSource.resource_id !== priorSource.resource_id ) ) { throw new Error( 'The captured block belongs to a different example. Your existing mapping is retained.' ); }
-				if ( ( state.recipe.bindings || [] ).some( function ( binding ) { return ! result.fields.some( function ( field ) { return field.target === binding.target && field.writable !== false && fieldFormats( field ).includes( binding.format ); } ); } ) ) { throw new Error( 'An existing mapped field changed while capturing the UX Block. Your mapping is retained; capture the example again before continuing.' ); }
+				if ( ( state.recipe.bindings || [] ).some( function ( binding ) { return ! result.fields.some( function ( field ) { return field.target === binding.target && field.writable !== false && fieldFormats( field ).includes( binding.format ); } ); } ) ) { throw new Error( 'An existing mapped field changed while capturing the shared component. Your mapping is retained; capture the example again before continuing.' ); }
 				state.recipe.blueprint = copy( result.blueprint ); state.design = result; invalidate(); state.highestStep = Math.min( state.highestStep, STEPS.length ); state.step = 3;
-				feedback( 'UX Block captured in this template. Choose which of its fields NOVA may change, then save. Other blocks remain linked.' );
+				feedback( state.builder === 'elementor' ? 'Independent copy created for mapping. Each delivered page gets its own copy; the shared original and its other instances are never edited. Choose its fields below, then save.' : 'UX Block captured in this template. Choose which of its fields NOVA may change, then save. Other blocks remain linked.' );
 			} ); },
 			includeCustom: function ( enabled ) { return run( async function () {
 				if ( enabled && ! state.customDesign && state.mode === 'static' && state.resourceId.startsWith( 'post_type:' ) && supportedBuilder( 'acf' ) ) {
@@ -475,13 +476,13 @@
 		function reviewDraftPanel( result ) { var panel = node( 'section', undefined, 'nlr-feedback nlr-draft-result' ), id = Number( result.id || result.post_id ); panel.append( node( 'h3', 'Native review draft #' + id ), help( 'Open the completed draft to review its saved native layout. Keep editing your template below.' ) ); var links = node( 'div', undefined, 'nlr-draft-links' ); [ [ 'edit_url', 'Open WordPress draft' ], [ result.view_url ? 'view_url' : 'preview_url', 'Preview draft' ] ].forEach( function ( entry ) { if ( result[ entry[0] ] ) { var link = node( 'a', entry[1], 'button' ); link.href = result[ entry[0] ]; link.target = '_blank'; link.rel = 'noopener'; links.append( link ); } } ); panel.append( links ); return panel; }
 		function reusableBlocksEditor() {
 			var state = controller.state, blocks = state.design.reusable_blocks || [], wrap = node( 'section', undefined, 'nlr-panel nlr-reusable-blocks' );
-			wrap.append( node( 'h3', 'Reusable UX Blocks' ), help( 'Keep shared content linked when NOVA should not change it. Capture an individual block to store its current layout here and choose fields to map.' ) );
+			wrap.append( node( 'h3', state.builder === 'elementor' ? 'Shared Elementor components' : 'Reusable UX Blocks' ), help( 'Keep shared content linked when NOVA should not change it. Capture an individual block to store its current layout here and choose fields to map.' ) );
 			blocks.forEach( function ( block ) {
 				var row = node( 'section', undefined, 'nlr-reusable-block' ), linked = block.mode === 'linked';
-				row.append( node( 'h4', block.label || 'UX Block ' + ( block.reference || '' ) ), node( 'strong', linked ? 'Keep linked' : 'Captured for mapping' ) );
-				row.append( help( linked ? 'This unchanged block uses the reusable source at render time. Keep that UX Block available; edits to it will also appear on these pages.' : 'This copy is stored in the template. Its mapped fields no longer depend on the original UX Block. Any nested blocks marked Keep linked remain shared.' ) );
+				row.append( node( 'h4', block.label || 'UX Block ' + ( block.reference || '' ) ), node( 'strong', linked ? ( state.builder === 'elementor' ? 'Keep shared — fields are protected' : 'Keep linked' ) : ( state.builder === 'elementor' ? 'Independent copy for mapping' : 'Captured for mapping' ) ) );
+				row.append( help( state.builder === 'elementor' ? ( linked ? 'This global widget or saved template is shared across pages. NOVA keeps it unchanged. To map its fields, create an independent copy; this will not edit the shared original or its other instances.' : 'Each delivered page gets its own native copy. Shared edits no longer affect this copy, and NOVA never edits the original library component.' ) : linked ? 'This unchanged block uses the reusable source at render time. Keep that UX Block available; edits to it will also appear on these pages.' : 'This copy is stored in the template. Its mapped fields no longer depend on the original UX Block. Any nested blocks marked Keep linked remain shared.' ) );
 				if ( block.reason ) { row.append( help( block.reason ) ); }
-				if ( linked ) { row.append( button( 'Capture for mapping', function () { controller.captureReusableBlock( block.target ); }, false, state.busy || block.expandable === false ) ); }
+				if ( linked ) { row.append( button( state.builder === 'elementor' ? 'Create independent copy for mapping' : 'Capture for mapping', function () { controller.captureReusableBlock( block.target ); }, false, state.busy || block.expandable === false ) ); }
 				wrap.append( row );
 			} );
 			return wrap;
@@ -683,7 +684,7 @@
 				if ( state.builder === 'acf' ) { panel.append( help( 'For automatic posting to ACF fields, capture a native WordPress or page-builder layout and select Editorial custom fields there.' ) ); }
 
 			}
-			if ( state.step === 3 && state.builder === 'flatsome' && ( state.design.reusable_blocks || [] ).length ) { panel.append( reusableBlocksEditor() ); }
+			if ( state.step === 3 && [ 'flatsome', 'elementor' ].includes( state.builder ) && ( state.design.reusable_blocks || [] ).length ) { panel.append( reusableBlocksEditor() ); }
 			if ( state.step === 3 ) {
 				var source = state.design.source_reference;
 				if ( ! source ) {

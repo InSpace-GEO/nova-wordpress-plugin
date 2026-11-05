@@ -468,6 +468,19 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   await t.controller.captureReusableBlock('/document/1');assert.equal(t.controller.state.error,false);assert.deepEqual(t.controller.state.recipe.bindings,oldBindings);assert.deepEqual(t.controller.state.content,{title:'Keep my sample'});assert.equal(t.controller.state.design.seal,'captured-seal');assert.equal(t.controller.state.design.source_receipt,'expanded-receipt');assert(t.host.textContent.includes('Captured for mapping'));assert(t.host.textContent.includes('no longer depend on the original UX Block'));
   const call=t.calls.find(call=>call.path==='/reusable-block');assert.equal(call.payload.target,'/document/1');assert.equal(call.payload.design.seal,'linked-seal');assert.deepEqual(call.payload.source_reference,original.source_reference);assert.equal(call.payload.source_receipt,'original-receipt');assert(!t.calls.some(call=>['/save','/draft'].includes(call.path)));
  });
+ await test('Elementor globals are explicitly shared until copied and existing content rules survive',async()=>{
+  const original=visualDesign();original.reusable_blocks=[{target:'/document/1',label:'Global widget #42 · Contact button',kind:'global',mode:'linked',expandable:true}];
+  const expanded=clone(original);expanded.seal='copied-seal';expanded.reusable_blocks[0].mode='captured';expanded.source_receipt='copy-receipt';
+  const t=await visualMounted({request:async(path)=>{if(path==='/design')return clone(original);if(path==='/reusable-block')return clone(expanded);}});
+  await t.controller.capture(42);
+  assert(t.host.textContent.includes('Global widget #42'));assert(t.host.textContent.includes('Keep shared — fields are protected'));
+  assert(t.host.textContent.includes('Create independent copy for mapping'));assert(t.host.textContent.includes('will not edit the shared original'));
+  t.controller.edit(()=>{t.controller.state.recipe.bindings=[{target:'/document/0/settings/title',source:'/title',format:'html',required:true,instructions:'Keep this instruction'}];});
+  const before=clone(t.controller.state.recipe.bindings);await t.controller.captureReusableBlock('/document/1');
+  assert.equal(t.controller.state.error,false,t.controller.state.feedback);assert.deepEqual(t.controller.state.recipe.bindings,before);
+  assert(t.host.textContent.includes('Independent copy for mapping'));assert(t.host.textContent.includes('Each delivered page gets its own native copy'));
+  assert(!t.calls.some(call=>['/save','/draft'].includes(call.path)));
+ });
  await test('failed UX Block capture and changed existing fields retain the current mapping',async()=>{
   const choices=clone(catalog);choices.builders.unshift({id:'flatsome',label:'Flatsome',available:true,modes:['static','mixed','rules']});
   const linked={builder:'flatsome',blueprint:{document:[]},seal:'original',fields:[{target:'/document/0/content',label:'Body',format:'html',writable:true}],containers:[],sources:source,reusable_blocks:[{target:'/document/1',label:'Block',mode:'linked'}],recipe_preset:{builder:'flatsome',bindings:[],regions:[]}};let failed=true;

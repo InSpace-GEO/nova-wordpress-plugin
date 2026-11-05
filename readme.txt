@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.1.4
+Stable tag: 1.1.5
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+= 1.1.5 =
+Elementor Global widgets and saved templates can remain shared in a creation layout. Their fields are protected and clearly identified. Choose Create independent copy for mapping to give each delivered page its own captured content and styling without editing the shared original. Known Elementor template shortcodes can be captured the same way.
+Shared-layout imports verify reusable Elementor components by their contents before selecting local IDs. Missing or circular references report which component needs attention.
+
 = 1.1.4 =
 Use one saved layout for multiple NOVA content types, such as Service and Category creating normal WordPress pages. Existing URL routing and retained delivery revisions remain supported.
 Design settings and additional content fields are grouped separately. Recognized design settings no longer appear as new editorial choices. Collapse either section without disabling mappings; optional field instructions are tucked away. Previously mapped design settings remain unchanged until you explicitly choose to copy the example setting.

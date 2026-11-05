@@ -50,10 +50,37 @@ function require_issue( $result, $key, $manual ) {
     throw new RuntimeException( 'Wrong issue for ' . $key . ': ' . $result->get_error_message() );
 }
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-shared-layout-dependencies.php';
+require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-recipe-engine.php';
 class_alias( 'Nova_Bridge_Suite_Shared_Layout_Dependencies', 'Deps' );
 $work = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'nova-layout-deps-' . bin2hex( random_bytes( 6 ) );
 mkdir( $work );
 try {
+    clear_site(); $kit = 8;
+    $component = static function ( $id, $slug, $kind, $nodes ) {
+        loop_item( $id, $slug, $nodes ); $GLOBALS['meta'][$id]['_elementor_template_type'] = $kind;
+        $GLOBALS['registry'][$id]->post_title = 'Shared content';
+    };
+    $button = [ [ 'id' => 'source1', 'elType' => 'widget', 'widgetType' => 'button', 'settings' => [ 'text' => 'Contact', 'image' => [ 'id' => 42, 'url' => 'https://primary.test/uploads/hero.png' ] ], 'elements' => [] ] ];
+    attach( 42, 'hero', 'original pixels', '2026/hero.png' );
+    $component( 72, 'shared-contact', 'widget', $button );
+    $global = [ 'id' => 'occurrence', 'elType' => 'widget', 'widgetType' => 'global', 'templateID' => 72, 'settings' => [], 'elements' => [] ];
+    $shared = record( 'elementor', [ $global ] );
+    $manifest = Deps::capture( $shared );
+    check( ! is_wp_error( $manifest ) && isset( $manifest['entries']['elementor_global_widget:72'] ), 'Global widget gets a content fingerprint.' );
+    clear_site(); $kit = 9;
+    attach( 42, 'wrong-image', 'wrong pixels', '2026/wrong.png' );
+    attach( 142, 'hero', 'original pixels', '2026/hero.png' );
+    $wrong = $button; $wrong[0]['settings']['text'] = 'Unrelated';
+    $component( 72, 'wrong-contact', 'widget', $wrong );
+    $local = $button; $local[0]['id'] = 'local99'; $local[0]['settings']['image'] = [ 'id' => 142, 'url' => 'https://follower.test/uploads/142.png' ];
+    $component( 172, 'shared-contact', 'widget', $local );
+    $resolved = Deps::resolve( $shared, $manifest );
+    check( ! is_wp_error( $resolved ) && $resolved['recipe']['blueprint']['document'][0]['templateID'] === 172, 'Same numeric IDs with different meanings do not select the wrong global or image.' );
+    require_issue( Deps::resolve( $shared, $manifest, [ 'elementor_global_widget:72' => 72 ] ), 'elementor_global_widget:72', true );
+    $meta[172]['_elementor_data'] = json_encode( $wrong );
+    require_issue( Deps::resolve( $shared, $manifest ), 'elementor_global_widget:72', true );
+    $frozen = record( 'elementor', [ [ 'id' => 'copy', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Frozen body' ], 'nova_reusable_copy' => [ 'original' => $global ] ] ] );
+    check( Deps::capture( $frozen )['entries'] === [], 'Copy provenance is not a dependency on the former source.' );
     clear_site(); $kit = 8;
     attach( 12, 'hero', 'same pixels', '2026/01/hero.png' );
     $loop = [ [ 'elType' => 'widget', 'id' => '12', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Card' ] ] ];
