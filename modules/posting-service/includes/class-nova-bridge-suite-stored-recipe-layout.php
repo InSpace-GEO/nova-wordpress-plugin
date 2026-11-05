@@ -1,6 +1,7 @@
 <?php
 /** Builder-independent projection and compilation of saved scalar layout recipes. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-layout-page-types.php';
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-layout-custom-fields.php';
 
 final class Nova_Bridge_Suite_Stored_Recipe_Layout {
@@ -114,6 +115,11 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                     $draft['source_hints'][$path] = [ 'image_url', 'image_urls' ];
                     $draft['fields'][$path]['description']['purpose'] = 'Image URL for ' . $label . '. Select an exact supplied image URL from image_url or image_urls. WordPress imports the selected image. When this field is optional and no suitable source exists, leave it empty to retain the saved image.';
                 }
+            }
+            if ( array_key_exists( 'posting_page_types', $record ) ) {
+                $types = Nova_Bridge_Suite_Layout_Page_Types::selected( $record );
+                if ( ! $types ) { self::fail( 'The saved layout has no valid NOVA content types.' ); }
+                $draft['profile_page_types'] = $types;
             }
             foreach ( Nova_Bridge_Suite_Layout_Custom_Fields::selections( $recipe ) as $path => $entry ) {
                 $label = trim( $entry['label'] ?? '' ) ?: $entry['name'];

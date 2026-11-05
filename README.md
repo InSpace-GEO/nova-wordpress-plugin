@@ -22,7 +22,7 @@ Under **Layouts**, choose an example, map its fields and save directly from **Co
 
 Two WordPress destinations can share a NOVA page type when their permalinks distinguish them. For example, assign **Service** to both **Pages** and a **Masterclass** post type registered at `/masterclass/`. A Service item at `/masterclass/budgeting/` uses the Masterclass layout. A Service item at `/advice/` uses the Pages layout. An explicit template assignment for an individual NOVA URL takes priority. If both destinations publish directly at the root, WordPress reports the conflict and keeps the confirmed routing in place.
 
-In **2. Choose a design**, open **Reference item** to browse or type to filter the list. Use **Use an item ID** for an example outside the list. Selecting the same example for the same WordPress destination resumes the mapping. To rebuild it from a changed example, choose **Capture a fresh layout** in step 2. In Elementor, **Page layout and template settings** starts with recognized design settings selected for a new layout. **Select all** and **Deselect all** change them together. Saved layouts retain their previous choices. Unrelated registered metadata is available separately and is opt-in.
+In **2. Choose a design**, open **Reference item** to browse or type to filter the list. Use **Use an item ID** for an example outside the list. Selecting the same example for the same WordPress destination resumes the mapping. To rebuild it from a changed example, choose **Capture a fresh layout** in step 2. In Elementor, **Design settings copied from your example** starts with recognized design settings selected for a new layout. **Select all** and **Deselect all** change them together. Saved layouts retain their previous choices. Unrelated registered metadata is available separately and is opt-in.
 
 ## Share a layout across WordPress installations
 
@@ -57,7 +57,11 @@ TranslatePress stores identical source strings in a shared dictionary. NOVA leav
 
 ### Mapping custom fields
 
-In step 3 of a fixed post layout, open **Editorial custom fields** and select the fields NOVA should fill. Give each field its own mapping instructions, save the layout on the same screen and check the sync result. For a PHP page template that renders its content from ACF, use a WordPress layout with that page template and select its custom fields. The WordPress body can be empty.
+In step 1, select every **NOVA content type** that should use the layout. Service and Category can share one template that creates normal WordPress pages; Category does not require WooCommerce. Distinct destination URL routes still apply per content type. Removing a type detaches this template's routing for future deliveries; retained revisions continue to handle their already queued deliveries. Install the same plugin version on installations that share exported layouts with multiple content types.
+
+In step 3 of a fixed post layout, **Design settings copied from your example** keeps captured appearance settings such as width, background and sidebar. These do not need AI instructions. Open **Additional content fields (optional)** only to select ACF or registered WordPress fields NOVA should fill with new article content. Each selected field can have optional instructions. Closing either section keeps the selections and does not disable mappings. Existing saved editorial selections are retained; a recognized design setting already selected as content offers an explicit action to copy its example setting instead.
+
+Save the layout on the same screen and check the sync result. For a PHP page template that renders its content from ACF, use a WordPress layout with that page template and select its custom fields. The WordPress body can be empty.
 
 The picker supports top-level ACF text, textarea, WYSIWYG, URL and email fields, plus public WordPress fields registered as single REST strings. A delivery that omits an optional field preserves its current value. Repeater rows, flexible layouts, media and relationship fields are outside this picker.
 

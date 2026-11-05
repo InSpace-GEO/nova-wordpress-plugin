@@ -34,6 +34,11 @@ class Routing_Test_Client extends Nova_Bridge_Suite_Posting_Client {
             return reply( $this->templates[$id], 201 );
         }
         $id = substr( $suffix, strlen( '/templates/' ) );
+        if ( 'PUT' === $method && isset( $this->templates[$id] ) ) {
+            check( $headers === [ 'If-Match' => '"' . $this->templates[$id]['revision'] . '"' ], 'Template updates use the observed revision.' );
+            $this->templates[$id] = array_replace( $this->templates[$id], $body, [ 'revision' => $this->templates[$id]['revision'] + 1 ] );
+            return reply( $this->templates[$id] );
+        }
         if ( 'GET' === $method && isset( $this->templates[$id] ) ) { return reply( $this->templates[$id] ); }
         throw new RuntimeException( "$method $suffix" );
     }

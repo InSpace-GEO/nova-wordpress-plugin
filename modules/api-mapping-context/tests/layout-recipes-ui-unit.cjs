@@ -37,11 +37,11 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
 (async()=>{
  await test('previously selected footnotes can be removed while fresh layouts do not offer them',async()=>{
   const t=await visualMounted();t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
-  assert(!t.host.textContent.includes('Editorial custom fields'));
+  assert(!t.host.textContent.includes('Additional content fields (optional)'));
   const path='/@nova/custom-fields/meta/footnotes',field={provider:'meta',key:'footnotes',name:'footnotes',type:'string',label:'footnotes',instructions:''};
   t.controller.edit(state=>{state.recipe.posting_fields={[path]:field};});
   assert(t.host.textContent.includes('Previously selected footnotes metadata'));const selected=controlFor(t,'footnotes');assert(selected.checked);
-  selected.checked=false;selected.events.change();assert(!t.host.textContent.includes('Editorial custom fields'));
+  selected.checked=false;selected.events.change();assert(!t.host.textContent.includes('Additional content fields (optional)'));
   await t.controller.save();assert.equal(t.calls.at(-1).payload.recipe.posting_fields,undefined);
  });
  await test('fixed native layout can save just one selected registered field',async()=>{
@@ -279,23 +279,34 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
  await test('save reports remote success only for the exact saved recipe revision',async()=>{
   let wrong=false;const f=fixture({request:async(path,payload)=>{if(path==='/catalog')return clone(catalog);if(path==='/design')return clone(design);if(path==='/save')return {id:'00000000-0000-4000-8000-000000000001',revision:payload.expected_revision+1,resource_id:payload.resource_id,posting_page_type:payload.posting_page_type,recipe:clone(payload.recipe),default_saved:true,posting_sync:{status:'synced',verified:true,default_selected:true,page_type:payload.posting_page_type,recipe_revision:wrong?99:payload.expected_revision+1,template_revision:2,template_id:'remote-template'}};throw Error(path);}});await ready(f);await f.ctrl.save();assert.equal(f.ctrl.state.error,false);assert.match(f.ctrl.state.feedback,/default confirmed by posting service/);wrong=true;await f.ctrl.save();assert.equal(f.ctrl.state.error,true);assert.match(f.ctrl.state.feedback,/not confirmed/);
  });
- await test('first-step NOVA page type is independent from destination and survives design capture and save',async()=>{
-  const t=await mounted();const type=controlFor(t,'NOVA page type');assert.equal(type.value,'service');assert.deepEqual(type.children.map(option=>option.value),['service','informative','category']);
-  type.value='informative';type.events.change();t.controller.selectMode('static');t.controller.next();await t.controller.capture(0);
-  const blueprint=clone(t.controller.state.recipe.blueprint);
-  assert(!t.host.all().some(item=>item.tag==='label'&&item.ownText==='NOVA page type'),'The type selector belongs to the first step only');
-  assert(t.host.textContent.includes('NOVA page type: Informative. Destination: Pages.'),JSON.stringify({type:t.controller.state.postingPageType,step:t.controller.state.step,feedback:t.controller.state.feedback,text:t.host.textContent}));await t.controller.save();
-  const saved=t.calls.find(call=>call.path==='/save').payload;assert.equal(saved.posting_page_type,'informative');assert.deepEqual(saved.recipe.blueprint,blueprint);assert.equal(t.controller.dirty(),false);
-  t.controller.go(1);const changed=controlFor(t,'NOVA page type');changed.value='category';changed.events.change();assert.equal(t.controller.dirty(),true,'Changing the type changes saved authority');assert(!t.host.textContent.includes('Use suggested destination:'),'An existing design never suggests switching away from its destination');
+ await test('multiple content types share one captured layout and survive saving',async()=>{
+  const t=await mounted();assert(controlFor(t,'Service').checked);assert(!controlFor(t,'Category').checked);
+  controlFor(t,'Category').checked=true;controlFor(t,'Category').events.change();
+  assert.deepEqual(t.controller.state.postingPageTypes,['service','category']);
+  t.controller.selectMode('static');t.controller.next();await t.controller.capture(0);const blueprint=clone(t.controller.state.recipe.blueprint);
+  assert(t.host.textContent.includes('NOVA content types: Service, Category. Destination: Pages.'));
+  await t.controller.save();const saved=t.calls.find(call=>call.path==='/save').payload;
+  assert.deepEqual(saved.posting_page_types,['service','category']);assert.deepEqual(saved.recipe.blueprint,blueprint);assert(!t.controller.dirty());
+  t.controller.go(1);controlFor(t,'Service').checked=false;controlFor(t,'Service').events.change();assert(t.controller.dirty());assert.deepEqual(t.controller.state.postingPageTypes,['category']);
+  controlFor(t,'Category').checked=false;controlFor(t,'Category').events.change();assert.deepEqual(t.controller.state.postingPageTypes,['category']);assert.match(t.controller.state.feedback,/at least one/);
  });
- await test('logical fresh defaults use Posts for Informative, Pages for Service and Woo categories where available',async()=>{
+ await test('logical destination suggestions remain available for one selected type',async()=>{
   const choices=clone(catalog);choices.resources.push({id:'post_type:post',label:'Posts',type:'post_type',creation_supported:true,targets:[]});
   const t=await mounted({request:async(path)=>{if(path==='/catalog')return choices;throw Error(path);}});
-  let type=controlFor(t,'NOVA page type');assert.equal(type.value,'service');type.value='informative';type.events.change();
-  let suggestion=t.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Posts');assert(suggestion);suggestion.events.click();assert.equal(t.controller.state.resourceId,'post_type:post');assert.equal(controlFor(t,'NOVA page type').value,'informative');assert(t.host.textContent.includes('saved locally'));
-  type=controlFor(t,'NOVA page type');type.value='category';type.events.change();suggestion=t.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Woo categories');assert(suggestion);suggestion.events.click();assert.equal(t.controller.state.resourceId,'taxonomy:product_cat');assert.deepEqual(controlFor(t,'NOVA page type').children.map(option=>option.value),['category']);
-  t.controller.selectResource('post_type:page');assert.equal(t.controller.state.postingPageType,'service');t.controller.selectResource('post_type:post');assert.equal(t.controller.state.postingPageType,'informative');assert(t.calls.every(call=>call.path==='/catalog'),'Selecting defaults alone makes no save or sync request');
-  const withoutWoo=clone(choices);withoutWoo.resources=withoutWoo.resources.filter(item=>item.id!=='taxonomy:product_cat');const fallback=await mounted({config:{resourceId:'post_type:post'},request:async(path)=>{if(path==='/catalog')return withoutWoo;throw Error(path);}});type=controlFor(fallback,'NOVA page type');type.value='category';type.events.change();suggestion=fallback.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Pages');assert(suggestion);suggestion.events.click();assert.equal(fallback.controller.state.resourceId,'post_type:page');assert.equal(fallback.controller.state.postingPageType,'category');
+  t.controller.selectPageType('informative');let suggestion=t.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Posts');assert(suggestion);suggestion.events.click();assert.equal(t.controller.state.resourceId,'post_type:post');assert(controlFor(t,'Informative').checked);
+  t.controller.selectPageType('category');suggestion=t.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Woo categories');assert(suggestion);suggestion.events.click();assert.equal(t.controller.state.resourceId,'taxonomy:product_cat');assert(controlFor(t,'Category').checked&&controlFor(t,'Category').disabled);
+  assert(t.calls.every(call=>call.path==='/catalog'));
+  const withoutWoo=clone(choices);withoutWoo.resources=withoutWoo.resources.filter(item=>item.id!=='taxonomy:product_cat');const fallback=await mounted({config:{resourceId:'post_type:post'},request:async(path)=>{if(path==='/catalog')return withoutWoo;throw Error(path);}});fallback.controller.selectPageType('category');suggestion=fallback.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Pages');assert(suggestion);suggestion.events.click();assert.equal(fallback.controller.state.resourceId,'post_type:page');assert.equal(fallback.controller.state.postingPageType,'category');
+ });
+ await test('recognized design settings stay out of fresh editorial choices and legacy selections are explicit',async()=>{
+  const key='site-sidebar-layout',path='/@nova/custom-fields/meta/'+key,field={provider:'meta',name:key,key,type:'string',label:'Sidebar layout',instructions:''};
+  const t=await visualMounted({request:async(route,payload,example)=>{if(route==='/design')return {...clone(example),posting_field_choices:{[path]:field},presentation_choices:{inventory:{fields:{[key]:{label:'Sidebar layout',template_setting:true,present:true,value:'no-sidebar'}}}},presentation_seal:'signed'};}});
+  t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
+  assert(!t.host.textContent.includes('Additional content fields (optional)'));assert(controlFor(t,'Sidebar layout').checked);assert(t.controller.state.design.pendingPresentationKeys.includes(key));
+  t.controller.edit(state=>{state.recipe.posting_fields={[path]:field};state.design.pendingPresentationKeys=[];});
+  assert(t.host.textContent.includes('This saved mapping fills a design setting'));const section=detailsFor(t.host,'Additional content fields (optional)');section.open=true;
+  const before=clone(t.controller.state.recipe);section.open=false;t.controller.edit(()=>{});t.flushFrames();assert(!detailsFor(t.host,'Additional content fields (optional)').open);assert.deepEqual(t.controller.state.recipe,before);
+  t.host.all().find(item=>item.tag==='button'&&item.ownText==='Copy example setting: Sidebar layout').events.click();assert.equal(t.controller.state.recipe.posting_fields,undefined);assert(t.controller.state.design.pendingPresentationKeys.includes(key));assert(!t.host.textContent.includes('Additional content fields (optional)'));
  });
  await test('saved type and exact last sync result load unchanged while legacy defaults remain compatible',async()=>{
   const id='00000000-0000-4000-8000-000000000123';let type='informative',status='failed';const f=fixture({profileId:id,request:async(path)=>{if(path==='/catalog')return clone(catalog);if(path.startsWith('/profile?'))return {id,revision:2,resource_id:'post_type:page',posting_page_type:type,label:'Information',recipe:ui.recipeFrom(design,'static'),design:clone(design),posting_sync:{status,verified:true,default_selected:true,page_type:type,recipe_revision:2,template_revision:3,template_id:'remote',message:'Native activation failed.'}};throw Error(path);}});
@@ -326,7 +337,7 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
    }
   }});
   t.controller.next();await t.controller.capture(42);choosePurpose(t,'title');
-  const bindings=clone(t.controller.state.recipe.bindings), panel=detailsFor(t.host,'Page layout and template settings'), frame=t.host.all().find(item=>item.tag==='iframe');
+  const bindings=clone(t.controller.state.recipe.bindings), panel=detailsFor(t.host,'Design settings copied from your example'), frame=t.host.all().find(item=>item.tag==='iframe');
   const checkbox=controlFor(t,'Content layout'),header=controlFor(t,'Header display'),credit=controlFor(t,'Credit');
   assert(checkbox.checked && header.checked && !credit.checked);panel.open=true;
   const bulk=label=>panel.all().find(item=>item.tag==='button'&&item.ownText===label).events.click();
@@ -354,10 +365,10 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
  await test('choosing an editorial mapping removes the same fixed setting before save',async()=>{
   const path='/@nova/custom-fields/meta/layout',editorial={provider:'meta',name:'layout',key:'layout',type:'string',label:'Mapped layout'};
   const t=await visualMounted({request:async(endpoint,payload,current)=>{
-   if(endpoint==='/design')return {...clone(current),presentation_choices:{inventory:{fields:{layout:{template_setting:true,label:'Fixed layout'}}}},presentation_seal:'sealed',posting_field_choices:{[path]:editorial}};
+   if(endpoint==='/design')return {...clone(current),presentation_choices:{inventory:{fields:{layout:{template_setting:false,label:'Fixed layout'}}}},presentation_seal:'sealed',posting_field_choices:{[path]:editorial}};
   }});
   t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
-  assert(controlFor(t,'Fixed layout').checked);
+  controlFor(t,'Fixed layout').checked=true;controlFor(t,'Fixed layout').events.change();assert(controlFor(t,'Fixed layout').checked);
   const mapped=controlFor(t,'Mapped layout');mapped.checked=true;mapped.events.change();
   assert(!controlFor(t,'Fixed layout').checked && controlFor(t,'Fixed layout').disabled);
   await t.controller.save();assert.equal(t.controller.state.error,false);

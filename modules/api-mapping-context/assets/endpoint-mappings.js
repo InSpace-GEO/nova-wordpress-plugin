@@ -15,11 +15,11 @@
 	function recipePostingSummary( resource ) {
 		var recipe = resource.recipe_default, type = recipe && recipe.posting_page_type;
 		if ( ! recipe || ! [ 'service', 'informative', 'category' ].includes( type ) ) { return []; }
-		var label = type === 'service' ? 'Service' : type === 'informative' ? 'Informative' : 'Category', sync = recipe.posting_sync;
+		var types = recipe.posting_page_types || [ type ], label = types.map( function ( value ) { return value === 'service' ? 'Service' : value === 'informative' ? 'Informative' : 'Category'; } ).join( ', ' ), sync = recipe.posting_sync;
 		var scoped = sync && typeof sync.route_prefix === 'string' && sync.route_prefix.startsWith( '/' ) && sync.route_prefix.length > 1;
-		var confirmed = sync && sync.status === 'synced' && sync.verified === true && ( sync.default_selected === true || scoped ) && sync.recipe_revision === recipe.revision && sync.page_type === type && Number.isSafeInteger( sync.template_revision ) && sync.template_revision > 0 && typeof sync.template_id === 'string' && !! sync.template_id;
-		var result = [ ( confirmed && scoped ? 'URL route ' + sync.route_prefix + ' for NOVA page type: ' : 'Default for NOVA page type: ' ) + label + ' → ' + resource.label + '.' ];
-		if ( confirmed ) { result.push( scoped ? 'Posting-service URL route confirmed when saved or synchronized.' : 'Posting-service default confirmed when saved or synchronized.' ); }
+		var confirmed = sync && sync.status === 'synced' && sync.verified === true && ( sync.default_selected === true || scoped ) && sync.recipe_revision === recipe.revision && sync.page_type === type && same( sync.page_types || [ sync.page_type ], types ) && Number.isSafeInteger( sync.template_revision ) && sync.template_revision > 0 && typeof sync.template_id === 'string' && !! sync.template_id;
+		var result = [ ( types.length > 1 ? 'NOVA content types: ' : confirmed && scoped ? 'URL route ' + sync.route_prefix + ' for NOVA page type: ' : 'Default for NOVA page type: ' ) + label + ' → ' + resource.label + '.' ];
+		if ( confirmed ) { result.push( types.length > 1 ? 'Posting-service routing confirmed for all selected content types when saved or synchronized.' : scoped ? 'Posting-service URL route confirmed when saved or synchronized.' : 'Posting-service default confirmed when saved or synchronized.' ); }
 		else if ( sync && sync.status === 'failed' && sync.recipe_revision === recipe.revision && sync.page_type === type ) { result.push( 'Saved locally · posting-service default not confirmed. ' + ( typeof sync.message === 'string' ? sync.message : 'Open the layout to retry synchronization.' ) ); }
 		else { result.push( resource.id === 'taxonomy:product_cat' && ! sync ? 'Saved locally · last posting-service confirmation is unavailable.' : 'Saved locally · posting-service default not confirmed.' ); if ( recipe.posting_support && recipe.posting_support.supported === false && recipe.posting_support.reason ) { result.push( recipe.posting_support.reason ); } }
 		return result;
