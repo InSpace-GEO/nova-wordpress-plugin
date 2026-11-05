@@ -3,6 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-layout-page-types.php';
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-layout-custom-fields.php';
+require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-wordpress-layout-seo.php';
 
 final class Nova_Bridge_Suite_Stored_Recipe_Layout {
     public const FORMAT = 'nova.stored-recipe/v1';
@@ -58,10 +59,17 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
         $adapter = self::checked( Nova_Bridge_Suite_Recipe_Engine::adapter( $builder ) );
         $inventory = self::inventory( $builder, $blueprint, $resource ); $bindings = [];
         Nova_Bridge_Suite_Layout_Custom_Fields::selections( [ 'builder' => $builder, 'blueprint' => $blueprint, 'posting_fields' => $draft['posting_fields'] ?? [] ] );
+        $seo_fields = Nova_WordPress_Layout_SEO::selections( $draft );
         $effective = Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $draft );
         foreach ( $effective['fields'] ?? [] as $path => $field ) {
             $descriptor = $effective['target_descriptors'][$path] ?? []; $mode = $field['mode'] ?? '';
             if ( ( $descriptor['path'] ?? null ) !== $path || ! in_array( $mode, [ 'adapt', 'protected', 'leave_empty' ], true ) ) { self::fail( 'Each saved field needs its exact native descriptor and supported scalar policy.' ); }
+            if ( isset( $seo_fields[$path] ) ) {
+                $spec = $seo_fields[$path];
+                if ( ( $descriptor['builder'] ?? '' ) !== 'seo' || ( $field['description']['value_type'] ?? '' ) !== 'text' ) { self::fail( 'The approved SEO destination changed.' ); }
+                $bindings[$path] = [ 'kind' => 'custom_field', 'mode' => $mode, 'name' => $path, 'provider' => 'seo', 'key' => $spec['provider'], 'type' => $spec['field'] ];
+                continue;
+            }
             if ( isset( $draft['posting_fields'][$path] ) ) {
                 $spec = $draft['posting_fields'][$path];
                 if ( ( $descriptor['builder'] ?? '' ) !== 'custom_field' || $field['description']['value_type'] !== Nova_Bridge_Suite_Layout_Custom_Fields::value_type( $spec['type'] ) ) { self::fail( 'The approved editorial custom field has changed.' ); }
@@ -112,6 +120,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 $label = isset( $binding['label'] ) && '' !== trim( $binding['label'] ) ? $binding['label'] : $field['label'];
                 $draft['fields'][$path] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => ! empty( $binding['required'] ), 'instructions' => $binding['instructions'] ?? '', 'description' => [ 'label' => $label, 'purpose' => 'Content for ' . $label . ( empty( $binding['source'] ) ? '.' : ', described by ' . $binding['source'] . '.' ), 'value_type' => $value_type, 'constraints' => [] ] ];
                 $draft['target_descriptors'][$path] = [ 'path' => $path, 'builder' => $builder ];
+                if ( preg_match( '/^nova_role_(seo_title|meta_description)_/', $binding['id'] ?? '', $role ) ) { $draft['source_hints'][$path] = [ 'seo_title' === $role[1] ? 'title' : 'meta_description' ]; }
                 $media = Nova_Bridge_Suite_Recipe_Native_Media::spec( $recipe['blueprint'], $binding, $adapter );
                 if ( $media ) {
                     $draft['target_descriptors'][$path]['native_media'] = true;
@@ -129,6 +138,15 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 $draft['fields'][$path] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => ! empty( $entry['required'] ), 'instructions' => $entry['instructions'] ?? '', 'description' => [ 'label' => $label, 'purpose' => 'Editorial content for ' . $label . '.', 'value_type' => Nova_Bridge_Suite_Layout_Custom_Fields::value_type( $entry['type'] ), 'constraints' => [] ] ];
                 $draft['posting_fields'][$path] = array_intersect_key( $entry, array_flip( [ 'provider', 'key', 'name', 'type' ] ) );
                 $draft['target_descriptors'][$path] = [ 'path' => $path, 'builder' => 'custom_field' ];
+            }
+            foreach ( Nova_WordPress_Layout_SEO::selections( $recipe ) as $path => $entry ) {
+                $source = 'title' === $entry['field'] ? 'title' : 'meta_description';
+                $label = $entry['label'] ?? ( 'title' === $entry['field'] ? 'SEO title' : 'Meta description' );
+                $instructions = 'Use the supplied ' . $source . ' for this SEO field. Preserve its meaning; do not use the visible heading as a substitute for an available SEO title. If the source is absent, omit this optional field.';
+                $draft['fields'][$path] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => ! empty( $entry['required'] ), 'instructions' => $instructions . ( empty( $entry['instructions'] ) ? '' : ' Additional instructions: ' . $entry['instructions'] ), 'description' => [ 'label' => $label, 'purpose' => $label . ' for search results.', 'value_type' => 'text', 'constraints' => [] ] ];
+                $draft['target_descriptors'][$path] = [ 'path' => $path, 'builder' => 'seo' ];
+                $draft['source_hints'][$path] = [ $source ];
+                $draft['seo_fields'][$path] = $entry;
             }
             $draft['stored_layout'] = self::seal( $draft, $builder, $resource, $recipe['blueprint'], [ 'title' => '', 'excerpt' => 'core' === $builder ? ( $recipe['blueprint']['document']['excerpt'] ?? '' ) : '' ] );
             return $draft;
@@ -159,6 +177,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 if ( $rich ? ( ! function_exists( 'wp_kses_post' ) || wp_kses_post( $value ) !== $value ) : preg_match( '/<[^>]*>/', $value ) ) { self::fail( 'Fitted content does not satisfy the saved field or WordPress HTML policy.' ); }
                 if ( 'custom_field' === $binding['kind'] ) {
                     if ( array_key_exists( $path, $values ) || 'leave_empty' === $binding['mode'] ) {
+                        if ( 'seo' === $binding['provider'] && '' === trim( $value ) && 'leave_empty' !== $binding['mode'] ) { continue; }
                         $custom[$binding['name']] = array_intersect_key( $binding, array_flip( [ 'provider', 'key', 'type' ] ) ) + [ 'value' => $value ];
                     }
                     continue;

@@ -35,6 +35,18 @@ function canvasEvent(t,type,extra={}){const frame=t.host.all().find(item=>item.t
 function categoryDesign(){const original=visualDesign(),source_reference={...original.source_reference,resource_id:'taxonomy:product_cat',reference_type:'term',reference_id:18,title:'Floor categories',builder:'core',url:'https://site.example/product-category/floors/'};const fields=[{target:'/document/title',label:'Category title',format:'text',kind:'heading',value:'Floor categories',control:'name'},{target:'/document/description',label:'Top category content',format:'html',kind:'category_body',value:'<p>Original top content.</p>',control:'description'},{target:'/document/bottom_content',label:'Bottom category content',format:'html',kind:'category_body',value:'<h2>Original bottom heading</h2><p>Bottom body.</p>',control:'bottom_content'}].map((field,index)=>({...field,field_id:'category_'+index,writable:true,context:'taxonomy',current_value:field.value,example:field.value.replace(/<[^>]+>/g,''),locator:{strategy:'core',reference_id:18,reference_type:'term',control_path:[field.control]}})),blueprint={document:{title:fields[0].value,description:fields[1].value,bottom_content:fields[2].value}};return {...original,builder:'core',fields,blueprint,source_reference,preview_fields:clone(fields),visual_preview:{...original.visual_preview,reference_id:18,reference_type:'term',url:source_reference.url+'?nova_recipe_canvas=test'},recipe_preset:{format:'nova-layout-recipe/v1',builder:'core',mode:'mixed',blueprint:clone(blueprint),bindings:[],regions:[],instructions:''},excluded_fields:[],declared_term_fields:{}};}
 async function categoryMounted(settings={}){const current=categoryDesign(),choices=clone(catalog);choices.resources[1].targets=[{reference_id:18,title:current.source_reference.title,url:current.source_reference.url}];return mounted({config:{resourceId:'taxonomy:product_cat',...(settings.config||{})},request:async(path,payload)=>{if(settings.request){const value=await settings.request(path,payload,current,choices);if(value!==undefined)return value;}if(path==='/catalog')return clone(choices);if(path==='/design')return clone(current);if(path==='/save')return {id:'category',revision:payload.expected_revision+1,resource_id:payload.resource_id,posting_page_type:payload.posting_page_type,default_saved:true,recipe:clone(payload.recipe)};throw Error('Unexpected '+path);}});}
 (async()=>{
+ await test('example arrow opens the ordinary reference in a separate tab without changing the recipe',async()=>{
+  const t=await visualMounted();t.controller.next();await t.controller.capture(42);
+  const link=byClass(t.host,'nlr-example-link'),before=clone(t.controller.state.recipe);
+  assert.equal(link.tag,'a');assert.equal(link.textContent,'↗');assert.equal(link.href,'https://site.example/real-sample/');assert.equal(link.target,'_blank');assert.equal(link.rel,'noopener noreferrer');assert.equal(link.getAttribute('aria-label'),'Open example page in a new tab');assert(!link.href.includes('nova_recipe_canvas'));assert.deepEqual(t.controller.state.recipe,before);assert(!t.calls.some(item=>item.path==='/save'));
+  for(const url of ['javascript:alert(1)','data:text/html,test','https://user:secret@site.example/']){const unsafe=await visualMounted({request:async(path,payload,current)=>{if(path==='/design'){current.source_reference.url=url;return current;}}});unsafe.controller.next();await unsafe.controller.capture(42);assert(!unsafe.host.all().some(item=>item.className==='nlr-example-link'));}
+ });
+ await test('missing preview handshake times out without blocking fields and a late ready recovers',async()=>{
+  const t=await visualMounted(),timers=new Map();let serial=0;t.window.setTimeout=(fn,ms)=>{assert.equal(ms,15000);timers.set(++serial,fn);return serial;};t.window.clearTimeout=id=>timers.delete(id);
+  t.controller.next();await t.controller.capture(42);assert.equal(timers.size,1);const before=clone(t.controller.state.recipe);[...timers.values()][0]();assert(t.host.textContent.includes('preview could not initialize'));assert.deepEqual(t.controller.state.recipe,before);
+  t.listeners.message(canvasEvent(t,'ready'));assert.equal(timers.size,0);assert(!t.host.textContent.includes('preview could not initialize'));assert(t.host.textContent.includes('Choose a highlighted field'));assert.equal(t.host.all().find(item=>item.tag==='iframe').getAttribute('sandbox'),'allow-scripts');
+ });
+
  await test('previously selected footnotes can be removed while fresh layouts do not offer them',async()=>{
   const t=await visualMounted();t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
   assert(!t.host.textContent.includes('Additional content fields (optional)'));
@@ -519,6 +531,30 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert.equal(t.controller.state.mode,'static');assert.equal(t.controller.state.recipe.bindings[0].instructions,'Preserve this field.');
   t.controller.edit(s=>{s.recipe.instructions='An edited saved layout';});await t.controller.save();
   const saveCall=t.calls.find(call=>call.path==='/save');assert.equal(saveCall.payload.expected_revision,7);assert.equal(saveCall.payload.id,id);assert.equal(t.controller.state.revision,8);
+ });
+ await test('SEO metadata defaults to selected without opening its dropdown and retains deliberate deselections',async()=>{
+  const path='/@nova/seo/yoast/title', desc='/@nova/seo/yoast/description';
+  const choices={[path]:{provider:'yoast',field:'title',label:'Yoast SEO · SEO title',required:false,instructions:''},[desc]:{provider:'yoast',field:'description',label:'Yoast SEO · Meta description',required:false,instructions:''}};
+  const t=await visualMounted({request:async(route,payload,current)=>{if(route==='/design')return {...current,seo_field_choices:choices};}});
+  t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);const before=clone(t.controller.state.recipe.blueprint);
+  assert(t.host.textContent.indexOf('SEO metadata')<t.host.textContent.indexOf('Choose your fixed content fields'));
+  assert(controlFor(t,'Yoast SEO · SEO title').checked);assert(controlFor(t,'Yoast SEO · Meta description').checked);
+  assert.equal(detailsFor(t.host,'SEO metadata').open,false);assert.deepEqual(t.controller.state.recipe.seo_fields,choices);
+  let box=controlFor(t,'Yoast SEO · Meta description');box.checked=false;box.events.change();
+  assert.deepEqual(t.controller.state.recipe.seo_fields,{[path]:choices[path]});
+  assert(t.host.textContent.includes('Source: NOVA SEO title (title)'));assert(t.host.textContent.includes('Source: NOVA meta description (meta_description)'));
+  await t.controller.save();const saved=t.calls.find(c=>c.path==='/save').payload;
+  assert.deepEqual(saved.recipe.seo_fields,{[path]:choices[path]});assert.deepEqual(saved.recipe.blueprint,before);
+  assert.equal(saved.recipe.bindings.length,0);assert(!t.calls.some(c=>c.path==='/draft'));
+  t.controller.go(2);await t.controller.capture(42);assert.deepEqual(t.controller.state.recipe.seo_fields,{[path]:choices[path]});assert(!controlFor(t,'Yoast SEO · Meta description').checked);
+  box=controlFor(t,'Yoast SEO · SEO title');box.checked=false;box.events.change();assert.equal(t.controller.state.recipe.seo_fields,undefined);
+  await t.controller.save();assert.equal(t.calls.filter(c=>c.path==='/save').at(-1).payload.recipe.seo_fields,undefined);
+  for(const fields of [undefined,{[path]:choices[path]}]){
+   const id='00000000-0000-4000-8000-000000000117',current={...visualDesign(),seo_field_choices:clone(choices)},recipe=ui.recipeFrom(current,'static');if(fields)recipe.seo_fields=clone(fields);
+   const reopened=await visualMounted({config:{profileId:id},request:async(route)=>{if(route.startsWith('/profile?'))return {id,revision:1,resource_id:'post_type:page',label:'Saved SEO choices',recipe:clone(recipe),design:clone(current)};}});
+   assert.deepEqual(reopened.controller.state.recipe,recipe);assert.equal(reopened.controller.dirty(),false);assert(!controlFor(reopened,'Yoast SEO · Meta description').checked);
+  }
+  const dynamic=await visualMounted({request:async(route,payload,current)=>{if(route==='/design')return {...current,seo_field_choices:choices};}});dynamic.controller.next();await dynamic.controller.capture(42);assert.equal(dynamic.controller.state.recipe.seo_fields,undefined);
  });
  console.log('PASS '+checks+' layout recipe UI workflows.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -90,9 +90,14 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 			if ( 'post' === $type ) { add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 ); }
 			header( 'Content-Security-Policy: ' . self::canvas_policy() );
 			$script = NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_DIR . 'assets/recipe-canvas.js';
-			wp_enqueue_script( 'nova-recipe-canvas', NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/recipe-canvas.js', [], (string) filemtime( $script ), false );
+			// Release ZIPs retain deterministic timestamps. Key the preview asset to its
+			// contents so a previous release cannot supply stale instrumentation.
+			$version = substr( hash_file( 'sha256', $script ), 0, 16 );
+			wp_enqueue_script( 'nova-recipe-canvas', NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/recipe-canvas.js', [], $version, false );
 			$config = self::$canvas; unset( $config['taxonomy'] ); $config['parentOrigin'] = self::$parent_origin;
 			wp_add_inline_script( 'nova-recipe-canvas', 'window.NovaRecipeCanvas=' . wp_json_encode( $config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ) . ';', 'before' );
+			require_once __DIR__ . '/class-nova-bridge-suite-preview-bootstrap.php';
+			Nova_Bridge_Suite_Preview_Bootstrap::start( $config, add_query_arg( [ 'ver' => $version ], NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/recipe-canvas.js' ), self::$canvas_nonce );
 			return;
 		}
 		$script = NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_DIR . 'assets/mapping-preview.js';

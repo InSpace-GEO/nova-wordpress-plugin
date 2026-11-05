@@ -1,5 +1,15 @@
 # Release verification
 
+## 1.1.7 release
+
+All 114 local suites passed, including 110 layout editor workflows. Regression coverage includes existing saved selections, new-layout SEO defaults, deselection and reopening, optional values, provider permissions, retained layout revisions, custom fields and preview authentication. Existing mappings are not opted into SEO fields automatically.
+
+On isolated WordPress 7.1.2, each of eight SEO plugins completed six native Page/Post create or update operations: Yoast SEO 28.0, Rank Math 1.0.279, SEOPress 10.3, All in One SEO 5.0.5, The SEO Framework 5.2.0, SmartCrawl 3.17.1, Slim SEO 4.11.5 and Squirrly SEO 14.2.9. These 48 operations verified native storage and the rendered title and meta description, retained the target ID on updates, and preserved an existing description when an optional value was omitted. Four localized render-hook cases per provider also passed. Posting-service responses and localized render inputs were simulated; no live mapping model or translation service was exercised.
+
+A custom staging theme with missing WordPress script hooks reproduced the missing preview bootstrap. The fallback initialized one protected canvas, exposed 18 fields and made lower sections visible without revealing hidden menus. Six native create/update regression cases passed across core content, Gutenberg and Elementor. Normal hook output remains unchanged, and the iframe sandbox remains restricted.
+
+Preview compatibility is not universal: fresh embedded previews in a separate staging installation remained blank although their signed preview URLs rendered directly. That issue remains unresolved. The release includes a timeout message and a link to the original example; it does not claim to fix every custom-theme preview.
+
 ## 1.1.0 release
 
 The release is based on the published 1.0.7 commit. All 104 local suites passed. The 156-file ZIP tested on both staging hosts has SHA-256 `4877520a076b9617665944a9856296ee5fb9abba2b72640d1ce43b90a59b0cb2`.

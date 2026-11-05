@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
+require_once __DIR__ . '/class-nova-wordpress-layout-seo.php';
 /** Local versioned templates, sealed native blueprints and draft translation. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-layout-page-types.php';
@@ -283,6 +284,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     }
     /** Expose registrations for selection without reading custom-field values from the example. */
     private static function field_choices( array $design, string $resource, string $mode, int $example ): array {
+        if ( 'static' === $mode && 0 === strpos( $resource, 'post_type:' ) ) { $design['seo_field_choices'] = Nova_WordPress_Layout_SEO::catalog(); }
         if ( 'static' === $mode && 0 === strpos( $resource, 'post_type:' ) && 'acf' !== ( $design['builder'] ?? '' ) ) {
             // Editable Elementor settings can become editorial fields without an intermediate save.
             $fixed = 'elementor' === $design['builder'] && isset( $design['presentation_choices'] ) ? [] : Nova_Bridge_Suite_Layout_Custom_Fields::retained_meta( $design );
@@ -484,6 +486,10 @@ final class Nova_Bridge_Suite_Layout_Recipes {
             if ( 'static' !== $recipe['mode'] || empty( $resource['post_type'] ) || 'acf' === $recipe['builder'] ) { return self::error( 'posting_fields', 'Use fixed editorial custom fields on a native post layout.' ); }
             $registered = Nova_Bridge_Suite_Layout_Custom_Fields::verify_registration( $recipe, $resource['post_type'], (int) ( $source['reference_id'] ?? 0 ) );
             if ( is_wp_error( $registered ) ) { return $registered; }
+        }
+        if ( ! empty( $recipe['seo_fields'] ) ) {
+            if ( 'static' !== $recipe['mode'] || empty( $resource['post_type'] ) ) { return self::error( 'seo_fields', 'Map SEO metadata on a fixed post layout.' ); }
+            $seo = Nova_WordPress_Layout_SEO::verify( $recipe ); if ( is_wp_error( $seo ) ) { return $seo; }
         }
         $content = $body['content'] ?? [];
         if ( ! is_array( $content ) || ( $content && Nova_Bridge_Suite_Recipe_Engine::list_array( $content ) ) ) { return self::error( 'sample', 'Provide sample draft values as an object.' ); }
