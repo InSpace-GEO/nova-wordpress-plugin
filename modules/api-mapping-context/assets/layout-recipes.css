@@ -8,3 +8,5 @@
 .nlr-reference-options li{margin:0;padding:6px 8px;cursor:pointer;overflow-wrap:anywhere}
 .nlr-reference-options li:hover,.nlr-reference-options [aria-selected="true"]{background:#e6f1f7;color:#1d2327}
 .nlr-reference-options [aria-disabled="true"]{color:#646970;cursor:default}
+
+.nlr-example-heading{display:flex;align-items:baseline;gap:10px}.nlr-example-link{flex:none;font-size:22px;line-height:1;text-decoration:none;color:var(--nova-purple,#8511d9)}.nlr-example-link:hover{text-decoration:underline}.nlr-example-link:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:3px}

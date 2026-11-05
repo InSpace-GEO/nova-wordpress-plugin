@@ -78,10 +78,15 @@ final class Nova_Bridge_Suite_Recipe_Engine {
     public static function validate( array $recipe ) {
         return self::guard( static function () use ( $recipe ) {
             self::json( $recipe );
-            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
+            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields', 'seo_fields' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
             if ( array_key_exists( 'posting_fields', $recipe ) ) {
                 if ( 'static' !== $recipe['mode'] || 'acf' === $recipe['builder'] ) { self::fail( 'Use a fixed native post layout to map editorial custom fields during delivery.' ); }
                 Nova_Bridge_Suite_Layout_Custom_Fields::selections( $recipe );
+            }
+            if ( array_key_exists( 'seo_fields', $recipe ) ) {
+                require_once __DIR__ . '/class-nova-wordpress-layout-seo.php';
+                if ( 'static' !== $recipe['mode'] ) { self::fail( 'SEO metadata uses a fixed content layout.' ); }
+                Nova_WordPress_Layout_SEO::selections( $recipe );
             }
             self::metadata( $recipe ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
             $checked = self::checked( $adapter->validate_blueprint( $recipe['blueprint'] ) );

@@ -162,6 +162,7 @@
 	function visible( node, win ) { if ( ! node || ! node.getClientRects().length || node.closest( '[hidden],[aria-hidden="true"]' ) ) { return false; } var style = win.getComputedStyle( node ); return style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0'; }
 	function mount( win, document, config ) {
 		if ( ! validConfig( config ) || win.parent === win ) { return null; }
+		if ( document.novaRecipeCanvasInstance ) { return document.novaRecipeCanvasInstance; }
 		var fields = [], containers = [], targets = new Map(), containerTargets = new Map(), selected = '', ready = false, timer = null, lastStatuses = '', marked = new Set();
 		function send( type, data ) { win.parent.postMessage( Object.assign( { source: 'nova-recipe-canvas', type: type, referenceId: config.referenceId, referenceType: config.referenceType, sessionId: config.sessionId, digest: config.digest }, data || {} ), config.parentOrigin ); }
 		function hideConsent() { document.documentElement.classList.add( 'nrc-hide-consent' ); document.documentElement.classList.toggle( 'nrc-consent-present', !! document.querySelector( consent ) ); }
@@ -229,8 +230,9 @@
 			if ( document.fonts && document.fonts.ready ) { document.fonts.ready.then( schedule, function () {} ); }
 			if ( fields.length || containers.length ) { bind(); }
 		}
+		document.novaRecipeCanvasInstance = { refresh: schedule, select: highlight };
 		if ( document.readyState === 'loading' ) { document.addEventListener( 'DOMContentLoaded', init ); } else { init(); }
-		return { refresh: schedule, select: highlight };
+		return document.novaRecipeCanvasInstance;
 	}
 	return { validConfig: validConfig, validMessage: validMessage, normalizeItems: normalizeItems, mediaUrl: mediaUrl, prepareMedia: prepareMedia, prepareStaticLayout: prepareStaticLayout, locate: locate, visible: visible, mount: mount };
 } ) );

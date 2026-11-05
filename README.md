@@ -78,6 +78,14 @@ The picker supports top-level ACF text, textarea, WYSIWYG, URL and email fields,
 
 WPML and Polylang store the mapped values on the native post for each language. Configure translated fields to allow independent values. TranslatePress and Weglot keep localized field values on the shared source post and serve them on that post’s public page through normal WordPress metadata and ACF reads. A static builder layout can use these localized fields even when the provider cannot translate the builder’s own widgets. If a theme rewrites a field’s text or prints an identical phrase in multiple places, the provider may translate that output again.
 
+### Mapping SEO metadata
+
+New fixed post layouts automatically select **SEO title** and **Meta description** for detected Yoast SEO, Rank Math, SEOPress, All in One SEO, The SEO Framework, SmartCrawl, Slim SEO and Squirrly SEO installations. Save and sync normally; opening **SEO metadata** in step 3 is only needed to deselect a field or add instructions. Reopening an existing mapping preserves its saved selections, including deselections.
+
+The SEO title uses NOVA's `title` value; the meta description uses `meta_description`. These are separate from the visible page heading. The same purposes are available when mapping other native text fields. Optional instructions can refine the mapping. Omitting an optional SEO value preserves its current value; NOVA never copies the example page's metadata.
+
+The SEO plugin must be configured to emit metadata. Its native formatting and other settings remain in effect. Canonical URLs, indexing directives and social metadata are not editable through this dropdown. This release covers native post types, including Pages and Posts; taxonomy SEO is not included.
+
 ## Development
 
 Start each change from the latest `main`. Use `feature/<short-description>` for new functionality (for example, `feature/share-layouts`) and `hotfix/<short-description>` for bug fixes (for example, `hotfix/wpml-featured-image`).
