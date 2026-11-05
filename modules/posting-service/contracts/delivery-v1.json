@@ -1,6 +1,6 @@
 {
-  "source_commit": "e2fa7534db48324d9616fdeb99e9794be816ac21",
-  "openapi_sha256": "5e0c2194f0d8de0ac640204e86aff90438154bd47cd4f91a9351eac069c15ce6",
+  "source_commit": "1bd3fb94e6360a8dc9c5247917bcd12a2aac8271",
+  "openapi_sha256": "80432e985cab8d142d381560aef41e9635c63a696bc293d2a8f10a305813db98",
   "schemas": {
     "Delivery": {
       "description": "Delivery identity, content and saved publishing configuration. Content uses destination field IDs when configured, or canonical source names without a template. Missing replacement values are omitted; original empty strings and arrays are preserved.",
@@ -23,6 +23,9 @@
         "content"
       ],
       "properties": {
+        "url_family": {
+          "$ref": "#/components/schemas/PublishingUrlFamily"
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -102,6 +105,38 @@
               }
             ]
           }
+        }
+      }
+    },
+    "PublishingUrlFamily": {
+      "description": "Frozen CMS relationship context for independently localized URLs. Does not replace this item's URL, language, content or ownership. Only emit after every receiving connector for the site supports this optional field.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url_group_id",
+        "primary_url_id",
+        "primary_url",
+        "primary_language"
+      ],
+      "properties": {
+        "url_group_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "primary_url_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "primary_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "primary_language": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
         }
       }
     },
@@ -269,6 +304,9 @@
         "content"
       ],
       "properties": {
+        "url_family": {
+          "$ref": "#/components/schemas/PublishingUrlFamily"
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -417,6 +455,12 @@
             "image_alt": {
               "type": "string",
               "nullable": true
+            },
+            "author_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "description": "Frozen publishing author name when supplied by the backend."
             }
           }
         }
@@ -601,7 +645,8 @@
         "image_alt",
         "url",
         "page_type_frontend",
-        "language"
+        "language",
+        "author_name"
       ]
     },
     "PublishingTemplateMappingV2": {
@@ -963,6 +1008,9 @@
         "destination_values"
       ],
       "properties": {
+        "url_family": {
+          "$ref": "#/components/schemas/PublishingUrlFamily"
+        },
         "schema_version": {
           "type": "integer",
           "enum": [
@@ -1286,7 +1334,7 @@
           "description": "Optional subset of supported source fields. Omit to use the default source set.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 10,
+          "maxItems": 11,
           "uniqueItems": true,
           "items": {
             "$ref": "#/components/schemas/PublishingDestinationSourceField"
@@ -1311,7 +1359,7 @@
               "source_fields": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": 10,
+                "maxItems": 11,
                 "uniqueItems": true,
                 "items": {
                   "$ref": "#/components/schemas/PublishingDestinationSourceField"
@@ -1334,7 +1382,8 @@
         "image_url",
         "image_urls",
         "image_alt",
-        "url"
+        "url",
+        "author_name"
       ]
     },
     "PublishingTemplate": {
@@ -1625,6 +1674,9 @@
         "revision": {
           "type": "integer"
         },
+        "routes": {
+          "$ref": "#/components/schemas/PublishingTemplateRoutes"
+        },
         "defaults": {
           "type": "object",
           "propertyNames": {
@@ -1637,6 +1689,42 @@
         }
       }
     },
+    "PublishingTemplateRoutes": {
+      "type": "array",
+      "maxItems": 128,
+      "description": "The most specific segment prefix wins within the source page type, including its base. Paths are case-sensitive and relative to the origin.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "page_type",
+          "path_prefix",
+          "template_id"
+        ],
+        "properties": {
+          "page_type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          },
+          "path_prefix": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 512
+          },
+          "installation_path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Public path of the authoring installation home, such as / or /subsite/. Required on all routes for a page type to match site-relative URLs, which need a single known base. Absolute and root-relative URLs match directly."
+          },
+          "template_id": {
+            "type": "string",
+            "format": "uuid",
+            "maxLength": 36
+          }
+        }
+      }
+    },
     "PublishingTemplateDefaultsInput": {
       "type": "object",
       "additionalProperties": false,
@@ -1644,6 +1732,9 @@
         "defaults"
       ],
       "properties": {
+        "routes": {
+          "$ref": "#/components/schemas/PublishingTemplateRoutes"
+        },
         "defaults": {
           "type": "object",
           "propertyNames": {

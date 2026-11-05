@@ -9,8 +9,8 @@ import pathlib
 import sys
 import yaml
 
-COMMIT = "e2fa7534db48324d9616fdeb99e9794be816ac21"
-SHA256 = "5e0c2194f0d8de0ac640204e86aff90438154bd47cd4f91a9351eac069c15ce6"
+COMMIT = "1bd3fb94e6360a8dc9c5247917bcd12a2aac8271"
+SHA256 = "80432e985cab8d142d381560aef41e9635c63a696bc293d2a8f10a305813db98"
 raw = pathlib.Path(sys.argv[1]).read_bytes().replace(b"\r\n", b"\n")
 assert hashlib.sha256(raw).hexdigest() == SHA256, "Review and pin the new API release first"
 all_schemas = yaml.safe_load(raw)["components"]["schemas"]

@@ -110,6 +110,11 @@ final class Nova_Bridge_Suite_Posting_Protocol {
         }
         if ( $snapshot['site_id'] !== ( $job['site_id'] ?? null ) ) { return self::error( 'snapshot_site', 'The snapshot belongs to a different publishing site.' ); }
         foreach ( [ 'client_id', 'domain_id', 'url_id', 'content_item_id', 'content_item_version_id' ] as $key ) { if ( ! self::decimal_id( $snapshot[ $key ] ) ) { return self::error( 'snapshot_identity', 'A source identity is not a positive decimal bigint.' ); } }
+        if ( isset( $snapshot['url_family'] ) ) {
+            foreach ( [ 'url_group_id', 'primary_url_id' ] as $key ) {
+                if ( ! self::decimal_id( $snapshot['url_family'][$key] ) ) { return self::error( 'snapshot_identity', 'A URL family identity is not a positive decimal bigint.' ); }
+            }
+        }
         if ( $snapshot['version_number'] < 1 || $snapshot['version_number'] > 2147483647 || ! is_string( $snapshot['language'] ) || '' === trim( $snapshot['language'] ) ) { return self::error( 'snapshot_identity', 'The source version or language is invalid.' ); }
         // source_sha256 covers backend source content, not these delivery bytes. Do not equate
         // the two hashes or replace the original body attempt_id with current header authority.
