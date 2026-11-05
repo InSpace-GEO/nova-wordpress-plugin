@@ -8,7 +8,42 @@ final class Nova_Bridge_Suite_Translation_Source {
     }
 
     private static function family_key( array $identity ): string {
+        if ( isset( $identity['url_family'] ) ) {
+            return 'nova_translation_group_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_family']['url_group_id'] );
+        }
         return 'nova_translation_family_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] );
+    }
+
+    /** A group lock supplements, rather than replaces, the per-URL publication lock. */
+    public static function group_lock( array $identity ): ?string {
+        return isset( $identity['url_family'] ) ? 'publication-group:' . $identity['site_id'] . ':' . $identity['url_family']['url_group_id'] : null;
+    }
+
+    private static function group_error( string $message ) {
+        return new WP_Error( 'nova_translation_family_conflict', $message );
+    }
+
+    private static function group_anchor( array $identity ) {
+        $anchor = get_option( self::family_key( $identity ), null );
+        if ( isset( $identity['url_family'] ) && null !== $anchor &&
+            ( ! is_array( $anchor ) || ( $anchor['primary_url_id'] ?? null ) !== $identity['url_family']['primary_url_id'] || ! is_array( $anchor['members'] ?? null ) ) ) {
+            return self::group_error( 'The retained URL group identifies a different original. Review the existing language associations.' );
+        }
+        return $anchor;
+    }
+
+    /** Only the explicit primary identity may adopt a pre-group record, after checking its native URL. */
+    private static function retained_primary( array $identity, array $row, int $id ): bool {
+        $family = $identity['url_family'];
+        if ( $row['url_id'] !== $family['primary_url_id'] || ! Nova_Bridge_Suite_Stored_Layout_Language::same_language_slot( $row['language'], $family['primary_language'] ) ) { return false; }
+        $expected = Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( $family['primary_url'], $family['primary_language'] );
+        if ( is_wp_error( $expected ) ) { return false; }
+        $expected = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $expected );
+        $post = get_post( $id );
+        if ( ! $post ) { return false; }
+        $actual = Nova_Bridge_Suite_Mapped_Content_Target::native_url( 'post_type:' . $post->post_type, 'post', $id );
+        $actual = is_wp_error( $actual ) ? $actual : Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $actual );
+        return ! is_wp_error( $expected ) && ! is_wp_error( $actual ) && $expected['identity'] === $actual['identity'];
     }
 
     /** Drafts may have no public permalink yet. Only a verified other language may share the slug. */
@@ -30,27 +65,44 @@ final class Nova_Bridge_Suite_Translation_Source {
 
     /** Look up original pre-locale records and the same locale keys the two native writers use. */
     private static function records( array $identity, array $languages ): array {
-        $family = $identity['site_id'] . ':' . $identity['url_id'];
         $anchor = get_option( self::family_key( $identity ), null );
         if ( is_array( $anchor ) ) { $languages[] = $anchor['language'] ?? ''; }
+        $url_ids = [ $identity['url_id'] ];
+        if ( isset( $identity['url_family'] ) ) {
+            $url_ids[] = $identity['url_family']['primary_url_id'];
+            $languages[] = $identity['url_family']['primary_language'];
+            foreach ( $anchor['members'] ?? [] as $member ) {
+                $url_ids[] = $member['url_id'];
+                $languages[] = $member['language'];
+            }
+        }
         $suffixes = [ '' ];
         foreach ( $languages as $language ) {
             $language = self::language( $language );
             if ( '' !== $language ) { $suffixes[] = ':' . $language; }
         }
         $records = [];
+        foreach ( array_unique( $url_ids ) as $url_id ) {
+        $family = $identity['site_id'] . ':' . $url_id;
         foreach ( [ 'nova_layout_page_', 'nova_cpt_url_' ] as $prefix ) {
             foreach ( array_unique( $suffixes ) as $suffix ) {
                 $row = get_option( $prefix . hash( 'sha256', $family . $suffix ), null );
                 if ( ! is_array( $row ) || ( $row['site_id'] ?? null ) !== $identity['site_id'] ||
-                    ( $row['url_id'] ?? null ) !== $identity['url_id'] || ( $row['state'] ?? '' ) !== 'committed' ) { continue; }
+                    ( $row['url_id'] ?? null ) !== (string) $url_id || ( $row['state'] ?? '' ) !== 'committed' ) { continue; }
                 $id = (int) ( $row['post_id'] ?? 0 );
                 if ( $id < 1 || empty( $row['language'] ) || ( '' !== $suffix && ':' . self::language( $row['language'] ) !== $suffix ) ) { continue; }
                 $owner = get_post_meta( $id, 'nova_layout_page_' === $prefix ? '_nova_stored_layout_owner' : '_nova_owned_cpt_owner', true );
                 // Older CPT records can predate the owner marker. When present it must still agree.
-                if ( '' !== $owner && ( ( $owner['site_id'] ?? null ) !== $identity['site_id'] || ( $owner['url_id'] ?? null ) !== $identity['url_id'] ) ) { continue; }
+                if ( '' !== $owner && ( ( $owner['site_id'] ?? null ) !== $identity['site_id'] || ( $owner['url_id'] ?? null ) !== (string) $url_id ) ) { continue; }
+                if ( isset( $identity['url_family'] ) ) {
+                    if ( isset( $row['url_family'] ) ) {
+                        if ( $row['url_family']['url_group_id'] !== $identity['url_family']['url_group_id'] ||
+                            $row['url_family']['primary_url_id'] !== $identity['url_family']['primary_url_id'] ) { continue; }
+                    } elseif ( (string) $url_id !== $identity['url_id'] && ! self::retained_primary( $identity, $row, $id ) ) { continue; }
+                }
                 $records[$id] = $row;
             }
+        }
         }
         return $records;
     }
@@ -60,7 +112,9 @@ final class Nova_Bridge_Suite_Translation_Source {
         $type = $configuration['local']['routing']['post_type'] ?? $configuration['local']['stored_layout']['post_type'] ?? '';
         $languages = [ $source, explode( '-', $source )[0], get_option( 'WPLANG', '' ) ?: 'en_US' ];
         $matches = [];
-        foreach ( self::records( $content, $languages ) as $id => $row ) {
+        // Dictionary-provider cross-URL source resolution is a separate rollout.
+        $lookup = $content; unset( $lookup['url_family'] );
+        foreach ( self::records( $lookup, $languages ) as $id => $row ) {
             $language = self::language( $row['language'] );
             if ( $source !== $language && ( explode( '-', $language )[0] !== explode( '-', $source )[0] || ( false !== strpos( $source, '-' ) && false !== strpos( $language, '-' ) ) ) ) { continue; }
             $post = get_post( $id );
@@ -88,18 +142,32 @@ final class Nova_Bridge_Suite_Translation_Source {
         if ( ! $native && ( ! $link || ! $dictionary ) ) { return true; }
         $identity = $plan['delivery_identity'];
         $key = self::family_key( $identity );
-        if ( $link && null === get_option( $key, null ) ) { add_option( $key, [ 'language' => $identity['language'] ], '', false ); }
+        $anchor = self::group_anchor( $identity );
+        if ( is_wp_error( $anchor ) ) { return $anchor; }
+        if ( ! isset( $identity['url_family'] ) && $link && null === $anchor ) { add_option( $key, [ 'language' => $identity['language'] ], '', false ); }
         if ( ! $native ) { return true; }
         foreach ( self::records( $identity, Nova_Bridge_Suite_Stored_Layout_Language::sibling_locales( $target ) ) as $sibling => $row ) {
             if ( $sibling === $id ) { continue; }
             $post = get_post( $sibling );
-            if ( ! $post || 'trash' === $post->post_status || $post->post_type !== $plan['post_type'] ) { continue; }
+            if ( ! $post || 'trash' === $post->post_status ) { continue; }
+            if ( $post->post_type !== $plan['post_type'] ) {
+                if ( isset( $identity['url_family'] ) ) { return self::group_error( 'Localized items in this URL group must use the same native post type.' ); }
+                continue;
+            }
             if ( ! Nova_Bridge_Suite_Stored_Layout_Language::different_language( $sibling, $target ) ) {
                 return new WP_Error( 'nova_translation_family_conflict', 'Another native page for this NOVA URL already owns the intended language.' );
             }
             $linked = $link ? Nova_Bridge_Suite_Stored_Layout_Language::link_sibling( $id, $target, $sibling )
                 : Nova_Bridge_Suite_Stored_Layout_Language::check_sibling( $id, $target, $sibling );
             if ( is_wp_error( $linked ) ) { return $linked; }
+        }
+        if ( $link && isset( $identity['url_family'] ) ) {
+            $next = $anchor ?? [ 'primary_url_id' => $identity['url_family']['primary_url_id'], 'members' => [] ];
+            $member = [ 'url_id' => $identity['url_id'], 'language' => self::language( $identity['language'] ) ];
+            $next['members'][$member['url_id'] . ':' . $member['language']] = $member;
+            if ( null === $anchor ) { add_option( $key, $next, '', false ); }
+            elseif ( $anchor !== $next ) { update_option( $key, $next, false ); }
+            if ( get_option( $key, null ) !== $next ) { return self::group_error( 'The local URL group could not be retained.' ); }
         }
         return true;
     }

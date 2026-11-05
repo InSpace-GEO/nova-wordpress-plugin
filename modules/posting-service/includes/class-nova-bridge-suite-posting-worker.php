@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-posting-url-scope.php';
 require_once __DIR__ . '/class-nova-bridge-suite-posting-actor.php';
 require_once __DIR__ . '/class-nova-bridge-suite-translation-writer.php';
+require_once __DIR__ . '/class-nova-bridge-suite-translation-source.php';
 
 final class Nova_Bridge_Suite_Posting_Worker {
     private const WRITERS = [
@@ -291,7 +292,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
         if ( ( $job['payload']['business_result_id'] ?? null ) !== $job['operation_id'] || ! Nova_Bridge_Suite_Posting_Protocol::uuid( $job['operation_id'] ) ) { return $this->block( $job, 'operation_identity_invalid' ); }
         $lock = 'delivery:' . $job['site_id'] . ':' . $job['content_id'];
         if ( is_wp_error( $this->jobs->lock( $lock ) ) ) { return $this->retry( $job, 'delivery_busy' ); }
-        $target_lock = null; $publication_lock = null; $previous_user = function_exists( 'get_current_user_id' ) ? get_current_user_id() : 0;
+        $target_lock = null; $publication_lock = null; $group_lock = null; $previous_user = function_exists( 'get_current_user_id' ) ? get_current_user_id() : 0;
         try {
             $actor = $this->actor_id( $job );
             wp_set_current_user( $actor );
@@ -315,6 +316,8 @@ final class Nova_Bridge_Suite_Posting_Worker {
             }
             $publication_lock = self::publication_lock( $job, $fetched['content'] );
             if ( is_wp_error( $this->jobs->lock( $publication_lock ) ) ) { $publication_lock = null; return $this->retry( $job, 'target_busy' ); }
+            $group_lock = Nova_Bridge_Suite_Translation_Source::group_lock( $fetched['content'] );
+            if ( null !== $group_lock && is_wp_error( $this->jobs->lock( $group_lock ) ) ) { $group_lock = null; return $this->retry( $job, 'target_busy' ); }
             if ( 'attempt_check' === $job['phase'] || ( isset( $job['payload']['attempt_id'] ) && $job['payload']['attempt_id'] !== $fetched['attempt_id'] ) ) {
                 $job = $this->check_attempt( $job, $fetched );
                 if ( is_wp_error( $job ) || 'running' !== $job['state'] ) { return $job; }
@@ -479,6 +482,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
         } finally {
             if ( function_exists( 'wp_set_current_user' ) ) { wp_set_current_user( $previous_user ); }
             if ( null !== $target_lock ) { $this->jobs->unlock( $target_lock ); }
+            if ( null !== $group_lock ) { $this->jobs->unlock( $group_lock ); }
             if ( null !== $publication_lock ) { $this->jobs->unlock( $publication_lock ); }
             $this->jobs->unlock( $lock );
         }
