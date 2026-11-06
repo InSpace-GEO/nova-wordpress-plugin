@@ -60,7 +60,7 @@ class Nova_Bridge_Suite_Posting_Jobs {
         foreach ( [ 'protocol', 'identity_conflict' ] as $column ) {
             if ( $this->db->get_var( $this->db->prepare( "SHOW COLUMNS FROM {$this->table} LIKE %s", $column ) ) !== $column ) { return false; }
         }
-        return true;
+        return ! class_exists( 'Nova_Bridge_Suite_Posting_Connection' ) || Nova_Bridge_Suite_Posting_Connection::install_archive( $this->db );
     }
 
     /** Prevent changing installation scope/origin while any accepted work still needs recovery. */
@@ -96,6 +96,11 @@ class Nova_Bridge_Suite_Posting_Jobs {
         $valid = Nova_Bridge_Suite_Posting_Discovery::validate_item( $item );
         if ( is_wp_error( $valid ) ) { return $valid; }
         if ( ! Nova_Bridge_Suite_Posting_Discovery::valid_site( $site_id ) ) { return $this->error( 'discovery_site' ); }
+        if ( class_exists( 'Nova_Bridge_Suite_Posting_Connection' ) ) {
+            $archived = Nova_Bridge_Suite_Posting_Connection::archived( $this->db, $site_id, $item['id'] );
+            if ( is_wp_error( $archived ) ) { return $archived; }
+            if ( $archived ) { return [ 'state' => 'complete', 'phase' => 'superseded', 'payload' => [ 'retired' => [ 'reason' => 'environment_switch' ] ] ]; }
+        }
         if ( null !== $checkpoint && ! Nova_Bridge_Suite_Posting_Protocol::decimal_id( $checkpoint ) ) { return $this->error( 'discovery_checkpoint' ); }
         $identity = hash( 'sha256', self::PROTOCOL . ':' . $site_id . ':' . $item['id'] );
         // Serialize admission so the finite limit also holds for distinct concurrent events.

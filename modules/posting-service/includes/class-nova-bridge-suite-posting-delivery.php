@@ -7,7 +7,7 @@ final class Nova_Bridge_Suite_Posting_Delivery {
     public const MAX_EVENT_BYTES = 16384;
     public const CLOCK_SKEW_SECONDS = 300;
     public const SCHEMA_OPTION = 'nova_bridge_posting_schema_version';
-    public const SCHEMA_VERSION = 3;
+    public const SCHEMA_VERSION = 4;
     public const BOOTSTRAP_OPTION = 'nova_bridge_posting_webhook_bootstrap';
     public const LAST_RUN_OPTION = 'nova_bridge_posting_last_run';
     private const SAFE_ERRORS = [ 'authentication_required', 'site_ineligible', 'remote_identity_conflict', 'native_commit_reconciliation', 'worker_interrupted', 'target_busy', 'journal_unavailable', 'paused', 'retry_after_out_of_bounds', 'verification_result_invalid', 'mutation_result_unverified', 'other_mutation_unreconciled', 'journal_phase_invalid', 'journal_size', 'nova_posting_transport', 'nova_posting_storage', 'nova_posting_journal', 'nova_posting_journal_size', 'nova_writer_recovery_drift', 'discovery_site', 'discovery_storage', 'discovery_unavailable', 'site_disabled', 'runner_exception' ];
@@ -17,9 +17,20 @@ final class Nova_Bridge_Suite_Posting_Delivery {
 
     public static function bootstrap(): void {
         add_action( 'rest_api_init', [ __CLASS__, 'register_routes' ] );
-        add_action( 'init', [ __CLASS__, 'initialize' ] );
-        add_action( 'shutdown', [ __CLASS__, 'run_queued' ], 20 );
+        add_action( 'init', [ __CLASS__, 'guarded_initialize' ] );
+        add_action( 'shutdown', [ __CLASS__, 'guarded_run_queued' ], 20 );
     }
+
+    // Keep the connection lock for the entire discovery/native-write/receipt batch.
+    // All public entry points refresh settings under the same lock as the switch.
+    public static function guarded_initialize(): void { Nova_Bridge_Suite_Posting_Connection::guard( [ __CLASS__, 'initialize' ] ); }
+    public static function guarded_run_queued(): void {
+        if ( self::$run_queued ) { Nova_Bridge_Suite_Posting_Connection::guard( [ __CLASS__, 'run_queued' ] ); }
+    }
+    public static function guarded_ready( $request ) { return Nova_Bridge_Suite_Posting_Connection::guard( static function () use ( $request ) { return self::ready( $request ); } ); }
+    public static function guarded_status( $request ) { return Nova_Bridge_Suite_Posting_Connection::guard( static function () use ( $request ) { return self::status( $request ); } ); }
+    public static function guarded_resume( $request ) { return Nova_Bridge_Suite_Posting_Connection::guard( static function () use ( $request ) { return self::resume( $request ); } ); }
+    public static function guarded_retry_discovery( $request ) { return Nova_Bridge_Suite_Posting_Connection::guard( static function () use ( $request ) { return self::retry_discovery( $request ); } ); }
 
     /** One catch-up per effective connection; ordinary requests never poll for deliveries. */
     public static function initialize(): void {
@@ -141,10 +152,10 @@ final class Nova_Bridge_Suite_Posting_Delivery {
     }
 
     public static function register_routes(): void {
-        register_rest_route( 'nova-bridge/v1', '/posting/ready', [ 'methods' => 'POST', 'callback' => [ __CLASS__, 'ready' ], 'permission_callback' => '__return_true' ] );
-        register_rest_route( 'nova-bridge/v1', '/posting/jobs', [ 'methods' => 'GET', 'callback' => [ __CLASS__, 'status' ], 'permission_callback' => [ __CLASS__, 'can_admin' ] ] );
-        register_rest_route( 'nova-bridge/v1', '/posting/jobs/(?P<id>[1-9][0-9]*)/resume', [ 'methods' => 'POST', 'callback' => [ __CLASS__, 'resume' ], 'permission_callback' => [ __CLASS__, 'can_admin' ] ] );
-        register_rest_route( 'nova-bridge/v1', '/posting/discovery/retry', [ 'methods' => 'POST', 'callback' => [ __CLASS__, 'retry_discovery' ], 'permission_callback' => [ __CLASS__, 'can_retry_discovery' ] ] );
+        register_rest_route( 'nova-bridge/v1', '/posting/ready', [ 'methods' => 'POST', 'callback' => [ __CLASS__, 'guarded_ready' ], 'permission_callback' => '__return_true' ] );
+        register_rest_route( 'nova-bridge/v1', '/posting/jobs', [ 'methods' => 'GET', 'callback' => [ __CLASS__, 'guarded_status' ], 'permission_callback' => [ __CLASS__, 'can_admin' ] ] );
+        register_rest_route( 'nova-bridge/v1', '/posting/jobs/(?P<id>[1-9][0-9]*)/resume', [ 'methods' => 'POST', 'callback' => [ __CLASS__, 'guarded_resume' ], 'permission_callback' => [ __CLASS__, 'can_admin' ] ] );
+        register_rest_route( 'nova-bridge/v1', '/posting/discovery/retry', [ 'methods' => 'POST', 'callback' => [ __CLASS__, 'guarded_retry_discovery' ], 'permission_callback' => [ __CLASS__, 'can_retry_discovery' ] ] );
     }
 
     public static function can_admin() {
