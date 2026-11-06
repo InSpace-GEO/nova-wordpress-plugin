@@ -1,10 +1,16 @@
 <?php
 /** Automatic publishing descriptions for the two CPTs owned by this plugin. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
 
 final class Nova_Bridge_Suite_Owned_CPT_Sync {
-    public static function bootstrap(): void { add_action( 'wp_loaded', [ __CLASS__, 'refresh' ], 100 ); }
+    public static function bootstrap(): void { add_action( 'wp_loaded', [ __CLASS__, 'guarded_refresh' ], 100 ); }
+
+    public static function guarded_refresh(): void {
+        // Skip (and retry on a later request) while a connection switch or layout change runs.
+        Nova_Bridge_Suite_Posting_Connection::authoring( [ __CLASS__, 'refresh' ] );
+    }
 
     /** Refresh only when a live native profile changes; no polling cron is required. */
     public static function refresh(): void {
@@ -41,7 +47,7 @@ final class Nova_Bridge_Suite_Owned_CPT_Sync {
     }
     private static function error( string $code, string $message ): WP_Error { return new WP_Error( 'nova_owned_cpt_' . $code, $message, [ 'status' => 409 ] ); }
     private static function json( $value ): string { return Nova_Bridge_Suite_Writing_Adapter::canonical_json( $value ); }
-    private static function profile_key( string $site, string $id, int $revision ): string { return 'nova_owned_cpt_profile_' . hash( 'sha256', $site . ':' . $id . ':' . $revision ); }
+    private static function profile_key( string $site, string $id, int $revision, ?array $connection = null ): string { return Nova_WordPress_Environment::key( 'nova_owned_cpt_profile_' . hash( 'sha256', $site . ':' . $id . ':' . $revision ), $connection ); }
     private static function same( $a, $b ): bool { return self::json( $a ) === self::json( $b ); }
     private static function stable_uuid( string $value ): string {
         $hash = hash( 'sha256', $value );
@@ -163,7 +169,7 @@ final class Nova_Bridge_Suite_Owned_CPT_Sync {
         $reply = null; $defaults = []; $selected = null;
         if ( $select_default ) {
             $reply = $client->site_request( 'GET', '/template-defaults' ); $defaults = self::defaults( $reply ); if ( is_wp_error( $defaults ) ) { return $defaults; }
-            $previous = Nova_Bridge_Suite_Mapping_Sync::scope_state( $site, $scope );
+            $previous = Nova_Bridge_Suite_Mapping_Sync::scope_state( $site, $scope, $connection );
             $selected = $defaults[ $page_type ] ?? null;
             if ( $selected && $selected !== ( $previous['template']['id'] ?? null ) ) { return self::error( 'default_conflict', 'A different template is already selected for this content type. It was not changed.' ); }
         }
@@ -173,10 +179,10 @@ final class Nova_Bridge_Suite_Owned_CPT_Sync {
         if ( ! Nova_Bridge_Suite_Writing_Adapter::template_record( $record ) || empty( $record['enabled'] ) || null !== ( $record['retired_at'] ?? null ) || 3 !== ( $record['definition']['version'] ?? null ) ) { return self::error( 'template', 'The synchronized template is not an active V3 template.' ); }
         $frozen = array_intersect_key( $record, array_flip( [ 'id', 'name', 'page_type', 'definition', 'mapping', 'revision' ] ) );
         $profile = [ 'mode' => 'owned_cpt_v3', 'site_id' => $site, 'template' => $frozen, 'draft' => $built['draft'], 'local' => $built['local'], 'profile_digest' => hash( 'sha256', self::json( $built['local'] ) ) ];
-        $key = self::profile_key( $site, $record['id'], $record['revision'] );
+        $key = self::profile_key( $site, $record['id'], $record['revision'], $connection );
         if ( ! add_option( $key, $profile, '', false ) && ! self::same( get_option( $key, null ), $profile ) ) { return self::error( 'profile_conflict', 'This template revision already has a different native profile.' ); }
-        update_option( 'nova_posting_v3_' . hash( 'sha256', $site ), true, false );
-        if ( ! Nova_Bridge_Suite_Mapping_Sync::destination_enabled( $site ) ) { return self::error( 'storage', 'V3 delivery discovery could not be enabled.' ); }
+        update_option( Nova_WordPress_Environment::key( 'nova_posting_v3_' . hash( 'sha256', $site ), $connection ), true, false );
+        if ( ! Nova_Bridge_Suite_Mapping_Sync::destination_enabled( $site, $connection ) ) { return self::error( 'storage', 'V3 delivery discovery could not be enabled.' ); }
         if ( $select_default && $selected !== $record['id'] ) {
             $defaults[ $page_type ] = $record['id'];
             $confirmed = self::defaults( $client->site_request( 'PUT', '/template-defaults', [ 'defaults' => $defaults ], [ 'If-Match' => $reply['etag'] ] ) );

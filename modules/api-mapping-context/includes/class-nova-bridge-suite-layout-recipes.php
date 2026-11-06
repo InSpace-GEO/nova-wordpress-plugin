@@ -3,6 +3,7 @@ require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
 require_once __DIR__ . '/class-nova-wordpress-layout-seo.php';
 /** Local versioned templates, sealed native blueprints and draft translation. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-layout-page-types.php';
 
 final class Nova_Bridge_Suite_Layout_Recipes {
@@ -38,7 +39,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         return self::error( 'destination', 'Choose an available content destination.', 404 );
     }
     private static function state() {
-        $missing = new stdClass(); $state = get_option( self::OPTION, $missing ); if ( $state === $missing ) { return [ 'format' => 'nova-layout-recipes-store/v1', 'profiles' => [], 'defaults' => [] ]; }
+        $missing = new stdClass(); $state = get_option( Nova_WordPress_Environment::key( self::OPTION ), $missing ); if ( $state === $missing ) { return [ 'format' => 'nova-layout-recipes-store/v1', 'profiles' => [], 'defaults' => [] ]; }
         return is_array( $state ) && ( $state['format'] ?? '' ) === 'nova-layout-recipes-store/v1' && is_array( $state['profiles'] ?? null ) && is_array( $state['defaults'] ?? null ) ? $state : self::error( 'storage', 'The template history needs reconciliation; no history was overwritten.', 409 );
     }
     private static function mutate( string $option, callable $callback ) {
@@ -46,7 +47,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         for ( $attempt = 0; $attempt < 4; ++$attempt ) {
             wp_cache_delete( $option, 'options' ); wp_cache_delete( 'alloptions', 'options' ); wp_cache_delete( 'notoptions', 'options' );
             $missing = new stdClass(); $before = get_option( $option, $missing );
-            $state = self::OPTION === $option ? self::state() : ( $before === $missing ? [] : $before ); if ( is_wp_error( $state ) || ! is_array( $state ) ) { return is_wp_error( $state ) ? $state : self::error( 'storage', 'The local draft journal is invalid.', 409 ); }
+            $state = Nova_WordPress_Environment::key( self::OPTION ) === $option ? self::state() : ( $before === $missing ? [] : $before ); if ( is_wp_error( $state ) || ! is_array( $state ) ) { return is_wp_error( $state ) ? $state : self::error( 'storage', 'The local draft journal is invalid.', 409 ); }
             $change = $callback( $state ); if ( is_wp_error( $change ) ) { return $change; }
             $raw = maybe_serialize( $change['state'] ); if ( strlen( $raw ) > 33554432 ) { return self::error( 'history', 'The retained template history reached its limit. No saved revision was removed.', 409 ); }
             if ( $change['state'] === $state ) { return $change['result']; }
@@ -504,7 +505,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         }
         $id = $body['id'] ?? wp_generate_uuid4(); $expected = $body['expected_revision'] ?? null; $label = $body['label'] ?? '';
         if ( ! self::uuid( $id ) || ! is_int( $expected ) || $expected < 0 || ! is_string( $label ) || '' === trim( $label ) || strlen( $label ) > 200 ) { return self::error( 'identity', 'Name the template and supply its saved revision.' ); }
-        $saved = self::mutate( self::OPTION, static function ( array $state ) use ( $body, $resource, $recipe, $schema, $content, $id, $expected, $label, $source ) {
+        $saved = self::mutate( Nova_WordPress_Environment::key( self::OPTION ), static function ( array $state ) use ( $body, $resource, $recipe, $schema, $content, $id, $expected, $label, $source ) {
             $history = $state['profiles'][$id] ?? []; $latest = $history ? max( array_keys( $history ) ) : 0;
             $current_default = $state['defaults'][$resource['id']] ?? null; $expected_default = $body['expected_default'] ?? null;
             $identity = static function ( $entry ) { return is_array( $entry ) ? [ 'id' => $entry['id'] ?? '', 'revision' => $entry['revision'] ?? 0 ] : null; };
@@ -559,7 +560,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     }
     private static function operation( string $id ) {
         if ( ! self::uuid( $id ) ) { return self::error( 'operation', 'Choose a valid draft request.', 404 ); }
-        $state = get_option( self::OPERATIONS, [] ); $entry = is_array( $state ) ? ( $state[$id] ?? null ) : null;
+        $state = get_option( Nova_WordPress_Environment::key( self::OPERATIONS ), [] ); $entry = is_array( $state ) ? ( $state[$id] ?? null ) : null;
         if ( ! is_array( $entry ) ) { return self::error( 'operation', 'That draft request was not found.', 404 ); }
         return ( $entry['user_id'] ?? 0 ) === get_current_user_id() ? $entry : self::error( 'operation', 'This draft request belongs to another administrator.', 403 );
     }
@@ -568,7 +569,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         return array_map( 'intval', $query->posts );
     }
     private static function update_operation( array $operation, string $phase, int $id = 0 ) {
-        return self::mutate( self::OPERATIONS, static function ( array $state ) use ( $operation, $phase, $id ) {
+        return self::mutate( Nova_WordPress_Environment::key( self::OPERATIONS ), static function ( array $state ) use ( $operation, $phase, $id ) {
             $key = $operation['operation_id']; $current = $state[$key] ?? null;
             if ( ! is_array( $current ) || ( $current['request_digest'] ?? '' ) !== $operation['request_digest'] ) { return self::error( 'operation_conflict', 'The draft request changed; no second draft was created.', 409 ); }
             $current['phase'] = $phase; $current['updated_at'] = time(); if ( $id ) { $current['post_id'] = $id; } $state[$key] = $current; return [ 'state' => $state, 'result' => $current ];
@@ -657,7 +658,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $operation = [ 'operation_id' => $op_id, 'user_id' => get_current_user_id(), 'request_digest' => $digest, 'profile_id' => $record['id'], 'revision' => $revision, 'builder' => $record['builder'], 'post_type' => $type, 'title' => $title, 'template' => $template, 'writer_payload' => $payload, 'phase' => 'writing', 'updated_at' => time() ];
         // The new native draft is reserved without any thumbnail; never overwrite a later manual choice.
         foreach ( $payload['nova_media'] ?? [] as $entry ) { if ( 'featured' === ( $entry['kind'] ?? '' ) ) { $operation['featured_before'] = 0; break; } }
-        $claimed = self::mutate( self::OPERATIONS, static function ( array $state ) use ( $op_id, $operation ) { if ( isset( $state[$op_id] ) ) { return self::error( 'draft_busy', 'Another request already claimed this draft. Use Recover draft.', 409 ); } if ( count( $state ) >= 100 ) { return self::error( 'draft_history', 'The retained draft journal reached its limit. No draft history was removed.', 409 ); } $state[$op_id] = $operation; return [ 'state' => $state, 'result' => $operation ]; } );
+        $claimed = self::mutate( Nova_WordPress_Environment::key( self::OPERATIONS ), static function ( array $state ) use ( $op_id, $operation ) { if ( isset( $state[$op_id] ) ) { return self::error( 'draft_busy', 'Another request already claimed this draft. Use Recover draft.', 409 ); } if ( count( $state ) >= 100 ) { return self::error( 'draft_history', 'The retained draft journal reached its limit. No draft history was removed.', 409 ); } $state[$op_id] = $operation; return [ 'state' => $state, 'result' => $operation ]; } );
         if ( is_wp_error( $claimed ) ) { return $claimed; }
         $witness = static function ( $id, $post, $update ) use ( $operation ) { if ( ! $update && $post->post_type === $operation['post_type'] && $post->post_title === $operation['title'] ) { update_post_meta( $id, '_nova_layout_recipe_operation', $operation['operation_id'] ); update_post_meta( $id, '_nova_layout_recipe_operation_digest', $operation['request_digest'] ); } };
         $force_draft = static function ( $data, $postarr, $raw = [] ) use ( $operation ) { $incoming = $raw['post_title'] ?? $postarr['post_title'] ?? ''; if ( empty( $postarr['ID'] ) && ( $data['post_type'] ?? '' ) === $operation['post_type'] && in_array( $incoming, [ $operation['title'], wp_slash( $operation['title'] ) ], true ) ) { $data['post_status'] = 'draft'; $data['post_title'] = wp_slash( $operation['title'] ); } return $data; };

@@ -11,6 +11,7 @@ final class Nova_Bridge_Suite_Posting_Settings {
     public static function bootstrap(): void {
         add_action( 'admin_init', [ __CLASS__, 'register' ] );
         add_action( 'admin_post_nova_posting_save', [ __CLASS__, 'save_form' ] );
+        add_filter( 'rest_dispatch_request', [ 'Nova_Bridge_Suite_Posting_Connection', 'dispatch' ], 10, 4 );
         add_filter( 'pre_update_option_' . self::OPTION, [ 'Nova_Bridge_Suite_Posting_Connection', 'protect_update' ], 10, 2 );
         add_action( 'update_option_' . self::OPTION, [ __CLASS__, 'updated' ], 10, 3 );
     }
@@ -119,11 +120,7 @@ final class Nova_Bridge_Suite_Posting_Settings {
         $origin_changed = $previous['base_url'] !== $connection['base_url'];
         $site_changed = $previous['site_id'] !== $connection['site_id'];
         if ( ( $origin_changed || $site_changed ) && '' !== $previous['site_id'] ) {
-            $saving = class_exists( 'Nova_Bridge_Suite_Posting_Connection' ) && Nova_Bridge_Suite_Posting_Connection::saving();
-            if ( ! $saving && ! in_array( $input['confirm_environment_switch'] ?? null, [ '1', 1, true ], true ) ) {
-                add_settings_error( self::OPTION, 'nova_posting_switch_confirmation', 'Confirm that switching cancels pending deliveries and archives the current delivery history. Existing WordPress content is kept.' );
-                return $old;
-            }
+            // Cancelling and archiving the previous connection's work is the default; the result is reported after saving.
             if ( ! $connection['enabled'] ) {
                 add_settings_error( self::OPTION, 'nova_posting_switch_incomplete', 'Enter the complete new connection and choose a posting user before switching.' );
                 return $old;
@@ -154,12 +151,51 @@ final class Nova_Bridge_Suite_Posting_Settings {
         exit;
     }
 
+    /** Asked only when the service URL or website identifier changes; credential updates submit directly. */
+    private static function render_switch_dialog(): void {
+        $field = static function ( string $key ) { return '<input type="hidden" name="' . esc_attr( self::OPTION . '[' . $key . ']' ) . '" value="0" data-nova-switch="' . esc_attr( $key ) . '">'; };
+        echo $field( 'copy_environment_layouts' ) . $field( 'sync_copied_layouts' );
+        echo '<dialog id="nova-switch-dialog" aria-labelledby="nova-switch-title" style="max-width:32rem;padding:1.5rem;border:1px solid #c3c4c7;border-radius:8px">';
+        echo '<h2 id="nova-switch-title" style="margin-top:0">Switch NOVA connection?</h2>';
+        echo '<p>Copy your current layouts and mappings to the new connection and synchronize them?</p>';
+        echo '<p class="description">Pending deliveries from the current connection will be cancelled. Their history is kept in an archive.</p>';
+        echo '<p style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:0"><button type="button" class="button button-primary" data-nova-choice="copy">Copy and synchronize</button><button type="button" class="button" data-nova-choice="empty">Switch without copying</button><button type="button" class="button-link" data-nova-choice="cancel">Cancel</button></p>';
+        echo '</dialog>';
+        $script = <<<'JS'
+(function () {
+    var form = document.getElementById( 'nova-connection-form' ), dialog = document.getElementById( 'nova-switch-dialog' );
+    if ( ! form || ! dialog || typeof dialog.showModal !== 'function' ) { return; }
+    var chosen = false;
+    function origin( value ) { return String( value || '' ).trim().replace( /\/+$/, '' ).toLowerCase().replace( /:443$/, '' ); }
+    function changed() {
+        var url = form.querySelector( '#nova-posting-base_url' ), site = form.querySelector( '#nova-posting-site_id' );
+        return !! url && !! site && ( origin( url.value ) !== origin( form.dataset.baseUrl ) || site.value.trim().toLowerCase() !== String( form.dataset.siteId ).toLowerCase() );
+    }
+    function set( copy ) { form.querySelectorAll( '[data-nova-switch]' ).forEach( function ( input ) { input.value = copy ? '1' : '0'; } ); }
+    form.addEventListener( 'submit', function ( event ) {
+        if ( chosen || ! changed() ) { return; }
+        event.preventDefault(); dialog.showModal();
+    } );
+    dialog.addEventListener( 'click', function ( event ) {
+        var choice = event.target.getAttribute && event.target.getAttribute( 'data-nova-choice' );
+        if ( ! choice ) { return; }
+        dialog.close();
+        if ( 'cancel' === choice ) { return; }
+        set( 'copy' === choice ); chosen = true;
+        if ( form.requestSubmit ) { form.requestSubmit(); } else { form.submit(); }
+    } );
+}());
+JS;
+        wp_print_inline_script_tag( $script );
+    }
+
     public static function render(): void {
         if ( ! current_user_can( 'manage_options' ) ) { return; }
         $settings = self::connection();
         echo '<details class="nova-mapping-advanced nova-connection-form" open><summary>Connection details</summary><p>Use the connection details issued for this website in NOVA site administration. This shared connection is separate from either layout approach.</p>';
-        settings_errors( self::OPTION );
-        echo '<form method="post" action="' . esc_attr( admin_url( 'admin-post.php' ) ) . '"><input type="hidden" name="action" value="nova_posting_save">';
+        // After the save redirect WordPress already prints these notices on Settings pages.
+        if ( empty( $_GET['settings-updated'] ) ) { settings_errors( self::OPTION ); }
+        echo '<form id="nova-connection-form" method="post" action="' . esc_attr( admin_url( 'admin-post.php' ) ) . '" data-base-url="' . esc_attr( (string) $settings['base_url'] ) . '" data-site-id="' . esc_attr( (string) $settings['site_id'] ) . '"><input type="hidden" name="action" value="nova_posting_save">';
         wp_nonce_field( 'nova_posting_save' );
         foreach ( [ 'base_url' => 'NOVA service URL', 'site_id' => 'Website identifier (UUID)', 'token' => 'Website access token', 'webhook_secret' => 'Notification signing secret' ] as $key => $label ) {
             $secret = in_array( $key, [ 'token', 'webhook_secret' ], true );
@@ -178,9 +214,7 @@ final class Nova_Bridge_Suite_Posting_Settings {
             echo '<option value="' . esc_attr( $id ) . '" ' . selected( $id, $actor, false ) . '>' . esc_html( $name ) . '</option>';
         }
         echo '</select><br><span class="description">' . ( $users ? 'Choose an account that can publish the content types you map, then save the connection.' : 'Give a user on this site permission to publish content, then select that user here.' ) . '</span></p>';
-        if ( '' !== $settings['site_id'] ) {
-            echo '<p><label><input type="checkbox" name="' . esc_attr( self::OPTION ) . '[confirm_environment_switch]" value="1"> When changing the service URL or website identifier, cancel pending deliveries and archive the current delivery history.</label><br><span class="description">Existing WordPress content and saved layouts are kept. Archived history is hidden from the active delivery list. Leave this unchecked for ordinary credential updates.</span></p>';
-        }
+        if ( '' !== $settings['site_id'] ) { self::render_switch_dialog(); }
         submit_button( 'Save NOVA connection' );
         echo '<details><summary>Multi-site WordPress</summary><p><label><input type="checkbox" name="' . esc_attr( self::OPTION ) . '[url_scope_enabled]" value="1" ' . checked( $settings['url_scope_enabled'], true, false ) . '> Only process deliveries belonging to this WordPress installation</label><br><span class="description">Use this when several installations share a NOVA website identifier. This installation handles deliveries under <code>' . esc_html( get_option( 'home', home_url( '/' ) ) ) . '</code>.</span></p>';
         $imported = is_callable( [ 'Nova_Bridge_Suite_Shared_Layouts', 'has_imports' ] ) && Nova_Bridge_Suite_Shared_Layouts::has_imports( $settings, $settings['site_id'] );

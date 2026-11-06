@@ -1,12 +1,45 @@
 <?php
 /** Serialize connection changes with delivery, and retain retired work outside the active journal. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-wordpress-environment-copy.php';
 
 final class Nova_Bridge_Suite_Posting_Connection {
     private static $depth = 0;
+    private static $authoring_depth = 0;
     private static $saving = false;
+    // Separate from the delivery lock: deliveries never block layout editing, only switching does.
+    private const AUTHORING_LOCK = 'connection-authoring';
+    private const AUTHORING_WAIT = 15;
 
     public static function saving(): bool { return self::$saving; }
+
+    /** REST permissions run before this filter. Layout writes and switching are mutually exclusive; reads take no lock. */
+    public static function dispatch( $result, $request, $route, $handler ) {
+        if ( null !== $result || ! preg_match( '#^/nova-bridge/v1/(?:mapping|strategy)(?:/|$)#', $request->get_route() ) ) { return $result; }
+        $write = ! in_array( $request->get_method(), [ 'GET', 'HEAD', 'OPTIONS' ], true );
+        $run = static function () use ( $request, $handler, $write ) {
+            self::clear_cache();
+            $connection = Nova_Bridge_Suite_Posting_Settings::connection();
+            $expected = (string) $request->get_header( 'x-nova-environment' );
+            if ( ( '' !== $expected && ! hash_equals( Nova_WordPress_Environment::identity( $connection ), $expected ) ) || ( $write && '' === $expected && ! empty( $connection['history_archived'] ) ) ) {
+                return new WP_Error( 'nova_posting_environment_changed', 'The NOVA connection changed. Reload this screen to work with its current layouts.', [ 'status' => 409 ] );
+            }
+            return call_user_func( $handler['callback'], $request );
+        };
+        return $write ? self::authoring( $run, self::AUTHORING_WAIT ) : $run();
+    }
+
+    /** Serializes local layout changes with connection switches; waits briefly instead of failing. */
+    public static function authoring( callable $callback, int $wait = 0 ) {
+        if ( self::$authoring_depth ) { return $callback(); }
+        $store = new Nova_Bridge_Suite_Posting_Jobs();
+        if ( is_wp_error( $store->lock( self::AUTHORING_LOCK, $wait ) ) ) {
+            return new WP_Error( 'nova_posting_authoring_busy', 'Another layout change or connection switch is in progress. Please try again shortly.', [ 'status' => 409 ] );
+        }
+        ++self::$authoring_depth;
+        try { return $callback(); }
+        finally { --self::$authoring_depth; $store->unlock( self::AUTHORING_LOCK ); }
+    }
 
     public static function guard( callable $callback ) {
         if ( self::$depth ) { return $callback(); }
@@ -35,6 +68,11 @@ final class Nova_Bridge_Suite_Posting_Connection {
         if ( ! self::$saving && is_array( $old ) && is_array( $next ) && self::changed( $old, $next ) ) {
             add_settings_error( Nova_Bridge_Suite_Posting_Settings::OPTION, 'nova_posting_switch_form', 'Use Save NOVA connection to confirm an environment switch.' );
             return $old;
+        }
+        if ( ! self::$saving && is_array( $old ) && is_array( $next ) ) {
+            foreach ( [ 'layout_legacy_environment', 'history_archived' ] as $key ) {
+                if ( array_key_exists( $key, $old ) ) { $next[$key] = $old[$key]; }
+            }
         }
         return $next;
     }
@@ -69,6 +107,11 @@ final class Nova_Bridge_Suite_Posting_Connection {
     }
 
     public static function save( array $input ) {
+        // Wait for an in-flight layout change; never switch underneath it.
+        return self::authoring( static function () use ( $input ) { return self::save_guarded( $input ); }, self::AUTHORING_WAIT );
+    }
+
+    private static function save_guarded( array $input ) {
         return self::guard( static function () use ( $input ) {
             global $wpdb;
             $old = get_option( Nova_Bridge_Suite_Posting_Settings::OPTION, [] );
@@ -84,7 +127,12 @@ final class Nova_Bridge_Suite_Posting_Connection {
                 if ( null === $live || ! empty( $wpdb->last_error ) ) { return new WP_Error( 'nova_posting_storage', 'Delivery storage could not be checked. The connection was not changed.' ); }
                 if ( (int) $live > 0 ) { return new WP_Error( 'nova_posting_connection_busy', 'A delivery is still running. Please try again after its current batch finishes.', [ 'status' => 409 ] ); }
             }
-            $transaction = false;
+            $copy = null;
+            if ( $switch && in_array( $input['copy_environment_layouts'] ?? null, [ '1', 1, true ], true ) ) {
+                $copy = Nova_WordPress_Environment_Copy::plan( $previous, $effective );
+                if ( is_wp_error( $copy ) ) { return $copy; }
+            }
+            $transaction = false; $cancelled = 0;
             self::$saving = true;
             try {
                 if ( $switch ) {
@@ -95,8 +143,10 @@ final class Nova_Bridge_Suite_Posting_Connection {
                     }
                     if ( false === $wpdb->query( 'START TRANSACTION' ) ) { throw new RuntimeException( 'transaction_start' ); }
                     $transaction = true;
-                    self::archive( $wpdb, $previous );
+                    $cancelled = self::archive( $wpdb, $previous );
+                    $next['layout_legacy_environment'] = Nova_WordPress_Environment::legacy_owner( $previous );
                     $next['history_archived'] = true;
+                    if ( $copy ) { Nova_WordPress_Environment_Copy::apply( $copy, $effective ); }
                     // Do not carry diagnostics or a discovery bootstrap from the retired environment.
                     delete_option( Nova_Bridge_Suite_Posting_Delivery::BOOTSTRAP_OPTION );
                     if ( ! empty( $wpdb->last_error ) ) { throw new RuntimeException( 'bootstrap_reset' ); }
@@ -112,11 +162,24 @@ final class Nova_Bridge_Suite_Posting_Connection {
                 return new WP_Error( 'nova_posting_switch_failed', 'The connection could not be saved safely. Its previous settings and delivery history have been retained.' );
             } finally { self::$saving = false; }
             Nova_Bridge_Suite_Posting_Delivery::initialize();
+            if ( $switch ) {
+                $note = 0 === $cancelled ? 'Switched to the new NOVA connection. There were no pending deliveries to cancel.' : sprintf( 'Switched to the new NOVA connection. %d pending %s from the previous connection %s cancelled.', $cancelled, 1 === $cancelled ? 'delivery' : 'deliveries', 1 === $cancelled ? 'was' : 'were' );
+                add_settings_error( Nova_Bridge_Suite_Posting_Settings::OPTION, 'nova_posting_switched', $note . ' The previous delivery history is archived. Existing WordPress content is unchanged.', 'info' );
+            }
+            if ( $copy ) {
+                // The switch is committed; synchronization failures are reported, never rolled back.
+                self::clear_cache();
+                $results = in_array( $input['sync_copied_layouts'] ?? null, [ '1', 1, true ], true ) ? Nova_WordPress_Environment_Copy::synchronize( $copy ) : null;
+                foreach ( Nova_WordPress_Environment_Copy::messages( $copy, $results ) as $index => $message ) {
+                    add_settings_error( Nova_Bridge_Suite_Posting_Settings::OPTION, 'nova_environment_copy_' . $index, $message[1], $message[0] );
+                }
+            }
             return true;
         } );
     }
 
-    private static function archive( $db, array $previous ): void {
+    /** Returns how many unfinished deliveries were cancelled. */
+    private static function archive( $db, array $previous ): int {
         $jobs = $db->prefix . 'nova_posting_jobs'; $discovery = $db->prefix . 'nova_posting_discovery'; $archive = $db->prefix . 'nova_posting_archive';
         $batch = wp_generate_uuid4(); $now = time();
         $columns = [ 'id', 'identity', 'site_id', 'content_id', 'version', 'protocol', 'identity_conflict', 'state', 'phase', 'target_id', 'operation_id', 'attempts', 'next_attempt', 'lease_token', 'lease_until', 'journal_revision', 'last_error', 'payload', 'created_at', 'updated_at' ];
@@ -127,6 +190,9 @@ final class Nova_Bridge_Suite_Posting_Connection {
             $db->prepare( "INSERT INTO {$archive} (batch_id,source_origin,site_id,record_type,state,record,archived_at) SELECT %s,%s,site_id,'discovery','cancelled',JSON_OBJECT('site_id',site_id,'wake_sequence',wake_sequence,'payload',payload,'updated_at',updated_at),%d FROM {$discovery}", $batch, $previous['base_url'], $now ),
             "DELETE FROM {$jobs}", "DELETE FROM {$discovery}",
         ];
+        $unfinished = $db->get_var( "SELECT COUNT(*) FROM {$jobs} WHERE state<>'complete'" );
+        if ( null === $unfinished || ! empty( $db->last_error ) ) { throw new RuntimeException( 'archive_storage' ); }
         foreach ( $queries as $query ) { if ( false === $db->query( $query ) ) { throw new RuntimeException( 'archive_storage' ); } }
+        return (int) $unfinished;
     }
 }

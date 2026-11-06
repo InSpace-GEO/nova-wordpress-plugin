@@ -1,6 +1,7 @@
 <?php
 /** Native writer for the NOVA-owned service and blog post types. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-owned-cpt-media.php';
 require_once __DIR__ . '/class-nova-bridge-suite-owned-cpt-seo.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
@@ -15,13 +16,13 @@ final class Nova_Bridge_Suite_Owned_CPT_Writer {
     private static function digest( $v ): string { return hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $v ) ); }
     private static function option( string $key ) { wp_cache_delete( $key, 'options' ); return get_option( $key, null ); }
     private static function checkpoint( string $key, array $value ): void { if ( strlen( wp_json_encode( $value ) ) > 2097152 ) { self::fail( 'journal_size', 'The native operation exceeds its journal limit.' ); } if ( null === self::option( $key ) ) { add_option( $key, $value, '', false ); } else { update_option( $key, $value, false ); } if ( self::option( $key ) !== $value ) { self::fail( 'storage', 'Native progress could not be retained.' ); } }
-    private static function opkey( string $operation ): string { return 'nova_cpt_operation_' . hash( 'sha256', $operation ); }
+    private static function opkey( string $operation ): string { return Nova_WordPress_Environment::key( 'nova_cpt_operation_' . hash( 'sha256', $operation ) ); }
     private static function locale( $value ): string {
         if ( ! is_string( $value ) || ! preg_match( '/^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/iD', $value ) ) { self::fail( 'association', 'The native URL association needs a verified delivery language.' ); }
         return strtolower( str_replace( '_', '-', $value ) );
     }
-    private static function legacy_key( array $identity ): string { return 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] ); }
-    private static function assoc_key( array $identity ): string { return 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . self::locale( $identity['language'] ?? null ) ); }
+    private static function legacy_key( array $identity ): string { return Nova_WordPress_Environment::key( 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] ) ); }
+    private static function assoc_key( array $identity ): string { return Nova_WordPress_Environment::key( 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . self::locale( $identity['language'] ?? null ) ) ); }
     private static function assoc( array $identity ): ?array {
         $v = self::option( self::assoc_key( $identity ) ); $legacy = null === $v;
         // Keep legacy data intact so retained operation plans can still recover it.

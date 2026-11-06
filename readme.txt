@@ -12,7 +12,7 @@ Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge
 == Changelog ==
 
 = 1.1.8 =
-Switch posting environments without finishing old test deliveries. Confirm the switch to cancel pending work and retain the previous delivery history in a separate private archive. The active delivery list and discovery state start fresh. Existing WordPress content and saved layouts are kept. Credential updates within the same connection retain queued work. A running delivery must finish its current batch before the switch can proceed.
+Switch posting environments without finishing old test deliveries. Changing the service URL or website identifier cancels pending deliveries and keeps the previous delivery history in a separate private archive; a notice reports what was cancelled. A dialog offers to copy the current layouts and mappings to the new connection and synchronize them. Each service URL and website identifier has separate layouts, mappings, revisions and publishing approvals; returning to a previous connection restores its configuration without replaying old deliveries. Existing remote defaults on the new service are never replaced automatically. Existing WordPress content is kept. Credential updates within the same connection retain layouts and queued work. Layout screens stay usable while deliveries run. Reload an open editor after changing connections.
 
 = 1.1.7 =
 * Map SEO titles and meta descriptions for detected Yoast SEO, Rank Math, SEOPress, All in One SEO, The SEO Framework, SmartCrawl, Slim SEO and Squirrly SEO plugins. New layouts select both automatically. Open SEO metadata to deselect them or add instructions; existing saved selections stay unchanged.

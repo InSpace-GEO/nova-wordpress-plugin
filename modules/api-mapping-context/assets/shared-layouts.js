@@ -41,7 +41,7 @@
             file.disabled = busy;
         }
         async function request(route, body) {
-            const options = {credentials: 'same-origin', headers: {'X-WP-Nonce': config.nonce}};
+            const options = {credentials: 'same-origin', headers: {'X-WP-Nonce': config.nonce, 'X-Nova-Environment': config.environment || ''}};
             if (body !== undefined) {
                 options.method = 'POST';
                 options.headers['Content-Type'] = 'application/json';
