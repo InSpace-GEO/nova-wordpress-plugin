@@ -43,8 +43,10 @@ $_GET = [ 'resource_id' => 'taxonomy:product_cat', 'recipe_id' => '00000000-0000
 check( $localized['NovaLayoutRecipes']['resourceId'] === 'taxonomy:product_cat' && $localized['NovaLayoutRecipes']['newSetup'] === true, 'A configured destination was lost' );
 $_GET = [ 'resource_id' => [ 'bad' ], 'recipe_id' => '<script>' ]; Nova_Bridge_Suite_Layout_Recipes_Admin::assets( 'settings_page_nova-settings' );
 check( $localized['NovaLayoutRecipes']['resourceId'] === '' && $localized['NovaLayoutRecipes']['profileId'] === '', 'An invalid query identity was localized' );
-check( array_keys( $localized['NovaLayoutRecipes'] ) === [ 'url', 'nonce', 'resourceId', 'profileId', 'newSetup', 'layoutsUrl' ], 'Source content, credentials or native document data leaked into localization' );
+check( array_keys( $localized['NovaLayoutRecipes'] ) === [ 'url', 'nonce', 'environment', 'resourceId', 'profileId', 'newSetup', 'layoutsUrl' ], 'Source content, credentials or native document data leaked into localization' );
 $scripts = []; Nova_Bridge_Suite_Layout_Recipes_Admin::assets( 'post.php' ); check( [] === $scripts, 'Recipe assets were loaded outside NOVA settings' );
 $administrator = false; ob_start(); Nova_Bridge_Suite_Layout_Recipes_Admin::render(); $html = ob_get_clean(); Nova_Bridge_Suite_Layout_Recipes_Admin::assets( 'settings_page_nova-settings' );
 check( '' === $html && [] === $scripts, 'An unauthorized user received the template editor' );
 echo 'PASS ' . $checks . " layout recipe UI shell checks.\n";
+
+check( 1 === preg_match( '/^[a-f0-9]{64}$/D', $localized['NovaLayoutRecipes']['environment'] ), 'Only an opaque environment fingerprint is exposed.' );

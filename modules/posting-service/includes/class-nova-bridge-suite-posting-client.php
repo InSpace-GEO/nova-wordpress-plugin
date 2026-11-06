@@ -11,6 +11,7 @@ class Nova_Bridge_Suite_Posting_Client {
     public function __construct( array $connection ) { $this->connection = $connection; }
 
     public function site_id(): string { return (string) ( $this->connection['site_id'] ?? '' ); }
+    public function connection(): array { return $this->connection; }
     public function receives_layouts(): bool { return Nova_Bridge_Suite_Shared_Layouts::is_subscriber( $this->connection ); }
 
     public function connection_error() {

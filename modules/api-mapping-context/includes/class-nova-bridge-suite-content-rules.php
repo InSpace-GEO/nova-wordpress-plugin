@@ -1,6 +1,7 @@
 <?php
 /** Site-local, immutable content rendering profiles. No remote mapping contract is changed. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-content-rule-renderer.php';
 
 final class Nova_Bridge_Suite_Content_Rules {
@@ -77,7 +78,7 @@ final class Nova_Bridge_Suite_Content_Rules {
     public static function digest( array $profile ): string { return hash( 'sha256', self::canonical_json( $profile ) ); }
 
     private static function state() {
-        $value = get_option( self::OPTION, false );
+        $value = get_option( Nova_WordPress_Environment::key( self::OPTION ), false );
         if ( false === $value ) { return [ 'profiles' => [], 'bindings' => [] ]; }
         if ( ! is_array( $value ) || ! is_array( $value['profiles'] ?? null ) || ! is_array( $value['bindings'] ?? null ) ) { return self::error( 'storage', 'The local rendering profile store is invalid; reconcile it before saving.', 409 ); }
         return $value;
@@ -112,19 +113,19 @@ final class Nova_Bridge_Suite_Content_Rules {
         global $wpdb;
         if ( ! isset( $wpdb->options ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->options ) ) { return self::error( 'storage', 'Atomic WordPress option storage is unavailable.', 409 ); }
         for ( $attempt = 0; $attempt < 3; ++$attempt ) {
-            wp_cache_delete( self::OPTION, 'options' ); wp_cache_delete( 'alloptions', 'options' );
-            $stored = get_option( self::OPTION, false ); $state = self::state(); if ( is_wp_error( $state ) ) { return $state; }
+            wp_cache_delete( Nova_WordPress_Environment::key( self::OPTION ), 'options' ); wp_cache_delete( 'alloptions', 'options' );
+            $stored = get_option( Nova_WordPress_Environment::key( self::OPTION ), false ); $state = self::state(); if ( is_wp_error( $state ) ) { return $state; }
             $change = $callback( $state ); if ( is_wp_error( $change ) ) { return $change; }
             $next = $change['state']; $raw = maybe_serialize( $next );
             if ( strlen( $raw ) > self::MAX_STORE_BYTES ) { return self::error( 'storage_size', 'The retained profile store has reached its size limit. No history was removed.', 409 ); }
             if ( $state === $next ) { return $change['result']; }
-            if ( false === $stored ) { $updated = add_option( self::OPTION, $next, '', false ); }
+            if ( false === $stored ) { $updated = add_option( Nova_WordPress_Environment::key( self::OPTION ), $next, '', false ); }
             else {
-                $updated = $wpdb->query( $wpdb->prepare( 'UPDATE `' . $wpdb->options . '` SET option_value = %s WHERE option_name = %s AND BINARY option_value = BINARY %s', $raw, self::OPTION, maybe_serialize( $stored ) ) );
+                $updated = $wpdb->query( $wpdb->prepare( 'UPDATE `' . $wpdb->options . '` SET option_value = %s WHERE option_name = %s AND BINARY option_value = BINARY %s', $raw, Nova_WordPress_Environment::key( self::OPTION ), maybe_serialize( $stored ) ) );
                 if ( false === $updated ) { return self::error( 'storage', 'The profile store could not be saved.', 500 ); }
                 $updated = 1 === $updated;
             }
-            wp_cache_delete( self::OPTION, 'options' ); wp_cache_delete( 'alloptions', 'options' ); wp_cache_delete( 'notoptions', 'options' );
+            wp_cache_delete( Nova_WordPress_Environment::key( self::OPTION ), 'options' ); wp_cache_delete( 'alloptions', 'options' ); wp_cache_delete( 'notoptions', 'options' );
             if ( $updated ) { return $change['result']; }
         }
         return self::error( 'conflict', 'Another administrator changed the local profiles. Reload before saving.', 409 );

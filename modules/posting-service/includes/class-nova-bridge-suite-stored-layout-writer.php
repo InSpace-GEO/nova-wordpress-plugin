@@ -1,6 +1,7 @@
 <?php
 /** Source-free native publishing from an immutable layout and fitted scalar values. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-provider.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
 require_once __DIR__ . '/class-nova-bridge-suite-translation-source.php';
@@ -45,12 +46,12 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         if ( null === self::option( $key ) ) { add_option( $key, $value, '', false ); } else { update_option( $key, $value, false ); }
         if ( self::option( $key ) !== $value ) { self::fail( 'storage', 'Native progress could not be retained. Reconcile this operation before retrying.' ); }
     }
-    private static function operation_key( string $id ): string { return 'nova_layout_operation_' . hash( 'sha256', $id ); }
+    private static function operation_key( string $id ): string { return Nova_WordPress_Environment::key( 'nova_layout_operation_' . hash( 'sha256', $id ) ); }
     private static function locale( $value ): string {
         if ( ! is_string( $value ) || ! preg_match( '/^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/iD', $value ) ) { self::fail( 'association', 'The retained page association needs a verified delivery language.' ); }
         return strtolower( str_replace( '_', '-', $value ) );
     }
-    private static function association_key( array $identity ): string { return 'nova_layout_page_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . self::locale( $identity['language'] ?? null ) ); }
+    private static function association_key( array $identity ): string { return Nova_WordPress_Environment::key( 'nova_layout_page_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . self::locale( $identity['language'] ?? null ) ) ); }
     /** Resolve a site-relative path without changing the authenticated snapshot. */
     private static function target_url( $url, string $language = '' ) {
         return Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( $url, $language );
@@ -60,7 +61,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     private static function association( array $identity ): ?array {
         $saved = self::option( self::association_key( $identity ) ); $legacy = null === $saved;
         // Retain pre-locale records and journals; only their own locale may reuse them.
-        if ( $legacy ) { $saved = self::option( 'nova_layout_page_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] ) ); }
+        if ( $legacy ) { $saved = self::option( Nova_WordPress_Environment::key( 'nova_layout_page_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] ) ) ); }
         if ( null !== $saved && ( ! is_array( $saved ) || ( $saved['site_id'] ?? null ) !== $identity['site_id'] || ( $saved['url_id'] ?? null ) !== $identity['url_id'] ) ) { self::fail( 'association', 'The retained page association requires reconciliation.' ); }
         if ( null !== $saved && self::locale( $saved['language'] ?? null ) !== self::locale( $identity['language'] ?? null ) ) {
             if ( $legacy ) { return null; }

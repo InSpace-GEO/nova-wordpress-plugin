@@ -2,6 +2,8 @@
 /** Administrator-only transfer of approved layouts between WordPress installations. */
 defined( 'ABSPATH' ) || exit;
 
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
+
 final class Nova_Bridge_Suite_Shared_Layouts_Admin {
     private const ROUTE = '/mapping/shared-layouts';
     private const FILE_LIMIT = 8388608;
@@ -22,7 +24,8 @@ final class Nova_Bridge_Suite_Shared_Layouts_Admin {
         wp_enqueue_script( 'nova-shared-layouts', plugins_url( $asset, NOVA_BRIDGE_SUITE_PLUGIN_FILE ), [], NOVA_BRIDGE_SUITE_VERSION . '-' . filemtime( NOVA_BRIDGE_SUITE_PLUGIN_DIR . $asset ), true );
         wp_localize_script( 'nova-shared-layouts', 'NovaSharedLayouts', [
             'url' => esc_url_raw( rest_url( 'nova-bridge/v1' . self::ROUTE ) ),
-            'nonce' => wp_create_nonce( 'wp_rest' ), 'maxBytes' => self::FILE_LIMIT,
+            'nonce' => wp_create_nonce( 'wp_rest' ),
+            'environment' => Nova_WordPress_Environment::identity(), 'maxBytes' => self::FILE_LIMIT,
         ] );
     }
 

@@ -151,8 +151,8 @@
 		var eligible = list( inventory ).filter( function ( field ) { return field.writable !== false; } ), missing = eligible.filter( function ( field ) { return ! fields[ field.path ] || [ 'adapt', 'protected', 'leave_empty' ].indexOf( fields[ field.path ].mode ) < 0; } );
 		return { total: eligible.length, mapped: adapted, handled: handled, skipped: 0, missing: missing, issues: Array.from( new Set( issues ) ), duplicates: Array.from( new Set( duplicates ) ) };
 	}
-	async function request( url, nonce, body, signal ) {
-		var options = { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-WP-Nonce': nonce }, signal: signal };
+	async function request( url, nonce, environment, body, signal ) {
+		var options = { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-WP-Nonce': nonce, 'X-Nova-Environment': environment || '' }, signal: signal };
 		if ( body !== undefined ) { options.headers[ 'Content-Type' ] = 'application/json'; options.body = JSON.stringify( body ); }
 		var response = await fetch( url, options ), result;
 		try { result = await response.json(); } catch ( error ) { throw new Error( 'WordPress returned an unreadable response. Your edits are still here.' ); }
@@ -353,14 +353,14 @@
 		}
 		async function choosePreview() {
 			if ( busy ) { return; } setBusy( true );
-			try { var result = await request( base + '/catalog?mode=preview', config.nonce, undefined, abort && abort.signal ); if ( ! active() ) { return; } catalog = result; draft.catalog_mode = 'preview'; changed(); render(); note( 'Documented preview fields loaded. No NOVA connection, synchronization or activation has occurred.' ); }
+			try { var result = await request( base + '/catalog?mode=preview', config.nonce, config.environment, undefined, abort && abort.signal ); if ( ! active() ) { return; } catalog = result; draft.catalog_mode = 'preview'; changed(); render(); note( 'Documented preview fields loaded. No NOVA connection, synchronization or activation has occurred.' ); }
 			catch ( error ) { if ( active() ) { note( error.message, true ); } }
 			finally { if ( active() ) { setBusy( false ); } }
 		}
 		async function chooseDirect() {
 			if ( busy ) { return; } setBusy( true );
 			try {
-				var result = await request( base + '/catalog?mode=nova', config.nonce, undefined, abort && abort.signal ); if ( ! active() ) { return; }
+				var result = await request( base + '/catalog?mode=nova', config.nonce, config.environment, undefined, abort && abort.signal ); if ( ! active() ) { return; }
 				var stock = ( result.templates || [] ).find( function ( item ) { return item.id === 'nova-delivery-fields-v1'; } );
 				if ( ! stock ) { throw new Error( 'The delivery source catalog is unavailable.' ); }
 				if ( draft.guidance_mode === 'inherit' && template() && template().authoring_notes ) { draft.guidance = template().authoring_notes; draft.guidance_mode = 'set'; }
@@ -378,7 +378,7 @@
 			if ( ! destinationMode( draft ) && draft.skipped_sources.some( function ( item ) { return ! item.reason || ! item.reason.trim(); } ) ) { note( 'Add a reason for each explicitly skipped source, or remove the skip. Unmapped sources can still be saved.', true ); return; }
 			setBusy( true ); note( 'Saving local draft…' );
 			try {
-				var result = await request( base + '/draft', config.nonce, payload( draft, { signature: layout.signature, confirm_reference_change: referenceConfirmed, discard_stale_targets: discardedTargets } ), abort && abort.signal ); if ( ! active() ) { return; }
+				var result = await request( base + '/draft', config.nonce, config.environment, payload( draft, { signature: layout.signature, confirm_reference_change: referenceConfirmed, discard_stale_targets: discardedTargets } ), abort && abort.signal ); if ( ! active() ) { return; }
 				draft = saveResult( result ); dirty = false; discardedTargets = []; referenceConfirmed = false; serverWarnings = result.warnings || draft.warnings || []; if ( result.catalog ) { catalog = result.catalog; }
 				if ( ! workspace ) { journeyStep = 4; savedInJourney = true; } render(); note( destinationMode( draft ) ? 'Setup saved on this site. Open the saved setup to synchronize its V3 field descriptions and instructions.' : 'Setup saved on this site. Optional delivery setup is separate from saving.' ); if ( callbacks.onSaved ) { callbacks.onSaved( copy( draft ) ); } if ( workspace ) { loadIntegration(); }
 			} catch ( error ) {
@@ -396,7 +396,7 @@
 			if ( busy || dirty || ! draft.revision || ! destinationMode( draft ) ) { note( 'Save and review this destination draft before exporting its backend description.', true ); return; }
 			setBusy( true );
 			try {
-				var query = '?reference_type=' + encodeURIComponent( draft.reference_type ) + '&reference_id=' + encodeURIComponent( draft.reference_id ) + '&signature=' + encodeURIComponent( layout.signature ), result = await request( base + '/draft' + query, config.nonce, undefined, abort && abort.signal );
+				var query = '?reference_type=' + encodeURIComponent( draft.reference_type ) + '&reference_id=' + encodeURIComponent( draft.reference_id ) + '&signature=' + encodeURIComponent( layout.signature ), result = await request( base + '/draft' + query, config.nonce, config.environment, undefined, abort && abort.signal );
 				if ( ! active() ) { return; }
 				if ( ! result.draft || result.draft.revision !== draft.revision ) { throw new Error( 'The saved draft changed. Reopen and review its latest revision before exporting.' ); }
 				if ( ! result.backend_description || result.backend_description.status !== 'prepared_local' ) { throw new Error( result.backend_description && result.backend_description.error && result.backend_description.error.message || 'The backend description needs review before export.' ); }
@@ -409,7 +409,7 @@
 			if ( ! active() || ! config.postingIntegration ) { return; }
 			try {
 				var query = '?reference_type=' + encodeURIComponent( draft.reference_type ) + '&reference_id=' + encodeURIComponent( draft.reference_id ) + '&signature=' + encodeURIComponent( layout.signature );
-				var result = await request( base + '/sync-state' + query, config.nonce, undefined, abort && abort.signal );
+				var result = await request( base + '/sync-state' + query, config.nonce, config.environment, undefined, abort && abort.signal );
 				if ( active() ) { syncState = result.state || null; urlBinding = result.url_binding || null; if ( urlBinding && ! bindingUrl ) { bindingUrl = urlBinding.url_id; bindingRevision = String( urlBinding.revision ); } renderIntegration(); }
 			} catch ( error ) { if ( active() && integrationBox ) { integrationBox.replaceChildren( el( 'p', 'nmd-warning', 'Synchronization status unavailable: ' + error.message ), button( 'Refresh synchronization status', loadIntegration ) ); } }
 		}
@@ -418,7 +418,7 @@
 			setBusy( true );
 			try {
 				var data = referencePayload(); if ( resume ) { data.recover_template_id = recoveryId.trim(); }
-				var result = await request( base + '/' + action, config.nonce, data, abort && abort.signal );
+				var result = await request( base + '/' + action, config.nonce, config.environment, data, abort && abort.signal );
 				if ( ! active() ) { return; } syncState = result.state || null; renderIntegration();
 				note( action === 'activate' ? 'Native profile approved for this exact template revision.' : ( mappingVersion( draft ) === 3 ? 'V3 template synchronized with field purposes and instructions. Approve the native profile before selecting it for deliveries.' : 'V1 template synchronized for direct copying without LLM fitting.' ) );
 			} catch ( error ) { if ( active() ) { note( error.message, true ); await loadIntegration(); } }
@@ -433,7 +433,7 @@
 				var data = referencePayload(); if ( defaults ) { data.source_page_type = defaultType; } else { data.url_id = bindingUrl; }
 				var endpoint = base + ( defaults ? '/template-default' : '/url-binding' );
 				if ( write ) { data.expected_server_revision = Number( revision ); } else { endpoint += '?' + new URLSearchParams( data ).toString(); }
-				var result = await request( endpoint, config.nonce, write ? data : undefined, abort && abort.signal );
+				var result = await request( endpoint, config.nonce, config.environment, write ? data : undefined, abort && abort.signal );
 				if ( ! active() ) { return; }
 				if ( defaults ) { defaultRecord = result.template_default; defaultRevision = String( result.server_revision ); }
 				else { urlBinding = result.url_binding; bindingRevision = String( result.server_revision ); }
@@ -572,8 +572,8 @@
 		if ( ! active() ) { return; } host.replaceChildren( el( 'p', 'nmd-help', 'Loading NOVA mapping draft…' ) ); host.setAttribute( 'aria-busy', 'true' );
 		try {
 			var query = '?reference_type=' + encodeURIComponent( draft.reference_type ) + '&reference_id=' + encodeURIComponent( draft.reference_id ) + '&signature=' + encodeURIComponent( draft.signature );
-			var loaded = await request( base + '/draft' + query, config.nonce, undefined, abort && abort.signal );
-			if ( active() ) { draft = initialDraft( layout, loaded.draft ); if ( ! draft.revision ) { workspace = false; referenceAccepted = false; } draft.fields = draft.fields || {}; draft.repeat_slots = draft.repeat_slots || {}; draft.skipped_sources = draft.skipped_sources || []; draft.routing = draft.routing || { operation: 'update', locale: '' }; inventoryStale = !! ( loaded.reference && loaded.reference.signature !== layout.signature ); serverWarnings = loaded.warnings || []; catalog = loaded.catalog || ( destinationMode( draft ) ? { origin: 'destination', templates: [] } : await request( base + '/catalog?mode=' + encodeURIComponent( draft.catalog_mode || 'nova' ), config.nonce, undefined, abort && abort.signal ) ); if ( active() ) { render(); setBusy( false ); } }
+			var loaded = await request( base + '/draft' + query, config.nonce, config.environment, undefined, abort && abort.signal );
+			if ( active() ) { draft = initialDraft( layout, loaded.draft ); if ( ! draft.revision ) { workspace = false; referenceAccepted = false; } draft.fields = draft.fields || {}; draft.repeat_slots = draft.repeat_slots || {}; draft.skipped_sources = draft.skipped_sources || []; draft.routing = draft.routing || { operation: 'update', locale: '' }; inventoryStale = !! ( loaded.reference && loaded.reference.signature !== layout.signature ); serverWarnings = loaded.warnings || []; catalog = loaded.catalog || ( destinationMode( draft ) ? { origin: 'destination', templates: [] } : await request( base + '/catalog?mode=' + encodeURIComponent( draft.catalog_mode || 'nova' ), config.nonce, config.environment, undefined, abort && abort.signal ) ); if ( active() ) { render(); setBusy( false ); } }
 		} catch ( error ) {
 			if ( active() ) { host.replaceChildren(); var failure = el( 'div', 'nmd-feedback is-error', error.message + ' The saved draft could not be loaded; editing is disabled to avoid replacing it.' ); failure.setAttribute( 'role', 'alert' ); host.appendChild( failure ); host.appendChild( button( 'Retry loading', loadDraft ) ); host.setAttribute( 'aria-busy', 'false' ); }
 		}

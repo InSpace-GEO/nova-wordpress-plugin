@@ -1,6 +1,7 @@
 <?php
 /** Explicit stock-field compatibility for reviewed, scalar WooCommerce category recipes. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-posting-url-scope.php';
 require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
 
@@ -9,7 +10,7 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     private const PREFIX = 'nova_static_recipe_v1_';
     public static function error( string $code, string $message ): WP_Error { return new WP_Error( 'nova_static_' . $code, $message ); }
     public static function digest( array $value ): string { return hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $value ) ); }
-    private static function key( string $kind, string $identity ): string { return self::PREFIX . $kind . '_' . hash( 'sha256', $identity ); }
+    private static function key( string $kind, string $identity ): string { return Nova_WordPress_Environment::key( self::PREFIX . $kind . '_' . hash( 'sha256', $identity ) ); }
     private static function frozen( array $record ): array { return array_intersect_key( $record, array_flip( [ 'id', 'name', 'page_type', 'definition', 'mapping', 'revision' ] ) ); }
 
     /** Serialize editor saves and retries. A lost PUT acknowledgement must be reconciled first. */

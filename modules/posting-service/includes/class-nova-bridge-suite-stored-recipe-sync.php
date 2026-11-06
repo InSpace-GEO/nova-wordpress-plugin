@@ -94,7 +94,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         $locks = $locks ?: new Nova_Bridge_Suite_Posting_Jobs(); $lock = 'stored-recipe-editor:' . $client->site_id();
         $owned = $locks->lock( $lock ); if ( is_wp_error( $owned ) ) { return $owned; }
         try {
-            $previous = $recipe_id ? Nova_Bridge_Suite_Mapping_Sync::scope_state( $client->site_id(), 'recipe:' . $recipe_id ) : null;
+            $previous = $recipe_id ? Nova_Bridge_Suite_Mapping_Sync::scope_state( $client->site_id(), 'recipe:' . $recipe_id, $connection ) : null;
             if ( $saving && isset( $previous['pending'] ) ) { return self::error( 'sync_pending', 'Sync the saved revision to reconcile its pending remote operation before saving another revision.' ); }
             $saved = $load(); if ( is_wp_error( $saved ) ) { return $saved; }
             $last = get_option( self::status_key( $connection, $saved['id'] ), null );
@@ -117,7 +117,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         $draft = Nova_Bridge_Suite_Stored_Layout::from_recipe( $record ); if ( is_wp_error( $draft ) ) { return $draft; }
         $page_type = $draft['profile_page_type'];
         $reply = $client->site_request( 'GET', '/template-defaults' ); $defaults = self::defaults( $reply ); if ( is_wp_error( $defaults ) ) { return $defaults; }
-        $scope = 'recipe:' . $record['id']; $previous = Nova_Bridge_Suite_Mapping_Sync::scope_state( $client->site_id(), $scope );
+        $scope = 'recipe:' . $record['id']; $previous = Nova_Bridge_Suite_Mapping_Sync::scope_state( $client->site_id(), $scope, $connection );
         if ( ! isset( $record['posting_page_types'] ) && isset( $previous['template']['page_type'] ) && $previous['template']['page_type'] !== $page_type ) { return self::error( 'page_type_changed', 'Create a separate template for another NOVA content type. The synchronized template keeps its existing default and page type.' ); }
         $types = Nova_Bridge_Suite_Layout_Page_Types::selected( $record );
         if ( ! $types || array_diff( array_keys( $replacements ), $types ) ) { return self::error( 'page_types', 'Review the selected NOVA content types before synchronizing.' ); }

@@ -23,7 +23,7 @@ check( strpos( $html, 'nova-publishing-app' ) === false, 'The UI shell duplicate
 $_GET = []; Nova_Bridge_Suite_Endpoint_Mappings_Admin::assets( 'settings_page_nova-settings' );
 check( isset( $scripts['nova-endpoint-mappings'], $styles['nova-endpoint-mappings'] ), 'The default Layouts URL without a tab lacks its assets' );
 check( $localized['NovaEndpointMappings']['url'] === 'https://site.example/wp-json/nova-bridge/v1/mapping' && $localized['NovaEndpointMappings']['nonce'] === 'fixture-rest-nonce', 'The UI is not scoped to local nonce-protected APIs' );
-check( array_keys( $localized['NovaEndpointMappings'] ) === [ 'url', 'nonce', 'layoutsUrl', 'recipesUrl' ], 'Source content or connection credentials leaked into localization' );
+check( array_keys( $localized['NovaEndpointMappings'] ) === [ 'url', 'nonce', 'environment', 'layoutsUrl', 'recipesUrl' ], 'Source content or connection credentials leaked into localization' );
 check( $localized['NovaEndpointMappings']['recipesUrl'] === 'https://site.example/wp-admin/options-general.php?page=nova-settings&tab=layout-recipes', 'Creation setup does not open the guided local mapper' );
 foreach ( [ 'nova-connection', 'modules', 'unknown-fallback-tab' ] as $tab ) { $_GET = [ 'tab' => $tab ]; $scripts = []; Nova_Bridge_Suite_Endpoint_Mappings_Admin::assets( 'settings_page_nova-settings' ); check( isset( $scripts['nova-endpoint-mappings'] ), 'Settings fallback lacks host-guarded assets for ' . $tab ); }
 $scripts = []; Nova_Bridge_Suite_Endpoint_Mappings_Admin::assets( 'post.php' ); check( [] === $scripts, 'Endpoint assets were enqueued outside NOVA settings' );
@@ -33,3 +33,5 @@ $source = file_get_contents( dirname( __DIR__ ) . '/assets/endpoint-mappings.js'
 check( strpos( $source, "getElementById( 'nova-endpoint-mappings-app' )" ) !== false && strpos( $source, 'if ( host && root.NovaEndpointMappings )' ) !== false, 'Other settings tabs can start requests without the coverage host' );
 check( strpos( $source, 'postingUrl' ) === false && strpos( $source, 'create-draft' ) === false && strpos( $source, "'/creation/preview'" ) !== false, 'Onboarding can trigger native publishing instead of local preview' );
 echo 'PASS ' . $checks . " endpoint onboarding UI shell checks.\n";
+
+check( 1 === preg_match( '/^[a-f0-9]{64}$/D', $localized['NovaEndpointMappings']['environment'] ), 'Only an opaque environment fingerprint is exposed.' );

@@ -1,6 +1,7 @@
 <?php
 /** Journaled, source-free native Elementor documents from frozen local rendering rules. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-posting-url-scope.php';
 
 final class Nova_Bridge_Suite_Rule_Writer_Failure extends RuntimeException {
@@ -39,8 +40,8 @@ final class Nova_Bridge_Suite_Rule_Writer {
         else { update_option( $name, $record, false ); }
         if ( self::option( $name ) !== $record ) { self::fail( 'storage', 'Native operation progress could not be retained. Reconcile the same operation before retrying.' ); }
     }
-    private static function operation_key( string $id ): string { return 'nova_rule_operation_' . hash( 'sha256', $id ); }
-    private static function association_key( string $site, string $url ): string { return 'nova_rule_page_' . hash( 'sha256', $site . ':' . $url ); }
+    private static function operation_key( string $id ): string { return Nova_WordPress_Environment::key( 'nova_rule_operation_' . hash( 'sha256', $id ) ); }
+    private static function association_key( string $site, string $url ): string { return Nova_WordPress_Environment::key( 'nova_rule_page_' . hash( 'sha256', $site . ':' . $url ) ); }
     private static function uuid( string $id ): bool { return Nova_Bridge_Suite_Content_Rules::uuid( $id ); }
     private static function decimal( $value ): bool { return is_string( $value ) && 1 === preg_match( '/^[1-9][0-9]{0,18}$/D', $value ); }
     private static function compare_id( string $a, string $b ): int { return strlen( $a ) <=> strlen( $b ) ?: strcmp( $a, $b ); }
