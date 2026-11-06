@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.1.8
+Stable tag: 1.2.0
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,13 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.0 =
+* WPBakery: map images stored in the media library and the text, rich content and links of elements added by themes and add-ons. Fixed WPBakery layouts can now publish deliveries. Design settings stay protected.
+* The layout preview outlines the selected WPBakery, Avada or Divi 4 element and shows content that the site normally reveals with scripts, including entrance animations and lazy-loaded images.
+* Map the page Title and Excerpt in fixed post layouts, including titles that the theme prints outside the page content. Unmapped titles keep their previous behaviour.
+* Elementor widgets that show the page title, excerpt or featured image through a dynamic tag point to the field to map. Each dynamic control is listed once.
+* Choose Remove this element from new pages to leave an example element out of generated pages.
 
 = 1.1.8 =
 Switch posting environments without finishing old test deliveries. Changing the service URL or website identifier cancels pending deliveries and keeps the previous delivery history in a separate private archive; a notice reports what was cancelled. A dialog offers to copy the current layouts and mappings to the new connection and synchronize them. Each service URL and website identifier has separate layouts, mappings, revisions and publishing approvals; returning to a previous connection restores its configuration without replaying old deliveries. Existing remote defaults on the new service are never replaced automatically. Existing WordPress content is kept. Credential updates within the same connection retain layouts and queued work. Layout screens stay usable while deliveries run. Reload an open editor after changing connections.

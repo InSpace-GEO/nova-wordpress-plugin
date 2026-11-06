@@ -186,7 +186,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     }
     private static function preset( string $builder, string $mode, array $design ): array {
         $recipe = [ 'format' => Nova_Bridge_Suite_Recipe_Engine::FORMAT, 'builder' => $builder, 'mode' => $mode, 'blueprint' => $design['blueprint'], 'bindings' => [], 'regions' => [], 'instructions' => '' ];
-        foreach ( $design['fields'] ?? [] as $field ) { if ( ! empty( $field['writable'] ) && empty( $field['native_media'] ) && empty( $field['manual_purpose'] ) ) { $recipe['bindings'][] = self::binding( $field ); } }
+        foreach ( $design['fields'] ?? [] as $field ) { if ( ! empty( $field['writable'] ) && empty( $field['native_media'] ) && empty( $field['native_post'] ) && empty( $field['manual_purpose'] ) ) { $recipe['bindings'][] = self::binding( $field ); } }
         if ( 'static' !== $mode ) {
             foreach ( $design['suggested_regions'] ?? [] as $hint ) { if ( isset( $hint['prototype'] ) ) { $recipe['regions'][] = $hint; continue; } $value = self::region_value( $design['blueprint'], $design, $hint, $builder ); if ( is_wp_error( $value ) ) { continue; } $recipe['regions'][] = $value['region']; }
             $recipe['bindings'] = array_values( array_filter( $recipe['bindings'], static function ( $binding ) use ( $recipe ) { foreach ( $recipe['regions'] as $region ) { if ( self::inside( $binding['target'], $region ) ) { return false; } } return true; } ) );

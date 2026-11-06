@@ -54,11 +54,12 @@ Sharing supports fixed layouts for WordPress post types built with the WordPress
 
 ## Supported paths
 
-- Fixed-layout delivery for WordPress content, Gutenberg, Elementor, Flatsome and Enfold. The corresponding builder/theme must be available on the site.
+- Fixed-layout delivery for WordPress content, Gutenberg, Elementor, Flatsome, Enfold and WPBakery. The corresponding builder/theme must be available on the site.
 - Fixed ACF layouts expose content inside groups, repeaters and Flexible Content rows, including native image fields. NOVA stores the example's component order and unselected values, then writes through the installed ACF field definitions. The theme and matching field groups must remain installed; the example can be deleted after capture. Component layouts are detected automatically when the native WordPress body is empty. Other examples keep their existing builder detection; choose ACF under advanced builder detection when appropriate. Existing mappings are not converted automatically: choose **Capture a fresh layout** to use the nested fields, map them and save. Shared-layout export is not yet available for this provider.
 - For Cornerstone, select a page or post built in the content builder and map its fields under **Content rules**. NOVA saves the element tree and the page’s layout settings with the mapping. Deliveries create or update the native Cornerstone document; the example can be deleted after capture. Site-wide library components remain linked. Use the field list for controls without a unique visible element. When mapping blog posts, enable **Posts** in Cornerstone’s permissions for the NOVA publishing user. For an example captured as plain WordPress in an older version, choose **Capture a fresh layout** in step 2 and save the new mapping.
 - Native publishing to NOVA Blog and Service post types, and WooCommerce category content with separate top and bottom fields.
-- WPBakery, Avada, Beaver Builder, Breakdance, Divi 4 and Divi 5 support layout capture. In **Layouts**, select an existing Divi 5 page to capture a fixed layout with its native adapter. The generic Gutenberg and plain WordPress writers leave Divi 5 documents protected.
+- WPBakery fields come from the element definitions WPBakery itself registers, so elements added by themes and add-ons expose their text, rich content, links and images the same way as WPBakery's own elements. Images stored as media-library attachments can be mapped; deliveries import the supplied image and store its new attachment. Design, spacing, animation and identity settings stay protected. When a definition is unavailable, NOVA falls back to known text, link and image parameters.
+- Avada, Beaver Builder, Breakdance, Divi 4 and Divi 5 support layout capture. In **Layouts**, select an existing Divi 5 page to capture a fixed layout with its native adapter. The generic Gutenberg and plain WordPress writers leave Divi 5 documents protected.
 - The existing NOVA posting contract and ready webhook URL remain compatible. Older explicit live-source clone jobs require the original Suite.
 
 ## Publishing in multiple languages
@@ -83,6 +84,16 @@ Save the layout on the same screen and check the sync result. For a PHP page tem
 The picker supports top-level ACF text, textarea, WYSIWYG, URL and email fields, plus public WordPress fields registered as single REST strings. A delivery that omits an optional field preserves its current value. Repeater rows, flexible layouts, media and relationship fields are outside this picker.
 
 WPML and Polylang store the mapped values on the native post for each language. Configure translated fields to allow independent values. TranslatePress and Weglot keep localized field values on the shared source post and serve them on that post’s public page through normal WordPress metadata and ACF reads. A static builder layout can use these localized fields even when the provider cannot translate the builder’s own widgets. If a theme rewrites a field’s text or prints an identical phrase in multiple places, the provider may translate that output again.
+
+### Title, excerpt and removed elements
+
+In a fixed post layout, **Title** and **Excerpt** (when the post type supports excerpts) appear in the field list next to **Featured image**. Map **Title** to describe the page title, which themes usually show as the H1, even when the theme or a builder template prints it outside the captured content. Without a mapping, the title is still written from the supplied heading, as before. **Excerpt** is written only when mapped.
+
+Elementor widgets that show the page title, excerpt or featured image through a dynamic tag stay unchanged and name the field to map instead. Other dynamic tags remain protected.
+
+To leave an example element out of every generated page, select one of its fields and choose **Remove this element from new pages**. The whole element is removed, including its other fields; the example page itself is unchanged. Choosing a purpose for one of its fields keeps the element again. Removal is available for fixed builder layouts.
+
+The page preview outlines WPBakery, Avada and Divi 4 elements directly. It shows content that the site normally reveals with scripts, such as entrance animations and lazy-loaded images.
 
 ### Mapping SEO metadata
 

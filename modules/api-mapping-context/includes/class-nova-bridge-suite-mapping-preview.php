@@ -87,7 +87,12 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		header( 'X-Frame-Options: SAMEORIGIN' );
 		header( 'Referrer-Policy: no-referrer' );
 		if ( self::$canvas ) {
-			if ( 'post' === $type ) { add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 ); }
+			if ( 'post' === $type ) {
+				add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 );
+				add_filter( 'the_content', [ __CLASS__, 'mark_shortcodes' ], 9 );
+				require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
+				add_filter( 'do_shortcode_tag', [ 'Nova_Bridge_Suite_Shortcode_Preview', 'tag_output' ], PHP_INT_MAX, 3 );
+			}
 			header( 'Content-Security-Policy: ' . self::canvas_policy() );
 			$script = NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_DIR . 'assets/recipe-canvas.js';
 			// Release ZIPs retain deterministic timestamps. Key the preview asset to its
@@ -108,6 +113,11 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] || ! str_contains( $content, '<!-- wp:html' ) ) { return $content; }
 		require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
 		return serialize_blocks( Nova_Mapping_Gutenberg_HTML::preview_blocks( parse_blocks( $content ) ) );
+	}
+	public static function mark_shortcodes( string $content ): string {
+		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }
+		require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
+		return Nova_Bridge_Suite_Shortcode_Preview::mark_content( $content );
 	}
 	private static function wpml_domain_language( int $id, string $post_type, string $url ): string {
 		if ( ! is_callable( [ $GLOBALS['sitepress'] ?? null, 'switch_lang' ] ) || 2 !== (int) apply_filters( 'wpml_setting', null, 'language_negotiation_type' ) ) { return ''; }

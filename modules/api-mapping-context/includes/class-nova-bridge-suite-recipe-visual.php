@@ -3,6 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 require_once __DIR__ . '/class-nova-bridge-suite-elementor-reusable.php';
+require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
 
 final class Nova_Bridge_Suite_Recipe_Visual {
     private static function error( string $message, int $status = 409 ): WP_Error {
@@ -96,6 +97,16 @@ final class Nova_Bridge_Suite_Recipe_Visual {
     }
     public static function enrich( array $design, array $resource, int $id = 0, ?array $saved_source = null, string $saved_receipt = '' ): array {
         $builder = $design['builder']; $fields = []; $preview = []; $containers = [];
+        $shortcodes = in_array( $builder, [ 'wpbakery', 'avada', 'divi4' ], true ) && is_array( $design['blueprint']['document'] ?? null );
+        $shortcode_hash = $shortcodes ? Nova_Bridge_Suite_Shortcode_Preview::document_hash( $design['blueprint']['document'] ) : '';
+        // An Elementor dynamic tag that renders the page title, excerpt or image shows where that page field appears.
+        $dynamic_locators = [];
+        foreach ( $design['fields'] ?? [] as $field ) {
+            $source = $field['dynamic']['source'] ?? ''; $node = $field['native_node_id'] ?? '';
+            if ( '' !== $source && ! isset( $dynamic_locators[ $source ] ) && is_string( $node ) && preg_match( '/^[a-zA-Z0-9_-]+$/D', $node ) ) {
+                $dynamic_locators[ $source ] = [ 'strategy' => 'elementor', 'node_id' => $node, 'element_type' => $field['element_type'] ?? '', 'control_path' => $field['control_path'] ?? [], 'precision' => 'element' ];
+            }
+        }
         foreach ( $design['fields'] ?? [] as $field ) {
             $field['field_id'] = 'field_' . substr( hash( 'sha256', $builder . ':' . $field['target'] ), 0, 20 );
             $value = Nova_Bridge_Suite_Recipe_Engine::get( $design['blueprint'], $field['target'], $found );
@@ -113,6 +124,14 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 else { $locator = [ 'strategy' => 'unbound', 'reason' => 'This field has no independent element on the source page.' ]; }
             }
             if ( 'acf' === $builder ) { $locator = [ 'strategy' => 'unbound', 'reason' => 'The theme decides where this custom field is rendered. Select its declared field from the inventory.' ]; }
+            if ( $shortcodes && is_string( $field['node_target'] ?? null ) && 0 === strpos( $field['node_target'], '/document/' ) ) {
+                $marker = Nova_Bridge_Suite_Shortcode_Preview::marker( $field['node_target'], $shortcode_hash );
+                $locator = [ 'strategy' => 'shortcode', 'marker' => $marker, 'node_id' => $marker, 'kind' => (string) ( $field['kind'] ?? '' ), 'element_type' => $locator['element_type'], 'control_path' => $locator['control_path'], 'precision' => 'element' ];
+            }
+            if ( Nova_Bridge_Suite_Recipe_Native_Media::is_native_post( $field['target'] ) ) {
+                $control = [ Nova_Bridge_Suite_Recipe_Native_Media::TITLE => 'title', Nova_Bridge_Suite_Recipe_Native_Media::EXCERPT => 'excerpt', Nova_Bridge_Suite_Recipe_Native_Media::FEATURED => 'featured_image' ][ $field['target'] ];
+                $locator = $dynamic_locators[ $field['target'] ] ?? [ 'strategy' => 'core', 'control_path' => [ $control ], 'precision' => 'title' === $control ? 'field' : 'region' ];
+            }
             if ( empty( $locator['node_id'] ) && 'core' !== $locator['strategy'] ) { $locator['strategy'] = 'unbound'; }
             if ( 'gutenberg' === $builder && ( str_contains( $field['target'], '/nova_html_slots/' )
                 || ( 'unbound' === $locator['strategy'] && str_ends_with( $field['target'], '/innerHTML' ) ) ) ) {
@@ -120,7 +139,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 $locator = Nova_Mapping_Gutenberg_HTML::preview_locator( $design['blueprint'], $field ) ?? $locator;
             }
             $field['locator'] = $locator; $fields[] = $field;
-            $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator' ] ) );
+            $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator', 'current_value', 'node_target' ] ) );
         }
         foreach ( $design['containers'] ?? [] as $container ) {
             $container['container_id'] = 'container_' . substr( hash( 'sha256', $builder . ':' . $container['target'] ), 0, 20 );
@@ -159,6 +178,10 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         // Keep Autoptimize's public-page rewriting out of this signed preview request.
         $url = add_query_arg( [ 'nova_recipe_canvas' => $session, 'nova_recipe_digest' => $source['native_digest'], 'ao_noptimize' => '1' ], $url );
         $design['visual_preview'] = [ 'status' => 'available', 'url' => $url, 'session_id' => $session, 'digest' => $source['native_digest'], 'reference_id' => $source['reference_id'], 'reference_type' => $source['reference_type'], 'reason' => 'Click content to choose its purpose. Site scripts and forms are disabled in this isolated design view; hidden or theme-controlled fields remain in the inventory.' ];
+        // Native page fields show the example's own title and excerpt, used to find them on the page.
+        $post = 'post' === $source['reference_type'] ? get_post( $source['reference_id'] ) : null;
+        $native_values = $post ? [ Nova_Bridge_Suite_Recipe_Native_Media::TITLE => (string) $post->post_title, Nova_Bridge_Suite_Recipe_Native_Media::EXCERPT => (string) $post->post_excerpt ] : [];
+        foreach ( [ 'fields', 'preview_fields' ] as $list ) { foreach ( $design[ $list ] as &$entry ) { if ( isset( $native_values[ $entry['target'] ] ) ) { $entry['current_value'] = $native_values[ $entry['target'] ]; } } unset( $entry ); }
         foreach ( $design['preview_fields'] as &$field ) { $field['locator']['reference_id'] = $source['reference_id']; } unset( $field );
         foreach ( $design['preview_containers'] as &$container ) { $container['locator']['reference_id'] = $source['reference_id']; } unset( $container );
         return $design;
