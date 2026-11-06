@@ -1,5 +1,13 @@
 # Release verification
 
+## 1.1.8 release
+
+All 117 local suites passed. New coverage exercises explicit switch confirmation, ordinary credential rotation, separate archived history, preservation of exact receipt bytes, rollback on archive/settings/commit failures, active-worker exclusion, old webhook rejection and suppression of retired deliveries after reconnecting. Existing delivery, mapping, layout and editor suites remain green.
+
+The installable candidate was extracted on staging and the focused PHP suites ran under PHP 8.1.34. These tests execute the production connection, settings, discovery, journal and worker code against deterministic in-memory storage, CMS and HTTP fixtures. They do not switch the staging site's saved connection, write native content or establish a live database transaction/end-to-end posting-service test.
+
+Archival requires InnoDB for the WordPress options and delivery tables. A failed storage check retains the current connection. An active delivery batch requires retrying the save after the batch finishes. Archived records are private retained evidence, not remotely acknowledged cancellation.
+
 ## 1.1.7 release
 
 All 114 local suites passed, including 110 layout editor workflows. Regression coverage includes existing saved selections, new-layout SEO defaults, deselection and reopening, optional values, provider permissions, retained layout revisions, custom fields and preview authentication. Existing mappings are not opted into SEO fields automatically.

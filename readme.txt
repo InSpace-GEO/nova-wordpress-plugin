@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.1.7
+Stable tag: 1.1.8
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.1.8 =
+Switch posting environments without finishing old test deliveries. Confirm the switch to cancel pending work and retain the previous delivery history in a separate private archive. The active delivery list and discovery state start fresh. Existing WordPress content and saved layouts are kept. Credential updates within the same connection retain queued work. A running delivery must finish its current batch before the switch can proceed.
 
 = 1.1.7 =
 * Map SEO titles and meta descriptions for detected Yoast SEO, Rank Math, SEOPress, All in One SEO, The SEO Framework, SmartCrawl, Slim SEO and Squirrly SEO plugins. New layouts select both automatically. Open SEO metadata to deselect them or add instructions; existing saved selections stay unchanged.

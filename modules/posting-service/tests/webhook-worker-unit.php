@@ -21,6 +21,7 @@ function update_option( $key, $value, ...$args ) { $GLOBALS['wake_options'][$key
 function delete_option( $key ) { unset( $GLOBALS['wake_options'][$key] ); }
 function wp_next_scheduled( $hook ) { return false; }
 class Nova_Bridge_Suite_Posting_Settings {
+    public const OPTION = 'nova_bridge_posting_connection';
     public static $connection;
     public static function connection() { return self::$connection; }
 }
@@ -81,7 +82,7 @@ function wake_fixture( array $patch = [] ) {
     Contract_Test_Writer::reset();
     $f = nova_contract_fixture(); $f['connection'] = array_merge( $f['connection'], $patch );
     $GLOBALS['wake_fixture'] = $f; $GLOBALS['wake_store'] = $store = new Wake_Store(); $GLOBALS['server'] = $server = new Wake_Server( $f );
-    $GLOBALS['wake_options'] = [ 'nova_bridge_posting_schema_version' => 3 ];
+    $GLOBALS['wake_options'] = [ 'nova_bridge_posting_schema_version' => Nova_Bridge_Suite_Posting_Delivery::SCHEMA_VERSION ];
     Nova_Bridge_Suite_Posting_Settings::$connection = $f['connection'];
     $request = new Wake_Request();
     $request->body = json_encode( [ 'event' => 'content.ready', 'content_id' => $f['snapshot']['content_item_id'], 'site' => $f['snapshot']['site_id'], 'version' => $f['snapshot']['version_number'] ] );
