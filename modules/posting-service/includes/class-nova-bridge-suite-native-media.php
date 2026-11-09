@@ -61,7 +61,7 @@ final class Nova_Bridge_Suite_Native_Media {
                 if ( $target !== ( $entry['id_target'] ?? null ) || empty( $field['writable'] ) || ( $field['native_media']['id_target'] ?? null ) !== $target ) {
                     return self::error( 'Only a captured Cornerstone image control can receive an imported image.' );
                 }
-            } elseif ( in_array( $builder, [ 'flatsome', 'enfold' ], true ) && $builder === ( $entry['kind'] ?? '' ) ) {
+            } elseif ( in_array( $builder, [ 'flatsome', 'enfold', 'wpbakery' ], true ) && $builder === ( $entry['kind'] ?? '' ) ) {
                 $id_target = $entry['id_target'] ?? null;
                 $binding_target = 'enfold' === $builder ? ( $entry['url_target'] ?? null ) : $id_target;
                 if ( $target !== $binding_target || ! is_string( $id_target ) || ! ( $id_path = self::shortcode_pointer( $builder, $id_target ) ) ) { return self::error( 'The native shortcode image target is invalid.' ); }
@@ -116,13 +116,17 @@ final class Nova_Bridge_Suite_Native_Media {
                     Nova_Bridge_Suite_Recipe_Engine::put( $document, $entry['id_target'], $id ? $id . $size : '' );
                     $result['payload']['cornerstone_document'] = $document['document'];
                 }
-                elseif ( in_array( $entry['kind'], [ 'flatsome', 'enfold' ], true ) ) {
-                    self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['id_target'] ), (string) $id );
+                elseif ( in_array( $entry['kind'], [ 'flatsome', 'enfold', 'wpbakery' ], true ) ) {
+                    // WPBakery stores an empty image parameter when no attachment is selected.
+                    self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['id_target'] ), 'wpbakery' === $entry['kind'] && ! $id ? '' : (string) $id );
                     if ( 'enfold' === $entry['kind'] ) { self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['url_target'] ), $url ); }
                 }
                 else { self::place( $result['payload'], self::pointer( $entry['url_target'] ), $url ); self::place( $result['payload'], self::pointer( $entry['id_target'] ), $id ); }
             }
         } catch ( Throwable $error ) { return self::error( 'The native image result is not yet verified. Recover this same operation before continuing.' ); }
+        if ( 'wpbakery' === $builder && is_array( $result['payload']['wpbakery_document'] ?? null ) && function_exists( 'nova_mapping_wpb_compact_to_shortcodes' ) ) {
+            $result['payload']['layout']['raw_shortcodes'] = nova_mapping_wpb_compact_to_shortcodes( $result['payload']['wpbakery_document'] );
+        }
         return $result;
     }
     public static function apply_featured( int $post_id, array $resolved ) {

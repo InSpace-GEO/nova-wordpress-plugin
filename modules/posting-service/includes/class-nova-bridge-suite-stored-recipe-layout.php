@@ -77,6 +77,11 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 continue;
             }
             if ( in_array( $path, [ '/title', '/excerpt' ], true ) ) { $bindings[$path] = [ 'kind' => 'post', 'column' => substr( $path, 1 ), 'mode' => $mode ]; continue; }
+            $column = Nova_Bridge_Suite_Recipe_Native_Media::post_column( $path );
+            if ( null !== $column ) {
+                if ( ! isset( $inventory[$path] ) || ( $field['description']['value_type'] ?? '' ) !== 'text' ) { self::fail( 'The native title or excerpt destination is unavailable for this content type.' ); }
+                $bindings[$path] = [ 'kind' => 'post', 'column' => $column, 'mode' => $mode ]; continue;
+            }
             $native = $inventory[$path] ?? null;
             if ( ! is_array( $native ) || empty( $native['writable'] ) || ( $descriptor['builder'] ?? '' ) !== $builder ) { self::fail( 'A mapped value is not an exposed editorial field in the retained native layout.' ); }
             $value_type = $field['description']['value_type'] ?? 'text';
@@ -93,6 +98,17 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             $bindings[$path] = $binding;
         }
         $layout = [ 'format' => self::FORMAT, 'builder' => $builder, 'resource_id' => $resource, 'post_type' => $type, 'blueprint' => $blueprint, 'post_fields' => $post_fields, 'bindings' => $bindings ];
+        if ( ! empty( $draft['omissions'] ) ) {
+            // Older layouts have no key, which keeps their sealed digest unchanged.
+            $targets = Nova_Bridge_Suite_Recipe_Engine::omission_targets( array_map( static function ( $target ) { return [ 'target' => $target ]; }, (array) $draft['omissions'] ) );
+            $elements = []; foreach ( $inventory as $entry ) { if ( is_string( $entry['node_target'] ?? null ) ) { $elements[ $entry['node_target'] ] = true; } }
+            foreach ( $targets as $target ) {
+                if ( ! isset( $elements[$target] ) ) { self::fail( 'A removed element is no longer part of the saved layout.' ); }
+                foreach ( array_keys( $bindings ) as $bound ) { if ( $bound === $target || 0 === strpos( $bound, $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); } }
+            }
+            self::checked( $adapter->validate_blueprint( Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $targets, $adapter ) ) );
+            $layout['omissions'] = $targets;
+        }
         $layout['digest'] = Nova_Bridge_Suite_Recipe_Engine::digest( $layout );
         $bounded = $draft; $bounded['stored_layout'] = $layout;
         if ( strlen( (string) wp_json_encode( $bounded ) ) > 524288 ) { self::fail( 'The saved creation mapping exceeds 512 KiB. Reduce the captured layout before synchronizing.' ); }
@@ -112,13 +128,20 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             if ( 'core' === $builder && in_array( '/document/title', array_column( $recipe['bindings'], 'target' ), true ) ) {
                 unset( $draft['fields']['/title'], $draft['target_descriptors']['/title'] );
             }
+            // A mapped native title replaces the implicit content title and keeps its instructions.
+            if ( in_array( Nova_Bridge_Suite_Recipe_Native_Media::TITLE, array_column( $recipe['bindings'], 'target' ), true ) ) {
+                unset( $draft['fields']['/title'], $draft['target_descriptors']['/title'] );
+            }
+            if ( ! empty( $recipe['omissions'] ) ) { $draft['omissions'] = array_column( $recipe['omissions'], 'target' ); }
             foreach ( $recipe['bindings'] as $binding ) {
                 $path = $binding['target'] ?? ''; $field = $inventory[$path] ?? null;
                 if ( ! is_array( $field ) || empty( $field['writable'] ) || ! in_array( $binding['format'] ?? '', [ 'text', 'html', 'url' ], true ) || isset( $draft['fields'][$path] ) ) { self::fail( 'Every creation binding must address one distinct supported native scalar field.' ); }
                 if ( 'schema_value' === ( $field['kind'] ?? '' ) && ! Nova_Mapping_Gutenberg_Schema::custom_purpose( $binding ) ) { self::fail( 'Each JSON-LD value needs a named Custom purpose and guidance.' ); }
                 $value_type = 'html' === $binding['format'] ? 'rich_text' : ( 'url' === $binding['format'] ? 'url' : 'text' );
                 $label = isset( $binding['label'] ) && '' !== trim( $binding['label'] ) ? $binding['label'] : $field['label'];
-                $draft['fields'][$path] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => ! empty( $binding['required'] ), 'instructions' => $binding['instructions'] ?? '', 'description' => [ 'label' => $label, 'purpose' => 'Content for ' . $label . ( empty( $binding['source'] ) ? '.' : ', described by ' . $binding['source'] . '.' ), 'value_type' => $value_type, 'constraints' => [] ] ];
+                $draft['fields'][$path] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => ! empty( $binding['required'] ) || Nova_Bridge_Suite_Recipe_Native_Media::TITLE === $path, 'instructions' => $binding['instructions'] ?? '', 'description' => [ 'label' => $label, 'purpose' => 'Content for ' . $label . ( empty( $binding['source'] ) ? '.' : ', described by ' . $binding['source'] . '.' ), 'value_type' => $value_type, 'constraints' => [] ] ];
+                if ( Nova_Bridge_Suite_Recipe_Native_Media::TITLE === $path ) { $draft['fields'][$path]['description']['purpose'] = 'The native content title (usually the page H1) matching the supplied heading.'; }
+                elseif ( Nova_Bridge_Suite_Recipe_Native_Media::EXCERPT === $path ) { $draft['fields'][$path]['description']['purpose'] = 'A short plain-text summary of the content for the native excerpt.'; }
                 $draft['target_descriptors'][$path] = [ 'path' => $path, 'builder' => $builder ];
                 if ( preg_match( '/^nova_role_(seo_title|meta_description)_/', $binding['id'] ?? '', $role ) ) { $draft['source_hints'][$path] = [ 'seo_title' === $role[1] ? 'title' : 'meta_description' ]; }
                 $media = Nova_Bridge_Suite_Recipe_Native_Media::spec( $recipe['blueprint'], $binding, $adapter );
@@ -186,6 +209,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 if ( 'post' === $binding['kind'] ) { $post_fields[$binding['column']] = $value; }
                 else { $blueprint = self::checked( $adapter->bind( $blueprint, $binding, $value ) ); }
             }
+            if ( ! empty( $layout['omissions'] ) ) { $blueprint = Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $layout['omissions'], $adapter ); }
             $compiled = self::checked( $adapter->finalize( $blueprint, 'stored-layout:' . $seed, [ 'recipe' => [ 'blueprint' => $layout['blueprint'] ] ] ) );
             if ( ! is_array( $compiled['writer_payload'] ?? null ) ) { self::fail( 'The builder did not produce a complete native payload.' ); }
             if ( $media ) { $compiled['writer_payload']['nova_media'] = $media; }

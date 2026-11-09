@@ -78,7 +78,7 @@ final class Nova_Bridge_Suite_Recipe_Engine {
     public static function validate( array $recipe ) {
         return self::guard( static function () use ( $recipe ) {
             self::json( $recipe );
-            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields', 'seo_fields' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
+            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields', 'seo_fields', 'omissions' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
             if ( array_key_exists( 'posting_fields', $recipe ) ) {
                 if ( 'static' !== $recipe['mode'] || 'acf' === $recipe['builder'] ) { self::fail( 'Use a fixed native post layout to map editorial custom fields during delivery.' ); }
                 Nova_Bridge_Suite_Layout_Custom_Fields::selections( $recipe );
@@ -93,6 +93,7 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             if ( ! is_array( $checked ) || self::digest( $checked ) !== self::digest( $recipe['blueprint'] ) ) { self::fail( 'Native validation must not flatten or silently replace the sealed blueprint.' ); }
             $count = 0; self::validate_scope( $recipe['blueprint'], $recipe['bindings'] ?? [], $recipe['regions'] ?? [], $adapter, $recipe['mode'], $count, 0 );
             self::scope_schema( $recipe['bindings'] ?? [], $recipe['regions'] ?? [] );
+            if ( array_key_exists( 'omissions', $recipe ) ) { self::validate_omissions( $recipe, $adapter ); }
             if ( isset( $recipe['custom_fields'] ) && ! is_array( $recipe['custom_fields'] ) ) { self::fail( 'The optional custom-fields companion must remain its complete separately sealed recipe.' ); }
             return $recipe;
         } );
@@ -104,6 +105,10 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             if ( ++$count > 2000 || ! is_array( $binding ) || array_diff( array_keys( $binding ), [ 'id', 'label', 'target', 'source', 'format', 'required', 'instructions', 'native_media' ] ) || ! is_string( $binding['target'] ?? null ) || '' === $binding['target'] || ! is_string( $binding['source'] ?? null ) || ! in_array( $binding['format'] ?? '', [ 'text', 'html', 'url', 'number', 'boolean' ], true ) || ! is_bool( $binding['required'] ?? null ) ) { self::fail( 'Each native binding declares a target, relative content source, format and required preference.' ); }
             self::parts( $binding['target'] ); self::parts( $binding['source'] ); self::metadata( $binding );
             if ( isset( $targets[ $binding['target'] ] ) ) { self::fail( 'A native field cannot have two bindings in the same scope.' ); } $targets[ $binding['target'] ] = true;
+            if ( null !== Nova_Bridge_Suite_Recipe_Native_Media::post_column( $binding['target'] ) ) {
+                if ( 0 !== $depth || 'static' !== $mode || 'text' !== $binding['format'] || array_key_exists( 'native_media', $binding ) ) { self::fail( 'The native title and excerpt are fixed plain-text fields in a static layout.' ); }
+                continue;
+            }
             $media = Nova_Bridge_Suite_Recipe_Native_Media::spec( $native, $binding, $adapter );
             if ( $media && ( 0 !== $depth || 'static' !== $mode ) ) { self::fail( 'Native image import currently needs a fixed field in a static layout.' ); }
             if ( ! $media || 'featured' !== $media['kind'] ) { self::checked( $adapter->validate_binding( $native, $binding ) ); }
@@ -126,7 +131,47 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             foreach ( array_keys( $targets ) as $target ) { if ( self::inside_range( $target, $region ) ) { self::fail( 'A fixed binding cannot target content replaced by a region; move it into that prototype.' ); } }
             foreach ( $regions as $j => $other ) { if ( $j <= $i ) { continue; } if ( $region['target'] === $other['target'] ) { $a = $region['start']; $b = $other['start']; if ( ( $a === $b ) || ( $a < $b + $other['count'] && $b < $a + $region['count'] ) ) { self::fail( 'Native region replacement ranges must not overlap.' ); } } elseif ( self::inside_range( $other['target'], $region ) || self::inside_range( $region['target'], $other ) ) { self::fail( 'Nested regions belong inside their owning prototype, not overlapping root ranges.' ); } }
         }
-        if ( method_exists( $adapter, 'validate_plan_scope' ) ) { $native_bindings = array_values( array_filter( $bindings, static function ( $binding ) { return Nova_Bridge_Suite_Recipe_Native_Media::FEATURED !== $binding['target']; } ) ); self::checked( $adapter->validate_plan_scope( $native, $native_bindings, $regions ) ); }
+        if ( method_exists( $adapter, 'validate_plan_scope' ) ) { $native_bindings = array_values( array_filter( $bindings, static function ( $binding ) { return ! Nova_Bridge_Suite_Recipe_Native_Media::is_native_post( $binding['target'] ); } ) ); self::checked( $adapter->validate_plan_scope( $native, $native_bindings, $regions ) ); }
+    }
+    /** Omitted elements are whole native nodes that a saved layout leaves out of every generated page. */
+    public static function omission_targets( $omissions ): array {
+        if ( ! self::list_array( $omissions ) || count( $omissions ) > 200 ) { self::fail( 'List at most 200 removed elements.' ); }
+        $targets = [];
+        foreach ( $omissions as $omission ) {
+            if ( ! is_array( $omission ) || array_diff( array_keys( $omission ), [ 'target', 'label' ] ) || ! is_string( $omission['target'] ?? null ) ) { self::fail( 'Each removed element names its native element.' ); }
+            self::metadata( $omission ); $parts = self::parts( $omission['target'] );
+            if ( count( $parts ) < 2 || ! ctype_digit( (string) end( $parts ) ) ) { self::fail( 'Only an element inside the layout can be removed.' ); }
+            $targets[] = $omission['target'];
+        }
+        if ( count( array_unique( $targets ) ) !== count( $targets ) ) { self::fail( 'An element can be removed only once.' ); }
+        return $targets;
+    }
+    private static function validate_omissions( array $recipe, $adapter ): void {
+        $targets = self::omission_targets( $recipe['omissions'] );
+        if ( ! $targets ) { return; }
+        if ( 'static' !== $recipe['mode'] || in_array( $recipe['builder'], [ 'core', 'acf' ], true ) || ! is_callable( [ $adapter, 'describe' ] ) ) { self::fail( 'Removing elements needs a fixed builder layout.' ); }
+        $description = self::checked( $adapter->describe( $recipe['blueprint'] ) ); $elements = [];
+        foreach ( $description['fields'] ?? [] as $field ) { if ( is_string( $field['node_target'] ?? null ) ) { $elements[ $field['node_target'] ] = true; } }
+        foreach ( $targets as $target ) {
+            if ( ! isset( $elements[ $target ] ) ) { self::fail( 'Only an element that shows a listed field can be removed.' ); }
+            foreach ( $targets as $other ) { if ( $other !== $target && 0 === strpos( $other, $target . '/' ) ) { self::fail( 'An element inside another removed element is already removed.' ); } }
+            foreach ( $recipe['bindings'] ?? [] as $binding ) { if ( $binding['target'] === $target || 0 === strpos( $binding['target'], $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); } }
+        }
+        // Prove that the builder accepts the document without these elements.
+        self::checked( $adapter->validate_blueprint( self::apply_omissions( $recipe['blueprint'], $targets, $adapter ) ) );
+    }
+    public static function apply_omissions( array $native, array $targets, $adapter ): array {
+        // Remove later siblings first so earlier pointers keep their indexes.
+        usort( $targets, static function ( $a, $b ) { $x = self::parts( $a ); $y = self::parts( $b ); for ( $i = 0, $n = min( count( $x ), count( $y ) ); $i < $n; $i++ ) { if ( $x[$i] === $y[$i] ) { continue; } return ctype_digit( $x[$i] ) && ctype_digit( $y[$i] ) ? (int) $y[$i] <=> (int) $x[$i] : strcmp( $y[$i], $x[$i] ); } return count( $y ) <=> count( $x ); } );
+        foreach ( $targets as $target ) {
+            $parts = self::parts( $target ); $index = (int) array_pop( $parts );
+            $parent = '/' . implode( '/', array_map( static function ( $part ) { return str_replace( [ '~', '/' ], [ '~0', '~1' ], (string) $part ); }, $parts ) );
+            $list = self::get( $native, $parent, $found );
+            if ( ! $found || ! self::list_array( $list ) || $index >= count( $list ) ) { self::fail( 'A removed element no longer exists in the saved layout.' ); }
+            if ( method_exists( $adapter, 'remove_node' ) ) { $native = self::checked( $adapter->remove_node( $native, $parent, $index ) ); }
+            else { self::splice( $native, $parent, $index, 1, [] ); }
+        }
+        return $native;
     }
     private static function inside_range( string $pointer, array $region ): bool { $prefix = $region['target'] . '/'; if ( 0 !== strpos( $pointer, $prefix ) ) { return false; } $tail = substr( $pointer, strlen( $prefix ) ); $index = explode( '/', $tail )[0]; return ctype_digit( $index ) && (int) $index >= $region['start'] && (int) $index < $region['start'] + $region['count']; }
     private static function validate_prototype( $prototype, $adapter, string $mode, int &$count, int $depth ): void {
@@ -193,8 +238,11 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             $recipe = self::checked( self::validate( $recipe ) ); $normalized = self::checked( self::normalize( $content ) ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
             $state = [ 'warnings' => $normalized['_normalization_warnings'] ?? [], 'regions' => [], 'bindings' => 0, 'instances' => 0, 'generated_bytes' => 0 ];
             $native = self::compile_scope( $recipe['blueprint'], $recipe['bindings'] ?? [], $recipe['regions'] ?? [], $normalized, $adapter, $seed, [], $state, 0 );
+            $native = self::apply_omissions( $native, self::omission_targets( $recipe['omissions'] ?? [] ), $adapter );
             $result = self::checked( $adapter->finalize( $native, $seed, [ 'recipe' => $recipe, 'content' => $normalized, 'regions' => $state['regions'] ] ) );
             if ( ! is_array( $result ) || ! isset( $result['native_document'], $result['writer_payload'], $result['preview_html'] ) || ! is_array( $result['writer_payload'] ) || ! is_string( $result['preview_html'] ) ) { self::fail( 'The adapter did not return a complete native document, writer payload and structure preview.' ); }
+            if ( ! empty( $state['post_fields'] ) ) { $result['post_fields'] = $state['post_fields']; }
+            if ( ! empty( $recipe['omissions'] ) ) { $result['omitted'] = count( $recipe['omissions'] ); }
             if ( ! empty( $state['native_media'] ) ) { $result['writer_payload']['nova_media'] = $state['native_media']; $state['warnings'][] = 'Mapped images are imported and applied in the native test draft and publication. This structure preview retains the reference images.'; }
             $result['warnings'] = array_values( array_unique( array_merge( $state['warnings'], (array) ( $result['warnings'] ?? [] ) ) ) );
             $result['summary'] = array_merge( (array) ( $result['summary'] ?? [] ), [ 'builder' => $recipe['builder'], 'mode' => $recipe['mode'], 'bindings' => $state['bindings'], 'instances' => $state['instances'], 'regions' => $state['regions'] ] );
@@ -209,6 +257,11 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         if ( $depth > self::MAX_DEPTH ) { self::fail( 'Native region recursion exceeded eight levels.' ); }
         foreach ( $bindings as $binding ) {
             $value = self::get( $content, $binding['source'], $found );
+            $column = Nova_Bridge_Suite_Recipe_Native_Media::post_column( $binding['target'] );
+            if ( null !== $column ) {
+                if ( ! $found || null === $value || '' === $value ) { if ( $binding['required'] ) { self::fail( 'Required content is missing at ' . $binding['source'] . '.' ); } continue; }
+                $state['post_fields'][ $column ] = self::format_value( $value, 'text', $state['warnings'] ); ++$state['bindings']; continue;
+            }
             $media = Nova_Bridge_Suite_Recipe_Native_Media::spec( $native, $binding, $adapter );
             if ( $media ) {
                 if ( ( ! $found || null === $value || '' === $value ) && ! $binding['required'] ) { continue; }

@@ -22,7 +22,7 @@
 		items.forEach( function ( item ) {
 			var id = item && ( containers ? item.container_id || item.field_id : item.field_id );
 			if ( ! item || typeof id !== 'string' || ! safeId.test( id ) || seen.has( id ) || typeof item.target !== 'string' || ! item.target.startsWith( '/' ) || item.target.length > 1200 || ! item.locator || item.locator.reference_id !== config.referenceId ) { return; }
-			seen.add( id ); out.push( { id: id, target: item.target, label: typeof item.label === 'string' ? item.label.slice( 0, 200 ) : id, writable: item.writable === true, assigned: item.assigned === true, locator: item.locator, current_value: typeof item.current_value === 'string' ? item.current_value : typeof item.value === 'string' ? item.value : '' } );
+			seen.add( id ); out.push( { id: id, target: item.target, label: typeof item.label === 'string' ? item.label.slice( 0, 200 ) : id, writable: item.writable === true, assigned: item.assigned === true, omitted: item.omitted === true, locator: item.locator, current_value: typeof item.current_value === 'string' ? item.current_value : typeof item.value === 'string' ? item.value : '' } );
 		} ); return out;
 	}
 	function unique( document, selector ) { var nodes = document.querySelectorAll( selector ); return nodes.length === 1 ? nodes[0] : null; }
@@ -33,7 +33,7 @@
 	function prepareStaticLayout( win, document ) {
 		if ( ! win.getComputedStyle ) { return 0; }
 		var changed = 0, excluded = 'nav,header,footer,[role="navigation"],[role="dialog"],[hidden],[aria-hidden="true"]';
-		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article' ).forEach( function ( main ) {
+		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content' ).forEach( function ( main ) {
 			if ( main.closest( excluded ) ) { return; }
 			for ( var ancestor = main; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement ) {
 				var ancestorStyle = win.getComputedStyle( ancestor );
@@ -46,8 +46,10 @@
 				[ [ 'position', 'relative' ], [ 'height', 'auto' ], [ 'max-height', 'none' ], [ 'overflow', 'visible' ], [ 'transform', 'none' ], [ 'top', 'auto' ] ].forEach( function ( rule ) { node.style.setProperty( rule[0], rule[1], 'important' ); } );
 				document.documentElement.style.setProperty( 'overflow-y', 'auto', 'important' ); document.body.style.setProperty( 'overflow-y', 'auto', 'important' ); changed++;
 			}
-			main.querySelectorAll( '[data-scroll],[data-aos],.wow' ).forEach( function ( item ) {
-				if ( item.closest( excluded ) || item.getAttribute( 'data-nova-static-reveal' ) === '1' ) { return; }
+			changed += hydrateLazyMedia( main, document, excluded );
+			// Builders and themes hide entrance-animated content until their scripts run; those scripts are disabled here.
+			main.querySelectorAll( reveal ).forEach( function ( item ) {
+				if ( item.closest( excluded ) || item.closest( sliders ) || item.getAttribute( 'data-nova-static-reveal' ) === '1' ) { return; }
 				for ( var parent = item.parentElement; parent && parent !== main; parent = parent.parentElement ) {
 					var parentStyle = win.getComputedStyle( parent ); if ( parentStyle.display === 'none' || parentStyle.visibility === 'hidden' ) { return; }
 				}
@@ -56,6 +58,32 @@
 				item.setAttribute( 'data-nova-static-reveal', '1' );
 				[ [ 'opacity', '1' ], [ 'visibility', 'visible' ], [ 'transform', 'none' ], [ 'animation', 'none' ], [ 'transition', 'none' ] ].forEach( function ( rule ) { item.style.setProperty( rule[0], rule[1], 'important' ); } ); changed++;
 			} );
+		} );
+		return changed;
+	}
+	var reveal = '[data-scroll],[data-aos],.wow,[data-animation],[data-animate],[data-sr],[class*="anim"],[class*="reveal"],[class*="fade"],[class*="appear"],[class*="lazy"]';
+	var sliders = '.swiper,.swiper-container,.slick-track,.owl-stage,.flickity-slider,[class*="carousel"],[class*="slider"]';
+	var lazySources = [ 'data-src', 'data-lazy-src', 'data-original', 'data-lazy', 'data-ll-src', 'data-nectar-img-src' ];
+	var lazySourceSets = [ 'data-srcset', 'data-lazy-srcset', 'data-nectar-img-srcset' ];
+	var lazyBackgrounds = [ 'data-bg', 'data-bg-image', 'data-background', 'data-background-image', 'data-nectar-img-src' ];
+	// Lazy loaders keep the real image in a data attribute and swap it in with a script. Show the real image.
+	function hydrateLazyMedia( root, document, excluded ) {
+		var changed = 0, base = document.baseURI || '';
+		root.querySelectorAll( 'img' ).forEach( function ( image ) {
+			if ( image.closest( excluded ) || image.getAttribute( 'data-nova-static-media' ) === '1' ) { return; }
+			var current = image.getAttribute( 'src' ) || '', placeholder = ! current.trim() || /^data:/i.test( current ) || /(?:blank|placeholder|spacer|lazy)[^/]*\.(?:gif|png|svg)(?:$|\?)/i.test( current ), source = '';
+			if ( ! placeholder ) { return; }
+			lazySources.some( function ( name ) { source = mediaUrl( image.getAttribute( name ), base ); return !! source; } );
+			if ( ! source || /^data:/i.test( source ) ) { return; }
+			image.setAttribute( 'data-nova-static-media', '1' ); image.setAttribute( 'src', source ); changed++;
+			var set = ''; lazySourceSets.some( function ( name ) { set = image.getAttribute( name ) || ''; return !! set; } );
+			if ( set && /^(?:\s*https:\/\/[^\s,]+(?:\s+\d+(?:\.\d+)?[wx])?\s*)(?:,\s*https:\/\/[^\s,]+(?:\s+\d+(?:\.\d+)?[wx])?\s*)*$/.test( set ) ) { image.setAttribute( 'srcset', set ); } else if ( /^data:/i.test( image.getAttribute( 'srcset' ) || '' ) ) { image.removeAttribute( 'srcset' ); }
+		} );
+		root.querySelectorAll( lazyBackgrounds.map( function ( name ) { return ':not(img)[' + name + ']'; } ).join( ',' ) ).forEach( function ( element ) {
+			if ( element.closest( excluded ) || element.getAttribute( 'data-nova-static-media' ) === '1' || ( element.style.backgroundImage && element.style.backgroundImage !== 'none' ) ) { return; }
+			var source = ''; lazyBackgrounds.some( function ( name ) { source = mediaUrl( element.getAttribute( name ), base ); return !! source; } );
+			if ( ! source || /^data:/i.test( source ) ) { return; }
+			element.setAttribute( 'data-nova-static-media', '1' ); element.style.setProperty( 'background-image', 'url(' + JSON.stringify( source ) + ')' ); changed++;
 		} );
 		return changed;
 	}
@@ -147,9 +175,22 @@
 			if ( safeId.test( locator.dom_id || '' ) ) { owner = unique( document, '[id="' + locator.dom_id + '"]' ); }
 			else if ( safeId.test( locator.dom_class || '' ) ) { owner = unique( document, '.' + locator.dom_class ); }
 			if ( ! owner ) { return null; }
+		} else if ( strategy === 'shortcode' ) {
+			// The server marked each captured shortcode's rendered element for this preview only.
+			if ( ! /^[a-f0-9]{32}$/.test( locator.marker || '' ) ) { return null; }
+			var markedNodes = document.querySelectorAll( '[data-nova-preview-node~="' + locator.marker + '"]' ); if ( markedNodes.length !== 1 ) { return null; }
+			owner = markedNodes[0];
+			var part = { image_url: 'img', image_alt: 'img', heading: 'h1,h2,h3,h4,h5,h6', button_text: 'a,button', link_url: 'a' }[ locator.kind ];
+			if ( part ) { var parts = owner.matches( part ) ? [ owner ] : Array.from( owner.querySelectorAll( part ) ).filter( function ( candidate ) { return ! candidate.closest( '[data-nova-preview-node]' ) || candidate.closest( '[data-nova-preview-node]' ) === owner; } ); if ( parts.length === 1 ) { return { node: parts[0], owner: owner, precision: 'field' }; } }
+			return { node: owner, owner: owner, precision: 'widget' };
 		} else if ( strategy === 'core' ) {
-			selector = { title: '.entry-title', content: '.entry-content', name: '.woocommerce-products-header__title', description: '.term-description', bottom_content: '.wc-content-below-products' }[ control ];
-			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); } if ( ! owner || owner.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"]' ) ) { return null; }
+			selector = { title: '.entry-title', content: '.entry-content', name: '.woocommerce-products-header__title', description: '.term-description', bottom_content: '.wc-content-below-products', excerpt: '.wp-block-post-excerpt,.entry-summary,.post-excerpt', featured_image: '.wp-block-post-featured-image img,img.wp-post-image' }[ control ];
+			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
+			// Themes and builders print the title in their own markup; accept exactly one visible H1 with the same text.
+			if ( ! owner && control === 'title' && item.current_value && item.current_value.trim() ) {
+				var normalize = function ( text ) { return String( text || '' ).replace( /\s+/g, ' ' ).trim(); }, expected = normalize( item.current_value ), headings = Array.from( document.querySelectorAll( 'h1' ) ).filter( function ( heading ) { return normalize( heading.textContent ) === expected && ! heading.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"],[hidden],[aria-hidden="true"]' ); } );
+				owner = headings.length === 1 ? headings[0] : null;
+			} if ( ! owner || owner.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"]' ) ) { return null; }
 			if ( control === 'bottom_content' && ( config.referenceType !== 'term' || ! owner.closest( 'main,[role="main"],.woocommerce,.content,.site-content' ) ) ) { return null; }
 			return { node: owner, owner: owner, precision: [ 'content', 'description', 'bottom_content' ].includes( control ) ? 'region' : 'field' };
 		} else if ( strategy === 'native_anchor' ) {
@@ -188,11 +229,11 @@
 		}
 		function bind() {
 			prepareMedia( document, config, fields );
-			marked.forEach( function ( node ) { node.classList.remove( 'nrc-target', 'nrc-selected', 'nrc-assigned', 'nrc-protected' ); } ); marked.clear(); targets.clear(); containerTargets.clear();
-			var nodeFlags = new Map();
+			marked.forEach( function ( node ) { node.classList.remove( 'nrc-target', 'nrc-selected', 'nrc-assigned', 'nrc-protected', 'nrc-omitted' ); } ); marked.clear(); targets.clear(); containerTargets.clear();
+			var nodeFlags = new Map(), omittedOwners = new Set();
 			var htmlTargets = fields.some( function ( field ) { return field.locator.strategy === 'custom_html'; } ) ? customHtmlTargets( document ) : null;
-			var statuses = fields.map( function ( item ) { var target = locate( document, item, config, htmlTargets ), shown = !! ( target && visible( target.node, win ) ); if ( target ) { targets.set( item.id, target ); var flags = nodeFlags.get( target.node ) || { assigned: false, writable: false }; flags.assigned = flags.assigned || item.assigned; flags.writable = flags.writable || item.writable; nodeFlags.set( target.node, flags ); } return { field_id: item.id, target: item.target, visible: shown, precision: target ? target.precision : 'none', assigned: item.assigned, writable: item.writable, reason: ! target ? 'no_verified_locator' : ! shown ? 'not_visible_in_static_canvas' : '' }; } );
-			nodeFlags.forEach( function ( flags, node ) { mark( node, 'nrc-target', true ); mark( node, 'nrc-assigned', flags.assigned ); mark( node, 'nrc-protected', ! flags.writable ); } );
+			var statuses = fields.map( function ( item ) { var target = locate( document, item, config, htmlTargets ), shown = !! ( target && visible( target.node, win ) ); if ( target ) { targets.set( item.id, target ); if ( item.omitted ) { omittedOwners.add( target.owner ); } var flags = nodeFlags.get( target.node ) || { assigned: false, writable: false }; flags.assigned = flags.assigned || item.assigned; flags.writable = flags.writable || item.writable; nodeFlags.set( target.node, flags ); } return { field_id: item.id, target: item.target, visible: shown, precision: target ? target.precision : 'none', assigned: item.assigned, writable: item.writable, reason: ! target ? 'no_verified_locator' : ! shown ? 'not_visible_in_static_canvas' : '' }; } );
+			omittedOwners.forEach( function ( owner ) { mark( owner, 'nrc-omitted', true ); } ); nodeFlags.forEach( function ( flags, node ) { mark( node, 'nrc-target', true ); mark( node, 'nrc-assigned', flags.assigned ); mark( node, 'nrc-protected', ! flags.writable ); } );
 			var groupStatuses = containers.map( function ( item ) { var target = locate( document, item, config ); if ( target ) { containerTargets.set( item.id, target ); } return { container_id: item.id, target: item.target, visible: !! ( target && visible( target.node, win ) ), precision: target ? 'region' : 'none', assigned: item.assigned, writable: item.writable }; } );
 			highlight( targets.has( selected ) || containerTargets.has( selected ) ? selected : '', false ); var fingerprint = JSON.stringify( [ statuses, groupStatuses ] ); if ( fingerprint !== lastStatuses ) { lastStatuses = fingerprint; send( 'bindings', { fields: statuses, containers: groupStatuses, viewport: { width: win.innerWidth, height: win.innerHeight } } ); }
 		}
@@ -221,7 +262,7 @@
 		document.addEventListener( 'auxclick', function ( event ) { event.preventDefault(); event.stopImmediatePropagation(); }, true );
 		document.addEventListener( 'keydown', function ( event ) { if ( event.target && event.target.closest && event.target.closest( 'form,input,select,textarea,[contenteditable]' ) ) { event.preventDefault(); event.stopImmediatePropagation(); } }, true );
 		function init() {
-			ready = true; var style = document.createElement( 'style' ); style.textContent = '::highlight(nova-preview-selection){background:#ead4ff;color:#28103b}' + consent.split( ',' ).map( function ( selector ) { return 'html.nrc-hide-consent ' + selector; } ).join( ',' ) + '{display:none!important;visibility:hidden!important;pointer-events:none!important}html.nrc-consent-present,html.nrc-consent-present body{overflow:auto!important}.nrc-target{cursor:crosshair!important}.nrc-target:hover{outline:2px dashed #8511D9!important;outline-offset:3px}.nrc-assigned{outline:2px solid #2E9E50!important;outline-offset:3px}.nrc-protected{outline-style:dotted!important}.nrc-selected{outline:3px solid #8511D9!important;outline-offset:4px}.nrc-map-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:#f0ebf7;border:1px solid #d9c4ee;border-radius:8px;color:#242424;text-align:center;cursor:crosshair}.nrc-map-placeholder strong{font-size:20px}.nrc-map-placeholder p{margin:8px 0;font-size:14px}'; document.head.appendChild( style ); hideConsent(); prepareMedia( document, config, fields );
+			ready = true; var style = document.createElement( 'style' ); style.textContent = '::highlight(nova-preview-selection){background:#ead4ff;color:#28103b}.nrc-omitted{opacity:.35!important;outline:2px dashed #b42318!important;outline-offset:2px}' + consent.split( ',' ).map( function ( selector ) { return 'html.nrc-hide-consent ' + selector; } ).join( ',' ) + '{display:none!important;visibility:hidden!important;pointer-events:none!important}html.nrc-consent-present,html.nrc-consent-present body{overflow:auto!important}.nrc-target{cursor:crosshair!important}.nrc-target:hover{outline:2px dashed #8511D9!important;outline-offset:3px}.nrc-assigned{outline:2px solid #2E9E50!important;outline-offset:3px}.nrc-protected{outline-style:dotted!important}.nrc-selected{outline:3px solid #8511D9!important;outline-offset:4px}.nrc-map-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:#f0ebf7;border:1px solid #d9c4ee;border-radius:8px;color:#242424;text-align:center;cursor:crosshair}.nrc-map-placeholder strong{font-size:20px}.nrc-map-placeholder p{margin:8px 0;font-size:14px}'; document.head.appendChild( style ); hideConsent(); prepareMedia( document, config, fields );
 			send( 'ready', { limitations: [ 'Site scripts, forms, embedded frames and network requests are disabled in this canvas. It shows the rendered initial state; dynamic components can differ from the live page.' ], viewport: { width: win.innerWidth, height: win.innerHeight } } );
 			if ( win.MutationObserver ) { new win.MutationObserver( function ( changes ) { var significant = changes.some( function ( change ) { if ( change.type !== 'attributes' || change.attributeName !== 'class' ) { return true; } var strip = function ( classes ) { return String( classes || '' ).split( /\s+/ ).filter( function ( name ) { return name && ! name.startsWith( 'nrc-' ); } ).sort().join( ' ' ); }; return strip( change.oldValue ) !== strip( change.target.getAttribute( 'class' ) ); } ); if ( significant ) { schedule(); } } ).observe( document.body, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: [ 'class', 'id', 'style', 'hidden', 'aria-hidden', 'src' ] } ); }
 			if ( win.ResizeObserver ) { new win.ResizeObserver( schedule ).observe( document.body ); }

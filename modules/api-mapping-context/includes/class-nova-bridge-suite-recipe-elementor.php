@@ -270,7 +270,8 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                 if ( isset( $node['elements'] ) && $node['elements'] ) { $containers[] = $candidate( $base . '/elements', ( $node['settings']['_title'] ?? '' ) ?: $label, $node['elements'] ); }
                 $media_controls = Nova_Bridge_Suite_Elementor_Media_Controls::inventory( $node );
                 $visit = function ( $value, array $parts ) use ( &$visit, $blueprint, $base, $label, $node, $widget, $media_controls, &$fields, &$ordinals ) {
-                    if ( is_array( $value ) ) { foreach ( $value as $key => $child ) { $visit( $child, array_merge( $parts, [ $key ] ) ); } return; }
+                    // __dynamic__ and __globals__ are Elementor's internal maps of tags and global styles, not controls.
+                    if ( is_array( $value ) ) { foreach ( $value as $key => $child ) { if ( [] === $parts && is_string( $key ) && 0 === strpos( $key, '__' ) ) { continue; } $visit( $child, array_merge( $parts, [ $key ] ) ); } return; }
                     $target = $base . $this->pointer( array_merge( [ 'settings' ], $parts ) ); $key = (string) end( $parts ); $map_address = 'google_maps' === $widget && [ 'address' ] === $parts;
                     if ( ( ! $map_address && ! in_array( $key, [ 'title', 'editor', 'text', 'url', 'alt', 'caption', 'tab_title', 'tab_content' ], true ) ) || ! is_string( $value ) ) { return; }
                     $heading_title = 'heading' === $widget && [ 'title' ] === $parts;
@@ -289,9 +290,31 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                         $fields[count( $fields ) - 1]['native_media'] = [ 'kind' => 'elementor', 'url_target' => $target, 'id_target' => $base . $this->pointer( array_merge( [ 'settings' ], $media['id_path'] ) ) ];
                     }
                 }; $visit( $node['settings'], [] );
+                $this->describe_dynamic( $node, $base, $label, $fields );
             }, [], 0 );
             return [ 'blueprint' => $blueprint, 'fields' => $fields, 'containers' => $containers, 'reusable_blocks' => Nova_Bridge_Suite_Elementor_Reusable::inventory( $blueprint ), 'prototypes' => [], 'capabilities' => $this->capabilities(), 'warnings' => [ 'A captured native example does not declare repetition or semantic grouping. Select and review those regions explicitly.' ] ];
         } );
+    }
+    /** Dynamic tags that render this item's own WordPress fields, which can be mapped directly instead. */
+    private const DYNAMIC_SOURCES = [ 'post-title' => [ '/native_post/title', 'title', 'Title' ], 'post-excerpt' => [ '/native_post/excerpt', 'excerpt', 'Excerpt' ], 'post-featured-image' => [ '/native_post/featured_image', 'featured image', 'Featured image' ] ];
+    public static function dynamic_tag( $value ): string { return is_string( $value ) && preg_match( '/\[elementor-tag\b[^\]]*\sname="([a-zA-Z0-9_-]{1,80})"/', $value, $match ) ? $match[1] : ''; }
+    private function describe_dynamic( array $node, string $base, string $label, array &$fields ): void {
+        $dynamic = is_array( $node['settings']['__dynamic__'] ?? null ) ? $node['settings']['__dynamic__'] : [];
+        foreach ( $dynamic as $control => $value ) {
+            $tag = self::dynamic_tag( $value ); if ( ! is_string( $control ) || '' === $tag || ! preg_match( '/^[a-zA-Z0-9_-]{1,128}$/D', $control ) ) { continue; }
+            $source = self::DYNAMIC_SOURCES[ $tag ] ?? null;
+            $reason = $source ? 'Shows this page’s ' . $source[1] . ' through an Elementor dynamic tag. Map “' . $source[2] . '” under WordPress fields to change it.' : 'Filled by the Elementor dynamic tag “' . $tag . '”. Its source is managed outside this layout.';
+            $annotate = static function ( array $field ) use ( $tag, $source, $reason ): array { $field['dynamic'] = [ 'tag' => $tag, 'source' => $source[0] ?? '' ]; $field['writable'] = false; $field['protected'] = true; $field['reason'] = $reason; return $field; };
+            $matched = false;
+            foreach ( $fields as $index => $field ) {
+                if ( ( $field['node_target'] ?? '' ) === $base && ( $field['control_path'][1] ?? null ) === $control ) { $fields[ $index ] = $annotate( $field ); $matched = true; }
+            }
+            if ( $matched ) { continue; }
+            $safe_id = 1 === preg_match( '/^[a-zA-Z0-9_-]+$/D', (string) $node['id'] ); $widget = $node['widgetType'] ?? $node['elType'];
+            $fields[] = $annotate( [ 'target' => $base . $this->pointer( [ 'settings', $control ] ), 'label' => $label . ' · ' . ucwords( str_replace( '_', ' ', $control ) ), 'format' => 'text', 'kind' => $control, 'value' => '',
+                'native_node_id' => $node['id'], 'node_target' => $base, 'element_type' => $widget, 'control_path' => [ 'settings', $control ],
+                'locator' => [ 'strategy' => $safe_id ? 'elementor' : 'none', 'native_node_id' => $node['id'], 'anchor' => '', 'precision' => 'element', 'status' => $safe_id ? 'candidate' : 'unavailable', 'reason' => '' ] ] );
+        }
     }
     public function starter( string $mode = 'mixed' ): array {
         $widget = static function ( $id, $type, $settings ) { return [ 'id' => $id, 'elType' => 'widget', 'widgetType' => $type, 'settings' => $settings, 'elements' => [] ]; };

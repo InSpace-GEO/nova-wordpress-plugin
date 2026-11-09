@@ -1,5 +1,19 @@
 # Release verification
 
+## 1.2.0 candidate (local and staging)
+
+All 123 local suites passed. New suites cover WPBakery element definitions (attachment images, theme container elements, design-group and encoded content exclusions, packed links, heading-safe binding), image import targets, removed elements (source preservation, nested/duplicate/bound rejections, Gutenberg placeholders), native title and excerpt in test drafts and in saved-layout deliveries (sealed digests unchanged for layouts without the new choices), Elementor dynamic tags, preview markers, and the canvas handling of lazy images, entrance animations, shortcode markers and title text matching.
+
+Staging (WordPress 7.1.4, PHP 8.1.34, WPBakery 8.7.2, Elementor 4.1.4 with Pro 4.1.2) ran the candidate ZIP. WPBakery was activated for the review. A test-only must-use plugin registered two elements through `vc_map` that render the way commercial themes do (an animated image hidden until scripts run with its source in `data-lazy-src`, and a box with a `data-bg` background image); it stands in for commercial theme elements, which are not installed on staging.
+
+- WPBakery 8.7.2 element definitions were read under WP-CLI and in the layout editor. A page with WPBakery's own heading, text, Single Image, button and accordion plus the two test elements exposed 14 fields, including three media-library images; design, spacing and animation parameters stayed protected.
+- In the layout editor canvas, selecting the Single Image and the animated test image outlined each image. WPBakery's entrance-animated paragraph, the animated image and the lazy background were visible. Removing an element faded and outlined it in the canvas and marked its field "Removed from new pages".
+- A fixed WPBakery layout was saved locally only (no posting-service synchronization). A native test draft imported the mapped image as a new attachment, replaced the mapped heading, left out the removed elements and set WPBakery's editor state. The delivery compile and known-ID provider wrote a second item with the mapped native title and an imported image; provider verification passed and the rendered page contained no unrendered shortcodes. The local test profile was removed afterwards.
+- An Elementor page whose heading, text editor and image use the post-title, post-excerpt and post-featured-image dynamic tags listed each control once, protected, pointing to Title, Excerpt and Featured image. Selecting Title outlined the dynamic heading.
+- On a Gutenberg post, selecting Title outlined the theme's post title.
+
+Not verified on staging: a delivery from the remote posting service for a WPBakery layout (the review avoided synchronizing new templates to the connected test service), Avada and Divi 4 preview markers (those builders are inactive on staging), and commercial themes that extend WPBakery.
+
 ## 1.1.8 replacement candidate (local)
 
 All 119 local suites passed. Coverage exercises explicit switch confirmation, ordinary credential rotation, separate archived history, preservation of exact receipt bytes, rollback on archive/settings/commit failures, active-worker exclusion, old webhook rejection and suppression of retired deliveries after reconnecting. The replacement build also tests empty layout catalogs for a different service URL or site ID, independent layout saves and revisions, restoration on switching back, stale-editor rejection, new template creation, and delivery-profile approval when both services return identical template UUIDs and revision numbers. Local recipe revision 7 successfully maps to remote template revision 1. Existing delivery, mapping, layout and editor suites remain green.
