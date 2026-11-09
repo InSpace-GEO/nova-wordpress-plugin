@@ -25,6 +25,24 @@ foreach ( [ 'informative', 'service', 'category' ] as $kind ) {
 foreach ( [ '/normal/', '/lorem-ipsum-demo-service-copy/', '/lorem-ipsum-demo-services/', '/normal/?next=/lorem-ipsum-demo-category/', '/normal/#/lorem-ipsum-demo-informative/' ] as $path ) {
     check( ! Nova_Bridge_Suite_Publication_Policy::test_url( 'https://fixture.test' . $path ), 'Ordinary paths retain their publication policy.' );
 }
+foreach ( [ '/frozen-status/', '/lorem-ipsum-demo-service/' ] as $path ) {
+    reset_native();
+    [ $content, $configuration ] = fixture( 'core', 'page' );
+    $content['url'] = 'https://fixture.test' . $path;
+    $content['publication_status'] = 'draft';
+    $policy = ok( Nova_Bridge_Suite_Stored_Layout_Writer::policy( $content, $configuration ) );
+    check( $policy['routing']['publication'] === 'draft', 'Frozen draft overrides the create mapping.' );
+    $plan = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $configuration, [ 'operation_id' => op( 450 ) ] ) );
+    $saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 450 ) ) );
+    check( $saved['cms_post_status'] === 'draft', 'The stored-layout writer creates a frozen draft.' );
+    $posts[$saved['post_id']]->post_status = 'publish';
+    [ $content, $configuration ] = fixture( 'core', 'page', '502', 'publish' );
+    $content['url'] = 'https://fixture.test' . $path;
+    $content['publication_status'] = 'draft';
+    $plan = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $configuration, [ 'operation_id' => op( 451 ) ] ) );
+    $saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 451 ) ) );
+    check( $saved['cms_post_status'] === 'publish' && $inserts === 1, 'A frozen draft updates the existing live target without demotion.' );
+}
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-translation-writer.php';
 $test_content = [ 'url' => '/lorem-ipsum-demo-category/' ];
 check( Nova_Bridge_Suite_Translation_Writer::policy( $test_content, [] )->get_error_code() === 'nova_test_delivery_draft_unavailable', 'Shared translated test views are held before publication.' );

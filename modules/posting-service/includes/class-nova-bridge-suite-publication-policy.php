@@ -13,6 +13,17 @@ final class Nova_Bridge_Suite_Publication_Policy {
         return self::test_url( $content['url'] ?? null ) ? 'draft' : $configured;
     }
 
+    /** Apply frozen delivery intent while retaining the demo policy and live updates. */
+    public static function routing( string $configured, array $content, bool $creating ): string {
+        $status = $content['publication_status'] ?? null;
+        if ( ! is_string( $status ) || ! in_array( $status, [ 'draft', 'publish' ], true ) ) {
+            return self::publication( $content, $configured );
+        }
+        $status = self::publication( $content, $status );
+        if ( $creating ) { return $status; }
+        return 'publish' === $status ? 'publish' : 'preserve';
+    }
+
     public static function allows_shared_test( $provider ): bool {
         return is_array( $provider ) && 'weglot' === ( $provider['provider'] ?? '' );
     }

@@ -104,7 +104,7 @@ final class Nova_Bridge_Suite_Mapped_Writer {
         $delivery_identity = self::delivery_identity( $content, $context );
         $operation = $local['routing']['operation'] ?? '';
         if ( 'update' !== $operation || ( isset( $context['effective_operation'] ) && $context['effective_operation'] !== $operation ) || ( isset( $context['operation'] ) && $context['operation'] !== $operation ) ) { self::fail( 'operation', 'The worker operation differs from the approved local mapping.' ); }
-        $publication = Nova_Bridge_Suite_Publication_Policy::publication( $content, $local['routing']['publication'] ?? 'preserve' );
+        $publication = Nova_Bridge_Suite_Publication_Policy::routing( $local['routing']['publication'] ?? 'preserve', $content, false );
         if ( ! in_array( $publication, [ 'preserve', 'draft', 'publish' ], true ) ) { self::fail( 'publication', 'The approved publication policy is unsupported.' ); }
         $desired = 'preserve' === $publication ? $snapshot['post']['post_status'] : $publication;
         if ( ! in_array( $snapshot['post']['post_status'], [ 'publish', 'draft', 'private', 'pending', 'future' ], true ) || ! in_array( $desired, [ 'publish', 'draft', 'private', 'pending', 'future' ], true ) ) { self::fail( 'publication', 'This native post state is outside the direct writer scope.' ); }
