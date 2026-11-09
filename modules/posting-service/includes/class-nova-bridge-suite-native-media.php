@@ -14,6 +14,10 @@ final class Nova_Bridge_Suite_Native_Media {
         $parts = array_map( static function ( $part ) { return str_replace( [ '~1', '~0' ], [ '/', '~' ], $part ); }, explode( '/', substr( $target, strlen( '/document/' ) ) ) );
         return array_merge( [ 'elementor_data' ], $parts );
     }
+    private static function read( array $payload, array $path ) {
+        foreach ( $path as $part ) { if ( ! is_array( $payload ) || ! array_key_exists( $part, $payload ) ) { return null; } $payload = $payload[$part]; }
+        return $payload;
+    }
     private static function place( array &$payload, array $path, $value ): bool {
         $leaf = array_pop( $path ); $current =& $payload;
         foreach ( $path as $part ) { if ( ! is_array( $current ) || ! array_key_exists( $part, $current ) || ! is_array( $current[$part] ) ) { return false; } $current =& $current[$part]; }
@@ -21,7 +25,8 @@ final class Nova_Bridge_Suite_Native_Media {
         $current[$leaf] = $value; return true;
     }
     private static function shortcode_pointer( string $builder, string $target ): ?array {
-        if ( ! preg_match( '#^/document/(?:0|[1-9][0-9]*)(?:/children/(?:0|[1-9][0-9]*))*/attributes/[a-zA-Z_][a-zA-Z0-9_-]*$#D', $target ) ) { return null; }
+        $content = 'avada' === $builder && preg_match( '#^/document/(?:0|[1-9][0-9]*)(?:/children/(?:0|[1-9][0-9]*))*/text$#D', $target );
+        if ( ! $content && ! preg_match( '#^/document/(?:0|[1-9][0-9]*)(?:/children/(?:0|[1-9][0-9]*))*/attributes/[a-zA-Z_][a-zA-Z0-9_-]*$#D', $target ) ) { return null; }
         return array_merge( [ $builder . '_document' ], explode( '/', substr( $target, strlen( '/document/' ) ) ) );
     }
     public static function validate( string $builder, array $payload ) {
@@ -61,13 +66,13 @@ final class Nova_Bridge_Suite_Native_Media {
                 if ( $target !== ( $entry['id_target'] ?? null ) || empty( $field['writable'] ) || ( $field['native_media']['id_target'] ?? null ) !== $target ) {
                     return self::error( 'Only a captured Cornerstone image control can receive an imported image.' );
                 }
-            } elseif ( in_array( $builder, [ 'flatsome', 'enfold', 'wpbakery' ], true ) && $builder === ( $entry['kind'] ?? '' ) ) {
-                $id_target = $entry['id_target'] ?? null;
-                $binding_target = 'enfold' === $builder ? ( $entry['url_target'] ?? null ) : $id_target;
+            } elseif ( in_array( $builder, [ 'flatsome', 'enfold', 'wpbakery', 'avada' ], true ) && $builder === ( $entry['kind'] ?? '' ) ) {
+                $id_target = $entry['id_target'] ?? null; $paired = in_array( $builder, [ 'enfold', 'avada' ], true );
+                $binding_target = $paired ? ( $entry['url_target'] ?? null ) : $id_target;
                 if ( $target !== $binding_target || ! is_string( $id_target ) || ! ( $id_path = self::shortcode_pointer( $builder, $id_target ) ) ) { return self::error( 'The native shortcode image target is invalid.' ); }
                 $test = $payload;
                 if ( ! self::place( $test, $id_path, 0 ) ) { return self::error( 'The native shortcode image target no longer belongs to its captured layout.' ); }
-                if ( 'enfold' === $builder && ( ! ( $url_path = self::shortcode_pointer( $builder, $target ) ) || ! self::place( $test, $url_path, '' ) ) ) { return self::error( 'The native shortcode image URL target is invalid.' ); }
+                if ( $paired && ( ! ( $url_path = self::shortcode_pointer( $builder, $target ) ) || ! self::place( $test, $url_path, '' ) ) ) { return self::error( 'The native shortcode image URL target is invalid.' ); }
                 if ( null === $shortcode_fields ) {
                     require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-recipe-builders.php';
                     $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( $builder );
@@ -76,7 +81,7 @@ final class Nova_Bridge_Suite_Native_Media {
                     $shortcode_fields = array_column( $description['fields'] ?? [], null, 'target' );
                 }
                 $field = $shortcode_fields[$target] ?? []; $spec = $field['native_media'] ?? [];
-                if ( empty( $field['writable'] ) || ( $spec['kind'] ?? '' ) !== $builder || ( $spec['id_target'] ?? '' ) !== $id_target || ( 'enfold' === $builder && ( $spec['url_target'] ?? '' ) !== $target ) ) { return self::error( 'Only a captured native shortcode image control can receive an imported image.' ); }
+                if ( empty( $field['writable'] ) || ( $spec['kind'] ?? '' ) !== $builder || ( $spec['id_target'] ?? '' ) !== $id_target || ( $paired && ( $spec['url_target'] ?? '' ) !== $target ) ) { return self::error( 'Only a captured native shortcode image control can receive an imported image.' ); }
             } else { return self::error( 'This builder has no native handler for the selected image control.' ); }
         }
         return true;
@@ -116,6 +121,13 @@ final class Nova_Bridge_Suite_Native_Media {
                     Nova_Bridge_Suite_Recipe_Engine::put( $document, $entry['id_target'], $id ? $id . $size : '' );
                     $result['payload']['cornerstone_document'] = $document['document'];
                 }
+                elseif ( 'avada' === $entry['kind'] ) {
+                    // Avada stores "attachment|size"; keep the example's image size with the new attachment.
+                    $id_path = self::shortcode_pointer( $builder, $entry['id_target'] ); $old = self::read( $result['payload'], $id_path );
+                    $size = is_string( $old ) && preg_match( '/^[0-9]*(\|[a-zA-Z0-9_-]+)$/D', $old, $match ) ? $match[1] : '';
+                    self::place( $result['payload'], $id_path, $id ? $id . $size : '' );
+                    self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['url_target'] ), $id ? $url : '' );
+                }
                 elseif ( in_array( $entry['kind'], [ 'flatsome', 'enfold', 'wpbakery' ], true ) ) {
                     // WPBakery stores an empty image parameter when no attachment is selected.
                     self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['id_target'] ), 'wpbakery' === $entry['kind'] && ! $id ? '' : (string) $id );
@@ -124,8 +136,8 @@ final class Nova_Bridge_Suite_Native_Media {
                 else { self::place( $result['payload'], self::pointer( $entry['url_target'] ), $url ); self::place( $result['payload'], self::pointer( $entry['id_target'] ), $id ); }
             }
         } catch ( Throwable $error ) { return self::error( 'The native image result is not yet verified. Recover this same operation before continuing.' ); }
-        if ( 'wpbakery' === $builder && is_array( $result['payload']['wpbakery_document'] ?? null ) && function_exists( 'nova_mapping_wpb_compact_to_shortcodes' ) ) {
-            $result['payload']['layout']['raw_shortcodes'] = nova_mapping_wpb_compact_to_shortcodes( $result['payload']['wpbakery_document'] );
+        if ( in_array( $builder, [ 'wpbakery', 'avada' ], true ) && is_array( $result['payload'][ $builder . '_document' ] ?? null ) && function_exists( 'nova_mapping_wpb_compact_to_shortcodes' ) ) {
+            $result['payload']['layout']['raw_shortcodes'] = nova_mapping_wpb_compact_to_shortcodes( $result['payload'][ $builder . '_document' ] );
         }
         return $result;
     }

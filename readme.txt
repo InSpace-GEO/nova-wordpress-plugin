@@ -13,6 +13,7 @@ Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge
 
 = 1.2.1 =
 * WPBakery: themes that register their own image picker, such as Salient, now expose those images for mapping and import, along with links stored as plain text fields and heading text stored as an attribute.
+* Avada: map images in Image Frames, section and column backgrounds, content boxes and other elements that store a media-library image; deliveries import the supplied image. The text inside Avada elements such as content boxes can be mapped. Fixed Avada layouts can now publish deliveries.
 * Layout preview: content that themes keep hidden until their scripts run now appears, including animation wrappers, elements hidden with visibility, image layers built by scripts, and pages whose body classes mention a slider. Verified with Salient, Avada and Divi 4.
 
 = 1.2.0 =

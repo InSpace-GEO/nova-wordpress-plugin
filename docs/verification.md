@@ -2,7 +2,7 @@
 
 ## 1.2.1 candidate (local and staging lab)
 
-All 123 local suites passed, including new checks for theme image picker types, URL text fields, attribute text content, transparent animation wrappers, visibility-hidden animations, body-level "slider" classes and empty image layers.
+All 123 local suites passed, including new checks for Avada images, content and known-ID publishing, theme image picker types, URL text fields, attribute text content, transparent animation wrappers, visibility-hidden animations, body-level "slider" classes and empty image layers.
 
 A throwaway WordPress in its own directory and table prefix on staging ran Salient 18.4.4 with its bundled WPBakery 9.0.1 and Salient Core 3.1.11, Avada 7.15.6 with Fusion Builder 3.15.6, and Divi 4.27.9, one theme at a time.
 
@@ -10,7 +10,9 @@ A throwaway WordPress in its own directory and table prefix on staging ran Salie
 - Emulated delivery (no posting service): the stored-layout writer's plan, apply and finish ran with an in-memory delivery, then again with a second version for the same URL. The page was created and then updated in place; four images were imported each time; the mapped heading, rich text, link and native title were applied; two removed elements were absent; the public page rendered without unrendered shortcodes.
 - Avada and Divi 4: content hidden by entrance animations (visibility in Avada, opacity in Divi) was visible after preparation, and selecting a field outlined its element. In 1.2.0 Avada page content stayed hidden because a body class containing "slider" excluded all content.
 
-Not covered: the Avada Image Frame image itself is not offered for mapping (an existing limitation of the Avada adapter), and delivery through the remote posting service.
+- Avada images and publishing: a page with a section background, an Image Frame and two content boxes exposed all four images and the content-box text. Two emulated deliveries through the stored-layout writer imported three images as new attachments (keeping Avada's `|full` size), applied the heading, box text, link and native title, removed the second box, updated the same page in place and set Avada's builder status; the public page rendered the imported images without unrendered shortcodes.
+
+Not covered: delivery through the remote posting service.
 
 ## 1.2.0 candidate (local and staging)
 
