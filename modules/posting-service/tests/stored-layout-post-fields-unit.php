@@ -67,6 +67,19 @@ check( isset( $legacy['fields']['/title'] ) && ! array_key_exists( 'omissions', 
 $compiled = good( Stored::compile( $legacy, values( [ '/title' => 'Kop', '/document/2/text' => 'Body 2' ] ), 'op-2' ) );
 check( 'Hero|Example testimonial|Body 2' === $compiled['writer_payload']['content'] && 'Kop' === $compiled['post_fields']['title'], 'Existing layouts publish unchanged' );
 
+// An optional element the delivery leaves empty is dropped instead of published blank.
+$optional = $plain; $optional['recipe']['bindings'][] = [ 'id' => 'nova_role_quote_0000000000000004', 'target' => '/document/1/text', 'source' => '/quote', 'format' => 'text', 'required' => false, 'label' => 'Quote' ];
+$sealed = good( Stored::from_recipe( $optional ) );
+check( false === $sealed['fields']['/document/1/text']['required'] && ! array_key_exists( 'omissions', $sealed['stored_layout'] ), 'The optional element seals without changing the layout shape' );
+$compiled = good( Stored::compile( $sealed, values( [ '/title' => 'Kop', '/document/2/text' => 'Body 3' ] ), 'op-3' ) );
+check( 'Hero|Body 3' === $compiled['writer_payload']['content'], 'An unfilled optional element is removed' );
+$compiled = good( Stored::compile( $sealed, values( [ '/title' => 'Kop', '/document/2/text' => 'Body 3', '/document/1/text' => " \n " ] ), 'op-4' ) );
+check( 'Hero|Body 3' === $compiled['writer_payload']['content'], 'A whitespace-only optional value counts as unfilled' );
+$compiled = good( Stored::compile( $sealed, values( [ '/title' => 'Kop', '/document/2/text' => 'Body 3', '/document/1/text' => 'A real quote' ] ), 'op-5' ) );
+check( 'Hero|A real quote|Body 3' === $compiled['writer_payload']['content'], 'A filled optional element stays' );
+$compiled = good( Stored::compile( $legacy, values( [ '/title' => 'Kop', '/document/2/text' => '' ] ), 'op-6' ) );
+check( 'Hero|Example testimonial|' === $compiled['writer_payload']['content'], 'A required element is never removed' );
+
 $service = $record; $service['resource_id'] = 'post_type:service';
 check( is_wp_error( Stored::from_recipe( $service ) ), 'An excerpt cannot be mapped where the post type has no excerpt' );
 echo "Stored layout post field checks: {$checks} passed.\n";

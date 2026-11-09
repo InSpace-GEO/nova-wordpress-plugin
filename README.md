@@ -94,6 +94,8 @@ Elementor widgets that show the page title, excerpt or featured image through a 
 
 To leave an example element out of every generated page, select one of its fields and choose **Remove this element from new pages**. The whole element is removed, including its other fields; the example page itself is unchanged. Choosing a purpose for one of its fields keeps the element again. Removal is available for fixed builder layouts.
 
+In fixed builder layouts, an optional field that a delivery leaves empty (no text, or only whitespace) removes its element from that page instead of publishing it empty. If every field of an element is optional and empty, the element is left out; if any of its fields is filled, the element stays and only the empty parts are blank. A section, row or other container that is left with nothing to show is removed as well; separators and spacers on their own do not keep it. A grid column stays in place, empty, while its row still shows other content, so the remaining columns keep their widths. Required fields never remove their element. An optional image left empty keeps the example image, as before.
+
 The page preview outlines WPBakery, Avada and Divi 4 elements directly. It shows content that the site normally reveals with scripts, such as entrance animations and lazy-loaded images.
 
 ### Mapping SEO metadata
