@@ -21,7 +21,7 @@ function wp_set_current_user( $id ) { $GLOBALS['actor'] = $id; }
 require_once __DIR__ . '/posting-actor-worker-fixture.php';
 function get_post_status( $id ) { return class_exists( 'Contract_Test_Writer', false ) ? Contract_Test_Writer::$status : 'publish'; }
 function get_post_type( $id ) { return 'post'; }
-function get_permalink( $id ) { return 'https://native.fixture.invalid/2026/11/06/post-' . $id . '/'; }
+function get_permalink( $id ) { return $GLOBALS['fixture_permalink'] ?? 'https://native.fixture.invalid/2026/11/06/post-' . $id . '/'; }
 function get_sample_permalink( $id ) { return [ 'https://native.fixture.invalid/2026/11/06/%postname%/', 'post-' . $id ]; }
 foreach ( [ 'posting-client', 'posting-protocol', 'receipt-json', 'posting-discovery', 'posting-worker' ] as $file ) { require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-' . $file . '.php'; }
 require __DIR__ . '/contract-fixture.php';

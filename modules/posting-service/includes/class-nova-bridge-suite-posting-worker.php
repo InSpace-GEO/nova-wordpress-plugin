@@ -474,7 +474,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
             if ( is_wp_error( $job ) ) { return $job; }
             $publication_ref = $static_term ? $verified['publication_ref'] : 'wordpress:post:' . $verified['post_id'] . ';operation:' . $job['operation_id'];
             $evidence = [ 'published_at' => Nova_Bridge_Suite_Posting_Protocol::now(), 'publication_ref' => $publication_ref ];
-            $publication = self::publication_report( $snapshot, $verified, $static_term );
+            $publication = self::publication_report( $snapshot, $verified, $static_term, $job['payload']['native_writer'] ?? '', $job['payload']['plan'] ?? [] );
             if ( null !== $publication ) { $evidence['publication'] = $publication; }
             return $this->queue_event( $job, $snapshot, 'publication_succeeded', $evidence, 'complete' );
         } catch ( Throwable $error ) {
@@ -493,7 +493,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
      * Optional evidence: returns null instead of blocking success when WordPress cannot
      * give an absolute URL that matches the contract.
      */
-    private static function publication_report( array $snapshot, array $verified, bool $static_term ): ?array {
+    private static function publication_report( array $snapshot, array $verified, bool $static_term, string $writer = '', array $plan = [] ): ?array {
         try {
             if ( $static_term ) {
                 $term = get_term( (int) ( $verified['term_id'] ?? 0 ) );
@@ -505,6 +505,13 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 // get_permalink() gives the ?p= form for unpublished posts. Build their future URL the way the editor does.
                 $url = in_array( $cms_status, [ 'draft', 'pending', 'future', 'auto-draft' ], true ) ? self::sample_permalink( $id ) : get_permalink( $id );
                 $native = [ 'system' => 'wordpress', 'type' => (string) get_post_type( $id ), 'id' => (string) $id ];
+                // TranslatePress/Weglot translate the original in place: the verified post is the
+                // original, and its localized URL comes from the provider, as the writer checks at plan time.
+                if ( 'dictionary_translation' === $writer ) {
+                    if ( ! is_array( $plan['provider'] ?? null ) || ! is_string( $url ) ) { return null; }
+                    $localized = Nova_Bridge_Suite_Translation_Writer::translated_url( $plan['provider'], $url );
+                    $url = is_array( $localized ) ? ( $localized['identity'] ?? null ) : null;
+                }
             }
             if ( ! is_string( $url ) || ! is_string( $cms_status ) ) { return null; }
             $report = [ 'url' => $url, 'url_status' => 'publish' === $cms_status ? 'final' : 'provisional', 'cms_status' => $cms_status, 'native' => $native, 'observed_at' => Nova_Bridge_Suite_Posting_Protocol::now() ];
