@@ -1,5 +1,17 @@
 # Release verification
 
+## 1.2.1 candidate (local and staging lab)
+
+All 123 local suites passed, including new checks for theme image picker types, URL text fields, attribute text content, transparent animation wrappers, visibility-hidden animations, body-level "slider" classes and empty image layers.
+
+A throwaway WordPress in its own directory and table prefix on staging ran Salient 18.4.4 with its bundled WPBakery 9.0.1 and Salient Core 3.1.11, Avada 7.15.6 with Fusion Builder 3.15.6, and Divi 4.27.9, one theme at a time.
+
+- Salient: a page with an animated heading, row background, Image With Animation, two Fancy Box styles, buttons, highlighted text and toggles exposed 23 fields, including four media-library images. In 1.2.0 the Salient images were not offered because Salient uses its own `fws_image` parameter type. In the canvas, the animated heading, the lazy image, both Fancy Boxes and the row background were visible and selectable; in 1.2.0 the image and the parallax Fancy Box stayed blank.
+- Emulated delivery (no posting service): the stored-layout writer's plan, apply and finish ran with an in-memory delivery, then again with a second version for the same URL. The page was created and then updated in place; four images were imported each time; the mapped heading, rich text, link and native title were applied; two removed elements were absent; the public page rendered without unrendered shortcodes.
+- Avada and Divi 4: content hidden by entrance animations (visibility in Avada, opacity in Divi) was visible after preparation, and selecting a field outlined its element. In 1.2.0 Avada page content stayed hidden because a body class containing "slider" excluded all content.
+
+Not covered: the Avada Image Frame image itself is not offered for mapping (an existing limitation of the Avada adapter), and delivery through the remote posting service.
+
 ## 1.2.0 candidate (local and staging)
 
 All 123 local suites passed. New suites cover WPBakery element definitions (attachment images, theme container elements, design-group and encoded content exclusions, packed links, heading-safe binding), image import targets, removed elements (source preservation, nested/duplicate/bound rejections, Gutenberg placeholders), native title and excerpt in test drafts and in saved-layout deliveries (sealed digests unchanged for layouts without the new choices), Elementor dynamic tags, preview markers, and the canvas handling of lazy images, entrance animations, shortcode markers and title text matching.

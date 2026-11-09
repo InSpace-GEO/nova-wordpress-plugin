@@ -31,6 +31,17 @@ WPBMap::$map = [
     'nova_theme_heading' => [ 'name' => 'Split Line Heading', 'params' => [ [ 'type' => 'textarea_html', 'param_name' => 'content', 'heading' => 'Text Content' ] ] ],
     'nova_theme_toggles' => [ 'name' => 'Toggles', 'is_container' => true, 'params' => [] ],
     'nova_theme_toggle' => [ 'name' => 'Toggle', 'params' => [ [ 'type' => 'textfield', 'param_name' => 'title', 'heading' => 'Title', 'admin_label' => true ], [ 'type' => 'textarea_html', 'param_name' => 'content', 'heading' => 'Content' ] ] ],
+    // Themes register their own single-image picker types and plain text fields for links.
+    'nova_theme_picker' => [ 'name' => 'Theme Image', 'params' => [
+        [ 'type' => 'fws_image', 'param_name' => 'image_url', 'heading' => 'Image' ],
+        [ 'type' => 'fws_image', 'param_name' => 'mask_custom_image', 'heading' => 'Mask', 'group' => 'Mask' ],
+        [ 'type' => 'hotspot_image_preview', 'param_name' => 'preview', 'heading' => 'Preview' ],
+        [ 'type' => 'textfield', 'param_name' => 'img_link', 'heading' => 'Image link' ],
+        [ 'type' => 'textfield', 'param_name' => 'link_url', 'heading' => 'Link URL' ],
+        [ 'type' => 'textfield', 'param_name' => 'url', 'heading' => 'URL' ],
+        [ 'type' => 'textfield', 'param_name' => 'class', 'heading' => 'Class' ],
+        [ 'type' => 'textarea', 'param_name' => 'text_content', 'heading' => 'Text' ],
+    ] ],
     'nova_test_raw' => [ 'name' => 'Raw HTML', 'params' => [ [ 'type' => 'textarea_raw_html', 'param_name' => 'content', 'heading' => 'Raw HTML' ] ] ],
 ];
 $GLOBALS['attachments'] = [ 42 => 'https://fixture.example/wp-content/uploads/photo.jpg', 43 => 'https://fixture.example/wp-content/uploads/animated.jpg', 44 => 'https://fixture.example/wp-content/uploads/box.jpg', 45 => 'https://fixture.example/wp-content/uploads/fallback.jpg' ];
@@ -50,6 +61,7 @@ $content = '[vc_row][vc_column]' . "\n"
     . '[nova_theme_toggles][nova_theme_toggle title="Question?"]<p>Answer.</p>[/nova_theme_toggle][/nova_theme_toggles]' . "\n"
     . '[nova_test_raw]JTNDZGl2JTNFJTNDJTJGZGl2JTNFJTNDZGl2JTNFZXh0cmElM0MlMkZkaXYlM0U=[/nova_test_raw]' . "\n"
     . '[nova_unknown_box image="45"]<p>Fallback body.</p>[/nova_unknown_box]' . "\n"
+    . '[nova_theme_picker image_url="44" mask_custom_image="43" preview="44" img_link="" link_url="/plan/" url="not a link" class="x" text_content="Line reveal heading"][/nova_theme_picker]' . "\n"
     . '[/vc_column][/vc_row]';
 $GLOBALS['recipe_posts'][900] = (object) [ 'ID' => 900, 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Home', 'post_content' => $content, 'post_excerpt' => '' ];
 $GLOBALS['recipe_meta'][900] = [ '_wpb_post_custom_css' => '.x{color:red}' ];
@@ -68,6 +80,11 @@ recipe_assert( ! isset( $fields[ $base . '2/attributes/min_height' ] ) && ! isse
 recipe_assert( 'heading' === ( $fields[ $base . '3/text' ]['kind'] ?? '' ) && [ 'text', 'html' ] === ( $fields[ $base . '3/text' ]['allowed_formats'] ?? null ), 'Heading-only content is a heading field' );
 recipe_assert( isset( $fields[ $base . '4/children/0/attributes/title' ], $fields[ $base . '4/children/0/text' ] ), 'Fields inside a theme container element are found' );
 recipe_assert( ! isset( $fields[ $base . '5/text' ] ), 'Encoded raw HTML is never offered as editable content' );
+$picker = $base . '7/attributes/';
+recipe_assert( 'wpbakery' === ( $fields[ $picker . 'image_url' ]['native_media']['kind'] ?? '' ) && 'https://fixture.example/wp-content/uploads/box.jpg' === $fields[ $picker . 'image_url' ]['value'], 'A theme image picker type is an importable image' );
+recipe_assert( ! isset( $fields[ $picker . 'mask_custom_image' ] ) && ! isset( $fields[ $picker . 'preview' ] ) && ! isset( $fields[ $picker . 'class' ] ), 'Design-group pickers, previews and classes stay protected' );
+recipe_assert( 'url' === ( $fields[ $picker . 'img_link' ]['format'] ?? '' ) && 'url' === ( $fields[ $picker . 'link_url' ]['format'] ?? '' ) && ! isset( $fields[ $picker . 'url' ] ), 'Link text fields are URLs; a non-URL value stays protected' );
+recipe_assert( 'Line reveal heading' === ( $fields[ $picker . 'text_content' ]['value'] ?? '' ), 'Attribute text content is editable' );
 recipe_assert( isset( $fields[ $base . '6/attributes/image' ]['native_media'], $fields[ $base . '6/text' ] ), 'Elements without a definition still expose attachment images and body text' );
 
 // Binding keeps the heading tag and its styling; links keep the packed vc_link format.
