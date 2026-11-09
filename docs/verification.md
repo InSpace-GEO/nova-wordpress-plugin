@@ -1,5 +1,16 @@
 # Release verification
 
+## 1.2.2 candidate (local and staging)
+
+All local suites passed (the WordPress-install-only locale proof was skipped as before). New checks cover unfilled optional fields in fixed layouts: an unfilled WPBakery FAQ section is removed with its heading, separator and toggles; an emptied column stays beside a filled one; only unfilled questions are removed when others are filled; an element with any filled field stays; required fields never remove their element; whitespace-only and `&nbsp;` values count as unfilled; explicit removals and unfilled fields combine; Gutenberg groups, spacers and columns and Elementor sections, columns and dividers follow the same rule; and the saved-layout delivery path removes an unfilled optional element while existing layouts publish unchanged.
+
+Staging (WordPress with WPBakery 8.7.2 activated for the check) ran the candidate ZIP. Two example pages, one built with WPBakery's own heading, separator, accordion and two-column row and one with Gutenberg heading, group, separator, details and columns blocks, were captured, and each was mapped with a required intro, a required right column and optional FAQ heading, questions, answers and left column. Emulated deliveries (no posting service) ran through the stored-layout writer's plan, apply and finish as drafts:
+
+- With the FAQ fields and the left column unfilled, both pages were created without the FAQ section (heading, separator, accordion or details, and their example questions), and the empty left column stayed in its row beside the filled right column.
+- With the FAQ heading, the first question and answer and the left column filled, the heading, separator and first question were written and only the unfilled second question was left out.
+
+Not covered: delivery through the remote posting service, and updating an existing published page (the drafts used on staging cannot be updated in place by design).
+
 ## 1.2.1 candidate (local and staging lab)
 
 All 123 local suites passed, including new checks for Avada images, content and known-ID publishing, theme image picker types, URL text fields, attribute text content, transparent animation wrappers, visibility-hidden animations, body-level "slider" classes and empty image layers.

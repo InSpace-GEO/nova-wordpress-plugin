@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.1
+Stable tag: 1.2.2
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.2 =
+* Fixed builder layouts: when a delivery leaves an optional field empty, its element is now left out of the new page instead of being published empty. A section or container left with nothing to show (apart from separators and spacers) is left out too, for example an FAQ section whose questions were not filled. A grid column stays in place, empty, while its row still shows other content, so the remaining columns keep their widths. Required fields, and elements that still show any filled field, are never removed. An optional image left empty keeps the example image as before.
 
 = 1.2.1 =
 * WPBakery: themes that register their own image picker, such as Salient, now expose those images for mapping and import, along with links stored as plain text fields and heading text stored as an attribute.
