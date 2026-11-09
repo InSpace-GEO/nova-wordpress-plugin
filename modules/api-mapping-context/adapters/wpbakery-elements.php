@@ -10,7 +10,9 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 final class Nova_Mapping_WPBakery_Elements {
     /** Parameter groups that hold presentation rather than editorial content. */
-    private const DESIGN_GROUP = '/design|style|styling|animation|responsive|advanced|css|typograph|colou?r|effect|extra|hover|spacing/i';
+    private const DESIGN_GROUP = '/design|style|styling|animation|responsive|advanced|css|typograph|colou?r|effect|extra|hover|spacing|mask|shape|divider|position/i';
+    /** URL text parameters (themes often register links as plain text fields). */
+    private const URL_NAME = '/(?:^|_)(?:url|href|link)$/';
     private const EDITORIAL_NAME = '/^(?:text|title|sub_?title|heading|sub_?heading|button_?text|btn_text|link_text|label|caption|alt|alt_text|description|desc|name|quote|author|author_name|job|question|answer|tagline|highlight_text|price|cta_text|tab_title|text_[a-z0-9_]+|title_[a-z0-9_]+|heading_[a-z0-9_]+)$/';
     private const PRESENTATION_NAME = '/(?:colou?r|size|width|height|margin|padding|font|class|^id$|_id$|^el_|css|animation|delay|speed|offset|opacity|radius|icon|align|style|border|shadow|z_index|duration|spacing|columns?|gap|ratio|position_|_position$|target|rel$)/';
     private const IMAGE_NAME = '/^(?:image|images?_?url|image_id|img|img_id|img_url|bg_image|background_image|photo|picture|thumbnail|image_src|media|logo|icon_image)$/';
@@ -64,9 +66,13 @@ final class Nova_Mapping_WPBakery_Elements {
             }
             if ( ! array_key_exists( $name, $attributes ) || ! is_string( $attributes[ $name ] ) ) { continue; }
             $value = $attributes[ $name ];
-            if ( 'attach_image' === $type ) { $image = self::image( $name, $value, $label ); if ( $image ) { $fields[] = $image; } continue; }
+            // WPBakery's attach_image and the single-image picker types that themes register (for example fws_image).
+            if ( 'attach_image' === $type || ( preg_match( '/image/i', $type ) && ! preg_match( '/images|gallery|preview|hotspot/i', $type ) ) ) { $image = self::image( $name, $value, $label ); if ( $image ) { $fields[] = $image; } continue; }
             if ( 'vc_link' === $type ) { $fields[] = [ 'suffix' => '/attributes/' . $name, 'format' => 'url', 'kind' => 'link_url', 'label' => $label, 'packed_link' => true ]; continue; }
             if ( 'href' === $type ) { $fields[] = [ 'suffix' => '/attributes/' . $name, 'format' => 'url', 'kind' => 'link_url', 'label' => $label ]; continue; }
+            if ( 'textfield' === $type && preg_match( self::URL_NAME, $name ) && ( '' === $value || preg_match( '~^(?:https?://|/|#|mailto:|tel:)~i', $value ) ) ) {
+                $fields[] = [ 'suffix' => '/attributes/' . $name, 'format' => 'url', 'kind' => 'link_url', 'label' => $label ]; continue;
+            }
             if ( in_array( $type, [ 'textfield', 'textarea' ], true ) ) {
                 $editorial = preg_match( self::EDITORIAL_NAME, $name ) || ( ! empty( $param['admin_label'] ) && ! preg_match( self::PRESENTATION_NAME, $name ) );
                 if ( $editorial ) {

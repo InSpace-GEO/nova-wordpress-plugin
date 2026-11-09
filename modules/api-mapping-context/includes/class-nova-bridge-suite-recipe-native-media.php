@@ -58,6 +58,9 @@ final class Nova_Bridge_Suite_Recipe_Native_Media {
             if ( ( 'elementor' === $kind || ( 'enfold' === $kind && $adapter instanceof Nova_Bridge_Suite_Recipe_Enfold ) ) && ( $spec['url_target'] ?? '' ) === $binding['target'] ) {
                 return [ 'kind' => $kind, 'url_target' => $spec['url_target'], 'id_target' => $spec['id_target'] ];
             }
+            if ( 'avada' === $kind && ( $spec['url_target'] ?? '' ) === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Native_Adapter ) {
+                return [ 'kind' => 'avada', 'url_target' => $spec['url_target'], 'id_target' => $spec['id_target'] ];
+            }
             if ( 'wpbakery' === $kind && $spec['id_target'] === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Native_Adapter ) {
                 return [ 'kind' => 'wpbakery', 'id_target' => $spec['id_target'] ];
             }

@@ -49,23 +49,29 @@
 			changed += hydrateLazyMedia( main, document, excluded );
 			// Builders and themes hide entrance-animated content until their scripts run; those scripts are disabled here.
 			main.querySelectorAll( reveal ).forEach( function ( item ) {
-				if ( item.closest( excluded ) || item.closest( sliders ) || item.getAttribute( 'data-nova-static-reveal' ) === '1' ) { return; }
+				// Only carousels inside the content count; themes also put words like "slider" in body classes.
+				var inSlider = function ( node ) { var slider = node.closest( sliders ); return !! slider && slider !== main && main.contains( slider ); };
+				if ( item.closest( excluded ) || inSlider( item ) || item.getAttribute( 'data-nova-static-reveal' ) === '1' ) { return; }
 				for ( var parent = item.parentElement; parent && parent !== main; parent = parent.parentElement ) {
 					var parentStyle = win.getComputedStyle( parent ); if ( parentStyle.display === 'none' || parentStyle.visibility === 'hidden' ) { return; }
 				}
 				var style = win.getComputedStyle( item );
 				if ( style.display === 'none' || ( style.opacity !== '0' && style.visibility !== 'hidden' ) ) { return; }
-				item.setAttribute( 'data-nova-static-reveal', '1' );
-				[ [ 'opacity', '1' ], [ 'visibility', 'visible' ], [ 'transform', 'none' ], [ 'animation', 'none' ], [ 'transition', 'none' ] ].forEach( function ( rule ) { item.style.setProperty( rule[0], rule[1], 'important' ); } ); changed++;
+				var show = function ( node ) { node.setAttribute( 'data-nova-static-reveal', '1' ); [ [ 'opacity', '1' ], [ 'visibility', 'visible' ], [ 'transform', 'none' ], [ 'animation', 'none' ], [ 'transition', 'none' ] ].forEach( function ( rule ) { node.style.setProperty( rule[0], rule[1], 'important' ); } ); changed++; };
+				show( item );
+				// Animation wrappers around the element are transparent until the same scripts run.
+				for ( var wrapper = item.parentElement; wrapper && wrapper !== main; wrapper = wrapper.parentElement ) {
+					if ( wrapper.getAttribute( 'data-nova-static-reveal' ) !== '1' && ! inSlider( wrapper ) && win.getComputedStyle( wrapper ).opacity === '0' ) { show( wrapper ); }
+				}
 			} );
 		} );
 		return changed;
 	}
-	var reveal = '[data-scroll],[data-aos],.wow,[data-animation],[data-animate],[data-sr],[class*="anim"],[class*="reveal"],[class*="fade"],[class*="appear"],[class*="lazy"]';
+	var reveal = '[data-scroll],[data-aos],.wow,[data-animation],[data-animation-type],[data-animationtype],[data-animation_type],[class*="invisible"],[data-animate],[data-reveal],[data-sal],[data-sr],[class*="anim"],[class*="reveal"],[class*="fade"],[class*="appear"],[class*="lazy"]';
 	var sliders = '.swiper,.swiper-container,.slick-track,.owl-stage,.flickity-slider,[class*="carousel"],[class*="slider"]';
 	var lazySources = [ 'data-src', 'data-lazy-src', 'data-original', 'data-lazy', 'data-ll-src', 'data-nectar-img-src' ];
 	var lazySourceSets = [ 'data-srcset', 'data-lazy-srcset', 'data-nectar-img-srcset' ];
-	var lazyBackgrounds = [ 'data-bg', 'data-bg-image', 'data-background', 'data-background-image', 'data-nectar-img-src' ];
+	var lazyBackgrounds = [ 'data-bg', 'data-bg-image', 'data-background', 'data-background-image', 'data-nectar-img-src', 'data-img' ];
 	// Lazy loaders keep the real image in a data attribute and swap it in with a script. Show the real image.
 	function hydrateLazyMedia( root, document, excluded ) {
 		var changed = 0, base = document.baseURI || '';
@@ -83,7 +89,14 @@
 			if ( element.closest( excluded ) || element.getAttribute( 'data-nova-static-media' ) === '1' || ( element.style.backgroundImage && element.style.backgroundImage !== 'none' ) ) { return; }
 			var source = ''; lazyBackgrounds.some( function ( name ) { source = mediaUrl( element.getAttribute( name ), base ); return !! source; } );
 			if ( ! source || /^data:/i.test( source ) ) { return; }
-			element.setAttribute( 'data-nova-static-media', '1' ); element.style.setProperty( 'background-image', 'url(' + JSON.stringify( source ) + ')' ); changed++;
+			// An empty image layer is sized by the disabled script; paint its sized container instead.
+			var target = element;
+			if ( ! element.children.length && ! element.textContent.trim() && element.getBoundingClientRect && ! element.getBoundingClientRect().height ) {
+				for ( var parent = element.parentElement; parent && parent !== root.parentElement; parent = parent.parentElement ) { if ( parent.getBoundingClientRect().height ) { target = parent; break; } }
+			}
+			element.setAttribute( 'data-nova-static-media', '1' ); target.style.setProperty( 'background-image', 'url(' + JSON.stringify( source ) + ')' );
+			if ( target !== element ) { target.style.setProperty( 'background-size', 'cover' ); target.style.setProperty( 'background-position', 'center' ); }
+			changed++;
 		} );
 		return changed;
 	}

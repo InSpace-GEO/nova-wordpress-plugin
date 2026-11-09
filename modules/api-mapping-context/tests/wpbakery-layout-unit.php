@@ -31,6 +31,17 @@ WPBMap::$map = [
     'nova_theme_heading' => [ 'name' => 'Split Line Heading', 'params' => [ [ 'type' => 'textarea_html', 'param_name' => 'content', 'heading' => 'Text Content' ] ] ],
     'nova_theme_toggles' => [ 'name' => 'Toggles', 'is_container' => true, 'params' => [] ],
     'nova_theme_toggle' => [ 'name' => 'Toggle', 'params' => [ [ 'type' => 'textfield', 'param_name' => 'title', 'heading' => 'Title', 'admin_label' => true ], [ 'type' => 'textarea_html', 'param_name' => 'content', 'heading' => 'Content' ] ] ],
+    // Themes register their own single-image picker types and plain text fields for links.
+    'nova_theme_picker' => [ 'name' => 'Theme Image', 'params' => [
+        [ 'type' => 'fws_image', 'param_name' => 'image_url', 'heading' => 'Image' ],
+        [ 'type' => 'fws_image', 'param_name' => 'mask_custom_image', 'heading' => 'Mask', 'group' => 'Mask' ],
+        [ 'type' => 'hotspot_image_preview', 'param_name' => 'preview', 'heading' => 'Preview' ],
+        [ 'type' => 'textfield', 'param_name' => 'img_link', 'heading' => 'Image link' ],
+        [ 'type' => 'textfield', 'param_name' => 'link_url', 'heading' => 'Link URL' ],
+        [ 'type' => 'textfield', 'param_name' => 'url', 'heading' => 'URL' ],
+        [ 'type' => 'textfield', 'param_name' => 'class', 'heading' => 'Class' ],
+        [ 'type' => 'textarea', 'param_name' => 'text_content', 'heading' => 'Text' ],
+    ] ],
     'nova_test_raw' => [ 'name' => 'Raw HTML', 'params' => [ [ 'type' => 'textarea_raw_html', 'param_name' => 'content', 'heading' => 'Raw HTML' ] ] ],
 ];
 $GLOBALS['attachments'] = [ 42 => 'https://fixture.example/wp-content/uploads/photo.jpg', 43 => 'https://fixture.example/wp-content/uploads/animated.jpg', 44 => 'https://fixture.example/wp-content/uploads/box.jpg', 45 => 'https://fixture.example/wp-content/uploads/fallback.jpg' ];
@@ -50,6 +61,7 @@ $content = '[vc_row][vc_column]' . "\n"
     . '[nova_theme_toggles][nova_theme_toggle title="Question?"]<p>Answer.</p>[/nova_theme_toggle][/nova_theme_toggles]' . "\n"
     . '[nova_test_raw]JTNDZGl2JTNFJTNDJTJGZGl2JTNFJTNDZGl2JTNFZXh0cmElM0MlMkZkaXYlM0U=[/nova_test_raw]' . "\n"
     . '[nova_unknown_box image="45"]<p>Fallback body.</p>[/nova_unknown_box]' . "\n"
+    . '[nova_theme_picker image_url="44" mask_custom_image="43" preview="44" img_link="" link_url="/plan/" url="not a link" class="x" text_content="Line reveal heading"][/nova_theme_picker]' . "\n"
     . '[/vc_column][/vc_row]';
 $GLOBALS['recipe_posts'][900] = (object) [ 'ID' => 900, 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Home', 'post_content' => $content, 'post_excerpt' => '' ];
 $GLOBALS['recipe_meta'][900] = [ '_wpb_post_custom_css' => '.x{color:red}' ];
@@ -68,6 +80,11 @@ recipe_assert( ! isset( $fields[ $base . '2/attributes/min_height' ] ) && ! isse
 recipe_assert( 'heading' === ( $fields[ $base . '3/text' ]['kind'] ?? '' ) && [ 'text', 'html' ] === ( $fields[ $base . '3/text' ]['allowed_formats'] ?? null ), 'Heading-only content is a heading field' );
 recipe_assert( isset( $fields[ $base . '4/children/0/attributes/title' ], $fields[ $base . '4/children/0/text' ] ), 'Fields inside a theme container element are found' );
 recipe_assert( ! isset( $fields[ $base . '5/text' ] ), 'Encoded raw HTML is never offered as editable content' );
+$picker = $base . '7/attributes/';
+recipe_assert( 'wpbakery' === ( $fields[ $picker . 'image_url' ]['native_media']['kind'] ?? '' ) && 'https://fixture.example/wp-content/uploads/box.jpg' === $fields[ $picker . 'image_url' ]['value'], 'A theme image picker type is an importable image' );
+recipe_assert( ! isset( $fields[ $picker . 'mask_custom_image' ] ) && ! isset( $fields[ $picker . 'preview' ] ) && ! isset( $fields[ $picker . 'class' ] ), 'Design-group pickers, previews and classes stay protected' );
+recipe_assert( 'url' === ( $fields[ $picker . 'img_link' ]['format'] ?? '' ) && 'url' === ( $fields[ $picker . 'link_url' ]['format'] ?? '' ) && ! isset( $fields[ $picker . 'url' ] ), 'Link text fields are URLs; a non-URL value stays protected' );
+recipe_assert( 'Line reveal heading' === ( $fields[ $picker . 'text_content' ]['value'] ?? '' ), 'Attribute text content is editable' );
 recipe_assert( isset( $fields[ $base . '6/attributes/image' ]['native_media'], $fields[ $base . '6/text' ] ), 'Elements without a definition still expose attachment images and body text' );
 
 // Binding keeps the heading tag and its styling; links keep the packed vc_link format.
@@ -147,7 +164,7 @@ $GLOBALS['recipe_posts'][901] = (object) [ 'ID' => 901, 'post_type' => 'page', '
 $GLOBALS['recipe_meta'][901] = [];
 $payload = $compiled['writer_payload'];
 recipe_assert( true === $adapter->publication_support( 'page' )['supported'], 'WPBakery has a publishing provider' );
-recipe_assert( false === Nova_Bridge_Suite_Recipe_Builders::adapter( 'avada' )->publication_support( 'page' )['supported'], 'Other shortcode builders still report no provider' );
+recipe_assert( false === Nova_Bridge_Suite_Recipe_Builders::adapter( 'divi4' )->publication_support( 'page' )['supported'], 'Other shortcode builders still report no provider' );
 recipe_assert( 'wpbakery-shortcodes-v1' === recipe_ok( $adapter->publication_probe( 'page', $payload, 'publish' ), 'Probe' )['provider_version'], 'The provider version is stable' );
 recipe_ok( $adapter->publication_apply( 901, $payload, [ 'title' => 'Page title', 'excerpt' => 'Short summary' ] ), 'A WPBakery page is written by known ID' );
 recipe_assert( $payload['layout']['raw_shortcodes'] === $GLOBALS['recipe_posts'][901]->post_content && 'Page title' === $GLOBALS['recipe_posts'][901]->post_title && 'Short summary' === $GLOBALS['recipe_posts'][901]->post_excerpt, 'Content, title and excerpt are saved' );
@@ -159,4 +176,46 @@ recipe_assert( is_wp_error( $adapter->publication_verify( 901, $payload ) ), 'A 
 $bad = $payload; $bad['meta']['_edit_lock'] = '1'; recipe_assert( is_wp_error( $adapter->publication_probe( 'page', $bad, 'publish' ) ), 'Protected metadata is refused' );
 $GLOBALS['recipe_meta'][902] = [ '_elementor_edit_mode' => 'builder' ]; $GLOBALS['recipe_posts'][902] = (object) [ 'ID' => 902, 'post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Other', 'post_content' => '', 'post_excerpt' => '' ];
 recipe_assert( is_wp_error( $adapter->publication_apply( 902, $payload, [ 'title' => 'x' ] ) ), 'An item owned by another builder is not overwritten' );
-echo 'WPBakery layout checks: ' . ( $assertions - $before ) . " passed.\n";
+
+// Avada: an image is its URL (attribute or Image Frame content) plus a companion "attachment|size" attribute.
+if ( ! defined( 'FUSION_BUILDER_VERSION' ) ) { define( 'FUSION_BUILDER_VERSION', '3.15.6' ); }
+$avada_content = '[fusion_builder_container background_image="https://fixture.example/wp-content/uploads/box.jpg" background_image_id="44|full" element_id="hero"][fusion_builder_row][fusion_builder_column type="1_1"]'
+    . '[fusion_title size="1"]Avada heading[/fusion_title]'
+    . '[fusion_imageframe image_id="42|medium" alt="Photo"]https://fixture.example/wp-content/uploads/photo.jpg[/fusion_imageframe]'
+    . '[fusion_imageframe image_id="" alt="External"]https://cdn.example.test/external.jpg[/fusion_imageframe]'
+    . '[fusion_content_boxes][fusion_content_box title="Box" image="https://fixture.example/wp-content/uploads/animated.jpg" image_id="43" hover_id="5"]<p>Box body</p>[/fusion_content_box][/fusion_content_boxes]'
+    . '[fusion_imageframe image_id="999|full"]https://fixture.example/wp-content/uploads/missing.jpg[/fusion_imageframe]'
+    . '[/fusion_builder_column][/fusion_builder_row][/fusion_builder_container]';
+$GLOBALS['recipe_posts'][910] = (object) [ 'ID' => 910, 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Avada', 'post_content' => $avada_content, 'post_excerpt' => '' ];
+$GLOBALS['recipe_meta'][910] = [];
+$avada = Nova_Bridge_Suite_Recipe_Builders::adapter( 'avada' );
+$avada_capture = recipe_ok( $avada->capture( 910 ), 'An Avada page is captured' );
+$avada_fields = array_column( $avada_capture['fields'], null, 'target' );
+$col = '/document/0/children/0/children/0/children/';
+$expect_media = static function ( $target, $id_target, $url ) use ( $avada_fields ) { $field = $avada_fields[ $target ] ?? []; return 'avada' === ( $field['native_media']['kind'] ?? '' ) && $id_target === $field['native_media']['id_target'] && $target === $field['native_media']['url_target'] && $url === $field['value'] && 'image_url' === $field['kind'] && ! empty( $field['writable'] ); };
+recipe_assert( $expect_media( '/document/0/attributes/background_image', '/document/0/attributes/background_image_id', 'https://fixture.example/wp-content/uploads/box.jpg' ), 'An Avada container background image is importable' );
+recipe_assert( $expect_media( $col . '1/text', $col . '1/attributes/image_id', 'https://fixture.example/wp-content/uploads/photo.jpg' ), 'An Avada Image Frame image (stored as content) is importable' );
+recipe_assert( $expect_media( $col . '2/text', $col . '2/attributes/image_id', 'https://cdn.example.test/external.jpg' ), 'An external Avada image without an attachment can receive an imported image' );
+recipe_assert( $expect_media( $col . '3/children/0/attributes/image', $col . '3/children/0/attributes/image_id', 'https://fixture.example/wp-content/uploads/animated.jpg' ), 'An Avada content box image is importable' );
+recipe_assert( 'html' === ( $avada_fields[ $col . '3/children/0/text' ]['format'] ?? '' ) && ! isset( $avada_fields[ $col . '1/attributes/text' ] ), 'Avada element content is editable; an Image Frame source is not text' );
+recipe_assert( ! isset( $avada_fields[ $col . '4/text' ] ) && ! isset( $avada_fields[ $col . '3/children/0/attributes/hover' ] ), 'A missing attachment and unrelated "_id" attributes are not images' );
+recipe_assert( 1 === count( array_filter( array_keys( $avada_fields ), static function ( $target ) { return '/document/0/attributes/background_image' === $target; } ) ), 'Each Avada image is listed once' );
+$avada_spec = Nova_Bridge_Suite_Recipe_Native_Media::spec( $avada_capture['blueprint'], [ 'target' => $col . '1/text', 'format' => 'url', 'native_media' => true ], $avada );
+recipe_assert( [ 'kind' => 'avada', 'url_target' => $col . '1/text', 'id_target' => $col . '1/attributes/image_id' ] === $avada_spec, 'The Avada image import contract names both targets' );
+$avada_recipe = [ 'format' => 'nova-layout-recipe/v1', 'builder' => 'avada', 'mode' => 'static', 'blueprint' => $avada_capture['blueprint'], 'regions' => [], 'bindings' => [
+    [ 'target' => $col . '0/text', 'source' => '/title', 'format' => 'html', 'required' => true ],
+    [ 'target' => $col . '1/text', 'source' => '/image_url', 'format' => 'url', 'required' => false, 'native_media' => true ],
+], 'omissions' => [ [ 'target' => $col . '2' ] ] ];
+$avada_compiled = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $avada_recipe, [ 'title' => 'New Avada heading', 'image_url' => 'https://images.example.test/new.jpg' ], 'avada-check' ), 'An Avada layout with an image binding compiles' );
+recipe_assert( [ 'kind' => 'avada', 'url_target' => $col . '1/text', 'id_target' => $col . '1/attributes/image_id', 'url' => 'https://images.example.test/new.jpg' ] === ( $avada_compiled['writer_payload']['nova_media'][ $col . '1/text' ] ?? null ), 'The compiled Avada payload carries the image import' );
+recipe_assert( false === strpos( $avada_compiled['writer_payload']['layout']['raw_shortcodes'], 'external.jpg' ) && false !== strpos( $avada_compiled['writer_payload']['layout']['raw_shortcodes'], 'New Avada heading' ), 'Avada elements can be removed and mapped' );
+$GLOBALS['recipe_posts'][911] = (object) [ 'ID' => 911, 'post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Draft', 'post_content' => '', 'post_excerpt' => '' ];
+$GLOBALS['recipe_meta'][911] = [];
+$avada_payload = $avada_compiled['writer_payload']; unset( $avada_payload['nova_media'] );
+recipe_assert( true === $avada->publication_support( 'page' )['supported'] && 'avada-shortcodes-v1' === recipe_ok( $avada->publication_probe( 'page', $avada_payload, 'publish' ), 'Avada probe' )['provider_version'], 'Avada has a publishing provider' );
+recipe_ok( $avada->publication_apply( 911, $avada_payload, [ 'title' => 'Avada page' ] ), 'An Avada page is written by known ID' );
+$written = $GLOBALS['recipe_posts'][911]->post_content;
+recipe_assert( $avada_payload['layout']['raw_shortcodes'] === $written && 'active' === $GLOBALS['recipe_meta'][911]['_fusion_builder_status'] && $written === $GLOBALS['recipe_meta'][911]['_fusion_builder_shortcodes'] && $written === $GLOBALS['recipe_meta'][911]['_fusion_builder_content'], 'The Avada document and builder state are saved as the draft writer saves them' );
+$GLOBALS['recipe_meta'][911]['_fusion_builder_shortcodes'] = 'stale';
+recipe_assert( is_wp_error( $avada->publication_verify( 911, $avada_payload ) ), 'Stale Avada builder state fails verification' );
+echo 'WPBakery and Avada layout checks: ' . ( $assertions - $before ) . " passed.\n";

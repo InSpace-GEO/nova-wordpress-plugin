@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.1 =
+* WPBakery: themes that register their own image picker, such as Salient, now expose those images for mapping and import, along with links stored as plain text fields and heading text stored as an attribute.
+* Avada: map images in Image Frames, section and column backgrounds, content boxes and other elements that store a media-library image; deliveries import the supplied image. The text inside Avada elements such as content boxes can be mapped. Fixed Avada layouts can now publish deliveries.
+* Layout preview: content that themes keep hidden until their scripts run now appears, including animation wrappers, elements hidden with visibility, image layers built by scripts, and pages whose body classes mention a slider. Verified with Salient, Avada and Divi 4.
 
 = 1.2.0 =
 * WPBakery: map images stored in the media library and the text, rich content and links of elements added by themes and add-ons. Fixed WPBakery layouts can now publish deliveries. Design settings stay protected.

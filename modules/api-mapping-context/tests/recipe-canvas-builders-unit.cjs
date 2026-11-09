@@ -12,6 +12,7 @@ function element(tag, attrs = {}, css = {}, parent = null) {
     setAttribute(key, value) { node.attrs[key] = String(value); }, removeAttribute(key) { delete node.attrs[key]; },
     closest(selector) { if (node.excluded && /nav|header|footer|hidden/.test(selector)) { return node; } return node.parentElement ? node.parentElement.closest(selector) : null; },
     matches(selector) { return (node.matchList || []).includes(selector); },
+    contains(other) { for (let n = other; n; n = n.parentElement) { if (n === node) { return true; } } return false; },
     querySelectorAll(selector) { return node.selectors.get(selector) || []; },
     getBoundingClientRect: () => ({width: 1200, height: 800}), getClientRects: () => [1], clientHeight: 800, scrollHeight: 800};
   if (parent) { parent.children.push(node); }
@@ -25,6 +26,7 @@ const box = element('div', {'data-nectar-img-src': 'https://site.test/wp-content
 const animated = element('img', {class: 'img-with-animation'}, {opacity: '0', display: 'block'}, main);
 const slide = element('div', {class: 'carousel-fade'}, {opacity: '0', display: 'block'}, main);
 slide.closest = selector => /carousel/.test(selector) ? slide : null;
+animated.closest = selector => /carousel|slider/.test(selector) ? body : null;
 main.selectors.set('img', [lazy, real, unsafe, animated]);
 main.querySelectorAll = selector => selector === 'img' ? [lazy, real, unsafe, animated] : /data-nectar-img-src/.test(selector) && selector.startsWith(':not(img)') ? [box] : /\[class\*="anim"\]/.test(selector) ? [animated, slide] : [];
 const doc = {documentElement: html, body, baseURI: 'https://site.test/page/', querySelectorAll: () => [main]};
@@ -61,4 +63,18 @@ check(canvas.locate(titleDoc, title, config).node === h1, 'The native title outl
 check(canvas.locate({querySelectorAll: selector => selector === 'h1' ? [h1, h1] : []}, title, config) === null, 'Ambiguous headings are not guessed');
 const normalized = canvas.normalizeItems([{field_id: 'field_1', target: '/document/0/text', label: 'Text', locator: {strategy: 'shortcode', marker, reference_id: 12}, omitted: true}], {...config}, false);
 check(normalized[0].omitted === true, 'Removed elements are marked in the canvas');
+// Wrappers made transparent by the same disabled scripts, visibility-hidden animations, and empty image layers.
+{
+  const html2 = element('html'), body2 = element('body', {class: 'has-slider-styles'}, {}, html2), main2 = element('main', {}, {}, body2);
+  const wrapper = element('div', {class: 'hover-wrap'}, {opacity: '0', display: 'block'}, main2), image = element('img', {class: 'img-with-animation', src: 'https://site.test/real.jpg'}, {opacity: '0', display: 'block'}, wrapper);
+  const title = element('div', {'data-animationtype': 'fadeInLeft'}, {visibility: 'hidden', display: 'block'}, main2);
+  const box = element('div', {}, {display: 'block'}, main2); box.getBoundingClientRect = () => ({width: 400, height: 600});
+  const layer = element('div', {'data-img': 'https://site.test/layer.jpg'}, {display: 'block'}, box); layer.getBoundingClientRect = () => ({width: 400, height: 0});
+  for (const node of [wrapper, image, title]) { node.closest = selector => /slider/.test(selector) ? body2 : null; }
+  main2.querySelectorAll = selector => selector === 'img' ? [image] : selector.startsWith(':not(img)') ? [layer] : /data-animationtype/.test(selector) ? [image, title] : [];
+  canvas.prepareStaticLayout(win, {documentElement: html2, body: body2, baseURI: 'https://site.test/', querySelectorAll: () => [main2]});
+  check(image.properties.opacity === '1' && wrapper.properties.opacity === '1', 'A transparent animation wrapper is shown with its element, despite a "slider" body class');
+  check(title.properties.visibility === 'visible', 'Visibility-hidden entrance animations are shown');
+  check(box.properties['background-image'] === 'url("https://site.test/layer.jpg")' && layer.properties['background-image'] === undefined, 'An empty image layer paints its sized container');
+}
 console.log('PASS recipe canvas builder checks: ' + checks);
