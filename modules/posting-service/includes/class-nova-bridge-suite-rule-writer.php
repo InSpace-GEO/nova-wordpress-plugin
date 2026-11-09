@@ -94,11 +94,9 @@ final class Nova_Bridge_Suite_Rule_Writer {
         if ( ! get_option( 'permalink_structure', '' ) ) { self::fail( 'permalink', 'Choose WordPress pretty permalinks before enabling canonical URL delivery rendering.' ); }
         $lookup_path = $relative;
         if ( $profile['post_type'] === 'post' ) {
-            $structure = get_option( 'permalink_structure', '' );
-            if ( ! is_string( $structure ) || ! preg_match( '#^/(?:[a-z0-9_-]+/)*%postname%/?$#D', $structure ) ) { self::fail( 'permalink', 'Local post deliveries support /%postname%/ or a fixed prefix before %postname%. Date and category routes need an explicit routing adapter.' ); }
-            $prefix = ltrim( substr( $structure, 0, strpos( $structure, '%postname%' ) ), '/' );
-            if ( strpos( $relative, $prefix ) !== 0 || false !== strpos( substr( $relative, strlen( $prefix ) ), '/' ) ) { self::fail( 'url_path', 'The delivery URL does not match this site’s configured post permalink prefix.' ); }
-            $relative = substr( $relative, strlen( $prefix ) ); $lookup_path = $relative;
+            // Posts have no parent path. The slug is the URL's last segment; the permalink
+            // structure (date, category, prefix) decides the final URL, which the worker reports.
+            $segments = explode( '/', $relative ); $relative = (string) end( $segments ); $lookup_path = $relative;
         }
         $pieces = explode( '/', $relative ); $slug = array_pop( $pieces );
         if ( '' === $slug || sanitize_title( rawurldecode( $slug ) ) !== $slug ) { self::fail( 'url_slug', 'The delivery URL must use a canonical WordPress slug.' ); }
@@ -148,8 +146,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
         $target = (int) ( $association['post_id'] ?? 0 );
         $before = $target ? self::native_state( $target ) : null;
         if ( $target && ( ! current_user_can( 'edit_post', $target ) || self::digest( $before ) !== ( $association['native_digest'] ?? '' ) ) ) { self::fail( 'human_changed', 'This generated page changed after its last verified save. Reconcile its edits before replacing the owned document.' ); }
-        if ( $target ) { self::check_url( $target, $route ); }
-        elseif ( $route && get_page_by_path( $route['path'], OBJECT, $profile['post_type'] ) ) { self::fail( 'url_occupied', 'Another page already owns this path. Local rules never adopt an unrelated page.' ); }
+        if ( ! $target && $route && get_page_by_path( $route['path'], OBJECT, $profile['post_type'] ) ) { self::fail( 'url_occupied', 'Another page already owns this path. Local rules never adopt an unrelated page.' ); }
         $warnings = $rendered['warnings'];
         if ( $content && ( ! empty( $content['content']['top_content'] ) || ! empty( $content['content']['bottom_content'] ) ) ) { $warnings[] = 'This profile renders main article HTML only; top_content and bottom_content require an explicitly selected arrangement.'; }
         $plan = [ 'format' => self::FORMAT, 'operation_id' => $operation, 'profile' => $profile, 'profile_digest' => Nova_Bridge_Suite_Content_Rules::digest( $profile ), 'renderer_version' => $rendered['renderer_version'], 'provider' => $provider, 'input_digest' => self::digest( $input ), 'elements' => $rendered['elements'], 'title' => $title, 'post_type' => $profile['post_type'], 'slug' => $route ? $route['slug'] : sanitize_title( $title ) . '-' . substr( str_replace( '-', '', $operation ), 0, 10 ), 'parent' => $route['parent'] ?? 0, 'route' => $route, 'association_before' => $association, 'target_post_id' => $target, 'native_before' => $before, 'context' => $context, 'source_selection' => $content ? 'content.content' : 'local_input', 'warnings' => $warnings ];
@@ -183,16 +180,6 @@ final class Nova_Bridge_Suite_Rule_Writer {
         if ( '' === $raw ) { $data = []; }
         else { $data = is_string( $raw ) ? json_decode( $raw, true ) : null; if ( ! is_array( $data ) || json_last_error() !== JSON_ERROR_NONE ) { self::fail( 'native_data', 'The native Elementor document is unreadable; reconcile it before retrying.' ); } }
         return [ 'post_id' => $post_id, 'post_type' => $post->post_type, 'title' => $post->post_title, 'slug' => $post->post_name, 'parent' => (int) $post->post_parent, 'author' => (int) $post->post_author, 'content' => $post->post_content, 'reservation' => $post->post_content_filtered, 'elements' => $data, 'page_settings' => get_post_meta( $post_id, '_elementor_page_settings', true ), 'page_template' => get_post_meta( $post_id, '_wp_page_template', true ), 'owner' => get_post_meta( $post_id, '_nova_content_rule_owner', true ) ];
-    }
-    private static function check_url( int $post_id, ?array $route ): void {
-        if ( ! $route ) { return; }
-        if ( 'publish' === get_post_status( $post_id ) ) { $url = get_permalink( $post_id ); }
-        else {
-            if ( ! function_exists( 'get_sample_permalink' ) && is_file( ABSPATH . 'wp-admin/includes/post.php' ) ) { require_once ABSPATH . 'wp-admin/includes/post.php'; }
-            if ( ! function_exists( 'get_sample_permalink' ) ) { self::fail( 'permalink', 'WordPress cannot verify the future permalink of this draft.' ); }
-            $sample = get_sample_permalink( $post_id ); $url = str_replace( [ '%pagename%', '%postname%' ], $sample[1] ?? '', $sample[0] ?? '' );
-        }
-        if ( ! is_string( $url ) || self::origin_path( $url ) !== $route['identity'] ) { self::fail( 'permalink', 'The generated page permalink differs from the verified delivery URL. Reconcile the local page path before writing.' ); }
     }
     /** Native defaults may be added; ordered identity, content and every configured setting must survive. */
     private static function semantics_match( array $expected, array $actual ): bool {
@@ -236,7 +223,6 @@ final class Nova_Bridge_Suite_Rule_Writer {
     }
     private static function finalize( array $plan, array $record, array $state ): array {
         if ( ! self::semantics_match( $plan['elements'], $state['elements'] ) || $state['title'] !== $plan['title'] || $state['owner'] !== self::owner( $plan ) ) { self::fail( 'native_mismatch', 'Elementor did not preserve the complete ordered content and configured settings. The retained draft requires review.' ); }
-        self::check_url( $record['post_id'], $plan['route'] );
         $record['state'] = 'committed'; $record['native_digest'] = self::digest( $state );
         self::checkpoint( self::operation_key( $plan['operation_id'] ), $record );
         if ( isset( $plan['delivery_identity'] ) ) {
@@ -303,7 +289,6 @@ final class Nova_Bridge_Suite_Rule_Writer {
                     update_post_meta( $id, '_nova_content_rule_owner', self::owner( $plan ) );
                     if ( get_post_meta( $id, '_nova_content_rule_owner', true ) !== self::owner( $plan ) ) { self::fail( 'storage', 'The native page ownership marker could not be retained.' ); }
                 }
-                self::check_url( $id, $plan['route'] );
                 $document = \Elementor\Plugin::instance()->documents->get( $id, false );
                 if ( ! is_object( $document ) || ! method_exists( $document, 'save' ) || ! method_exists( $document, 'set_is_built_with_elementor' ) || ! method_exists( $document, 'is_editable_by_current_user' ) || ! $document->is_editable_by_current_user() ) { self::fail( 'builder_unavailable', 'The retained draft cannot use the installed native Elementor save lifecycle.' ); }
                 if ( isset( $plan['delivery_identity'] ) ) { self::checkpoint( self::association_key( $plan['delivery_identity']['site_id'], $plan['delivery_identity']['url_id'] ), $plan['delivery_identity'] + [ 'state' => 'pending', 'operation_id' => $operation, 'post_id' => $id ] ); }
@@ -320,7 +305,6 @@ final class Nova_Bridge_Suite_Rule_Writer {
     private static function verify_record( array $plan, array $record ): array {
         $state = self::native_state( (int) $record['post_id'] );
         if ( self::digest( $state ) !== ( $record['native_digest'] ?? '' ) || $state['owner'] !== self::owner( $plan ) ) { self::fail( 'human_changed', 'The generated page changed after its verified save. Reconcile it before automatic publication confirmation or replacement.' ); }
-        self::check_url( (int) $record['post_id'], $plan['route'] );
         return self::result( $record );
     }
     public static function recover( array $plan, string $operation ) {
@@ -367,7 +351,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
                 if ( ! current_user_can( 'edit_post', $id ) || $state['post_type'] !== $plan['post_type'] ||
                     ( ! $plan['target_post_id'] && $state['reservation'] !== self::reservation_marker( $plan ) ) ||
                     ( $state['owner'] !== '' && $state['owner'] !== self::owner( $plan ) ) ) { self::fail( 'ownership', 'The retired page identity cannot be reconciled.' ); }
-                self::check_url( $id, $plan['route'] ); $current = self::association( $plan['delivery_identity'] );
+                $current = self::association( $plan['delivery_identity'] );
                 if ( $current !== $plan['association_before'] && ( $current['operation_id'] ?? '' ) !== $operation ) { self::fail( 'association_changed', 'Another operation owns this URL.' ); }
                 // A reservation is an owned target even if the process stopped before
                 // writing its owner marker. Record only that identity, never old content.

@@ -771,6 +771,92 @@
           "minLength": 1,
           "maxLength": 1024,
           "description": "Connector attestation reference required only for publication_succeeded."
+        },
+        "publication": {
+          "$ref": "#/components/schemas/ConnectorPublication"
+        }
+      }
+    },
+    "ConnectorPublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional URL report, allowed only on publication_succeeded. Connectors that do not report URLs omit it; publishing is unaffected.",
+      "required": [
+        "url",
+        "url_status"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https?://[^/?#@\\s]+(?:[/?][^#\\s]*)?$",
+          "description": "Absolute URL the item actually has in the CMS. For unpublished items, the URL it will get when published."
+        },
+        "url_status": {
+          "type": "string",
+          "enum": [
+            "final",
+            "provisional"
+          ],
+          "description": "final when the item is publicly published; provisional for draft, scheduled, pending or private items."
+        },
+        "intended_url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https?://[^/?#@\\s]+(?:[/?][^#\\s]*)?$",
+          "description": "The delivery URL, echoed back."
+        },
+        "canonical": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https?://[^/?#@\\s]+(?:[/?][^#\\s]*)?$",
+          "description": "Canonical URL, when the CMS knows it."
+        },
+        "noindex": {
+          "type": "boolean",
+          "description": "Whether the item is excluded from indexing, when the CMS knows it."
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$",
+          "description": "Language of the reported item. When sent it must equal the delivery language."
+        },
+        "cms_status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Native CMS status, for example publish or draft."
+        },
+        "native": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "system",
+            "type",
+            "id"
+          ],
+          "description": "CMS object identity, for connectors that have a stable native ID.",
+          "properties": {
+            "system": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+            },
+            "type": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the connector read the URL."
         }
       }
     },
