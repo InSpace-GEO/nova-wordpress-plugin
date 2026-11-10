@@ -1,5 +1,11 @@
 # Release verification
 
+## 1.2.5 candidate (local and real theme markup)
+
+All 126 local suites passed. A new canvas suite models a post rendered through a Divi Theme Builder body template (no main, article or `.entry-content`; an entrance-animated section around the title and content; Divi's Post Content module): the section is shown, the content is outlined in the Post Content module, the title is outlined, and two Post Content modules are not guessed. The 1.2.4 canvas fails this suite.
+
+The new canvas ran in a browser against a script-free copy of a client's Divi Theme Builder post: the template section went from opacity 0 to 1, and the title and post content were located and visible. Staging has no Divi theme, so the admin canvas was not exercised there.
+
 ## 1.2.4 candidate (local, real theme markup and staging)
 
 All 125 local suites passed. A new canvas suite covers value matching: a heading repeated in breadcrumbs and the site header still resolves to the content heading, including when the theme leaves its breadcrumb wrapper unclosed; whitespace between blocks and curly quotes and dashes added by WordPress do not matter; a multi-paragraph editor field outlines its region; repeated labels, values not on the page, very short values, non-image values, an image shown twice and another reference never bind; an image matches its upload in another generated size, a scaled original and a CSS background. The content-builder suite checks that text, editor and image fields get value locators and that addresses, page links and carried values stay unbound.
