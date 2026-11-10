@@ -5,6 +5,58 @@ require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
 
 final class Nova_Bridge_Suite_Content_Transport {
 	private static $bootstrapped = false;
+	/** True while reproducing the 1.2.2 ACF field filter for layouts saved before 1.2.3. */
+	private static $legacy_acf = false;
+	/** ACF leaf types the transport reads, validates and writes natively. */
+	private const ACF_LEAF_TYPES = [ 'text', 'textarea', 'wysiwyg', 'email', 'url', 'oembed', 'number', 'range', 'true_false', 'select', 'radio', 'checkbox', 'button_group', 'image', 'file', 'gallery', 'post_object', 'page_link', 'relationship', 'taxonomy', 'color_picker', 'date_picker', 'date_time_picker', 'time_picker', 'link', 'google_map' ];
+
+	/** Run a catalog read with the field filter of 1.2.2, so layouts sealed with that schema keep their identity. */
+	public static function with_legacy_acf_rules( callable $callback ) {
+		$previous = self::$legacy_acf; self::$legacy_acf = true;
+		try { return $callback(); } finally { self::$legacy_acf = $previous; }
+	}
+
+	public static function legacy_acf_rules(): bool { return self::$legacy_acf; }
+
+	/**
+	 * A sub-field of a registered type the transport has no dedicated handling for (a clone, user,
+	 * icon picker or add-on field). Its stored value is carried through unchanged, because ACF keeps
+	 * a missing row value from whatever row previously had that index.
+	 */
+	public static function carried_acf_field( array $field ): bool {
+		$type = $field['type'] ?? '';
+		return ! self::$legacy_acf && is_string( $type ) && '' !== $type && ! in_array( $type, self::ACF_LEAF_TYPES, true )
+			&& ! in_array( $type, [ 'group', 'repeater', 'flexible_content', 'tab', 'accordion', 'message', 'password' ], true );
+	}
+
+	/** Plain stored data only: scalars and bounded nested lists/maps of them. */
+	private static function plain_acf_value( $value, int $depth = 0 ): bool {
+		if ( null === $value || is_scalar( $value ) ) { return true; }
+		if ( ! is_array( $value ) || $depth > 6 || count( $value ) > 500 ) { return false; }
+		foreach ( $value as $key => $item ) { if ( ( is_string( $key ) && ! self::safe_key( $key ) && ! preg_match( '/^field_[a-z0-9_]+$/i', $key ) ) || ! self::plain_acf_value( $item, $depth + 1 ) ) { return false; } }
+		return true;
+	}
+
+	/** Markup in a carried string gets the same post-content filter as wysiwyg; other strings stay byte-identical. */
+	private static function carried_acf_value( $value ) {
+		if ( is_string( $value ) ) { return false !== strpos( $value, '<' ) ? wp_kses_post( $value ) : $value; }
+		if ( is_array( $value ) ) { foreach ( $value as $key => $item ) { $value[ $key ] = self::carried_acf_value( $item ); } }
+		return $value;
+	}
+
+	/** ACF stores a page link as a post ID, or as a URL for archive links. */
+	private static function page_link_value( $value, array $field ) {
+		$one = static function ( $item ) { return is_numeric( $item ) ? (int) $item : ( is_string( $item ) ? $item : '' ); };
+		if ( ! empty( $field['multiple'] ) ) { return array_values( array_filter( array_map( $one, is_array( $value ) ? array_values( $value ) : [] ), static function ( $item ) { return '' !== $item && 0 !== $item; } ) ); }
+		if ( is_array( $value ) ) { $value = reset( $value ); }
+		return in_array( $value, [ null, false, 'null' ], true ) ? '' : $one( $value );
+	}
+
+	/** Sub-fields sharing a name in one row write the same post meta, so they must be the same kind of field. */
+	private static function compatible_duplicate( array $first, array $second ): bool {
+		return ( $first['type'] ?? '' ) === ( $second['type'] ?? '' ) && ( $first['choices'] ?? [] ) == ( $second['choices'] ?? [] ) && ! empty( $first['multiple'] ) === ! empty( $second['multiple'] )
+			&& ! isset( $first['sub_fields'] ) && ! isset( $first['layouts'] ) && ! isset( $second['sub_fields'] ) && ! isset( $second['layouts'] );
+	}
 
 	public static function bootstrap(): void {
 		if ( self::$bootstrapped ) { return; }
@@ -90,7 +142,10 @@ final class Nova_Bridge_Suite_Content_Transport {
     public static function read_named_acf( array $schema, $object_id ): array { $out = []; foreach ( $schema as $name => $field ) { if ( self::safe_acf_field( $field ) ) { $out[$name] = self::acf_response_value( get_field( $field['key'], $object_id, false ), $field ); } } return $out; }
     public static function verify_named_acf( array $entries, $object_id ) { foreach ( $entries as $name => $entry ) { if ( function_exists( 'acf_flush_value_cache' ) ) { acf_flush_value_cache( $object_id, $name ); } if ( ! self::acf_value_matches( $entry['value'], get_field( $entry['field']['key'], $object_id, false ), $entry['field'] ) ) { return self::error( 'ACF did not retain the translated value for ' . $name, 409 ); } } return true; }
 
-	/** Unsupported field providers and fields containing secrets are never advertised as writable. */
+	/**
+	 * Unsupported field providers and fields containing secrets are never advertised as writable.
+	 * $depth > 0 means the field is a sub-field of a group, repeater or flexible layout.
+	 */
 	private static function safe_acf_field( array $field, int $depth = 0 ): bool {
 		if ( $depth > 12 || ! self::safe_key( $field['name'] ?? '' ) || empty( $field['key'] ) || ! empty( $field['readonly'] ) || ! empty( $field['disabled'] ) ) { return false; }
 		$type = $field['type'] ?? '';
@@ -99,14 +154,19 @@ final class Nova_Bridge_Suite_Content_Transport {
 			$sets = 'flexible_content' === $type ? (array) ( $field['layouts'] ?? [] ) : [ $field ];
 			if ( empty( $sets ) ) { return false; }
 			foreach ( $sets as $set ) {
+				$seen = [];
 				foreach ( (array) ( $set['sub_fields'] ?? [] ) as $child ) {
 					if ( in_array( $child['type'] ?? '', [ 'tab', 'accordion', 'message' ], true ) ) { continue; }
 					if ( ! self::safe_acf_field( $child, $depth + 1 ) ) { return false; }
+					$name = $child['name'];
+					if ( ! self::$legacy_acf && isset( $seen[ $name ] ) && ! self::compatible_duplicate( $seen[ $name ], $child ) ) { return false; }
+					$seen[ $name ] = $seen[ $name ] ?? $child;
 				}
 			}
 			return true;
 		}
-		return in_array( $type, [ 'text', 'textarea', 'wysiwyg', 'email', 'url', 'oembed', 'number', 'range', 'true_false', 'select', 'radio', 'checkbox', 'button_group', 'image', 'file', 'gallery', 'post_object', 'relationship', 'taxonomy', 'color_picker', 'date_picker', 'date_time_picker', 'time_picker', 'link', 'google_map' ], true );
+		if ( self::$legacy_acf && 'page_link' === $type ) { return false; }
+		return in_array( $type, self::ACF_LEAF_TYPES, true ) || ( $depth > 0 && self::carried_acf_field( $field ) );
 	}
 
 	public static function read_fields( WP_Post $post ): array {
@@ -136,7 +196,7 @@ final class Nova_Bridge_Suite_Content_Transport {
 		if ( 'group' === $type ) {
 			$result = [];
 			foreach ( (array) ( $field['sub_fields'] ?? [] ) as $child ) {
-				if ( ! self::safe_acf_field( $child ) ) { continue; }
+				if ( ! self::safe_acf_field( $child, 1 ) ) { continue; }
 				$child_value = is_array( $value ) ? ( $value[ $child['name'] ] ?? ( $value[ $child['key'] ] ?? null ) ) : null;
 				$result[ $child['name'] ] = self::acf_response_value( $child_value, $child );
 			}
@@ -166,6 +226,8 @@ final class Nova_Bridge_Suite_Content_Transport {
 		if ( in_array( $type, [ 'number', 'range' ], true ) ) { return is_numeric( $value ) ? 0 + $value : ''; }
 		if ( 'checkbox' === $type || ( 'select' === $type && ! empty( $field['multiple'] ) ) ) { return is_array( $value ) ? array_values( $value ) : []; }
 		if ( in_array( $type, [ 'link', 'google_map' ], true ) ) { return is_array( $value ) ? $value : []; }
+		if ( 'page_link' === $type ) { return self::page_link_value( $value, $field ); }
+		if ( self::carried_acf_field( $field ) ) { return self::plain_acf_value( $value ) && null !== $value ? $value : ''; }
 		return is_scalar( $value ) ? (string) $value : '';
 	}
 
@@ -297,6 +359,26 @@ final class Nova_Bridge_Suite_Content_Transport {
 			if ( isset( $value['target'] ) && ! in_array( $value['target'], [ '', '_self', '_blank' ], true ) ) { return self::error( $path . ' has an invalid link target.' ); }
 			return $value;
 		}
+		if ( 'page_link' === $type ) {
+			$multiple = ! empty( $field['multiple'] ); $items = $multiple ? $value : [ $value ];
+			if ( ! is_array( $items ) || count( $items ) > 500 || ( $multiple && $items && array_keys( $items ) !== range( 0, count( $items ) - 1 ) ) ) { return self::error( $path . ' requires a page ID or URL' . ( $multiple ? ' list.' : '.' ) ); }
+			foreach ( $items as $index => $item ) {
+				if ( ! $multiple && in_array( $item, [ '', 0 ], true ) ) { continue; }
+				if ( is_int( $item ) && $item > 0 ) {
+					$related = get_post( $item );
+					if ( ! $related || ! current_user_can( 'read_post', $item ) ) { return self::error( $path . ' links to an invalid or unreadable page.', 403 ); }
+					continue;
+				}
+				// Archive links are stored as URLs.
+				if ( ! is_string( $item ) || ! preg_match( '~^(?:https?://|/)~i', $item ) || preg_match( '/[\s<>"]/', $item ) ) { return self::error( $path . ' requires a page ID or an HTTP(S) URL.' ); }
+				$items[ $index ] = esc_url_raw( $item );
+			}
+			return $multiple ? $items : $items[0];
+		}
+		if ( self::carried_acf_field( $field ) ) {
+			if ( ! self::plain_acf_value( $value ) ) { return self::error( $path . ' must keep its stored value: plain text, numbers or lists of them.' ); }
+			return self::carried_acf_value( $value );
+		}
 		if ( ! is_string( $value ) ) { return self::error( $path . ' must be text.' ); }
 		$date_formats = [ 'date_picker' => 'Ymd', 'date_time_picker' => 'Y-m-d H:i:s', 'time_picker' => 'H:i:s' ];
 		if ( isset( $date_formats[ $type ] ) && '' !== $value ) {
@@ -309,15 +391,21 @@ final class Nova_Bridge_Suite_Content_Transport {
 	}
 
 	private static function validate_acf_children( array $value, array $children, string $path, int $depth ) {
-		$known = [];
-		foreach ( $children as $child ) { if ( self::safe_acf_field( $child ) ) { $known[ $child['name'] ] = $child; } }
+		$known = []; $keys = [];
+		foreach ( $children as $child ) {
+			if ( ! self::safe_acf_field( $child, $depth + 1 ) ) { continue; }
+			$known[ $child['name'] ] = $known[ $child['name'] ] ?? $child;
+			// Same-named sub-fields share one meta value; give each key the value so ACF saves and reads it back consistently.
+			$keys[ $child['name'] ][] = $child['key'];
+		}
 		$missing = array_diff( array_keys( $known ), array_keys( $value ) );
 		if ( $missing ) { return self::error( $path . ' requires the complete parent value. Missing fields: ' . implode( ', ', $missing ) . '. Read the current item and retain existing sibling values.' ); }
 		$out = [];
 		foreach ( $value as $name => $item ) {
 			if ( ! isset( $known[ $name ] ) ) { return self::error( 'Unknown nested ACF field: ' . $path . '.' . $name ); }
-			$out[ $known[ $name ]['key'] ] = self::validate_acf_value( $item, $known[ $name ], $path . '.' . $name, $depth + 1 );
-			if ( is_wp_error( $out[ $known[ $name ]['key'] ] ) ) { return $out[ $known[ $name ]['key'] ]; }
+			$checked = self::validate_acf_value( $item, $known[ $name ], $path . '.' . $name, $depth + 1 );
+			if ( is_wp_error( $checked ) ) { return $checked; }
+			foreach ( $keys[ $name ] as $key ) { $out[ $key ] = $checked; }
 		}
 		return $out;
 	}
@@ -350,7 +438,7 @@ final class Nova_Bridge_Suite_Content_Transport {
 			if ( ! is_array( $expected ) || ! is_array( $actual ) ) { return false; }
 			if ( 'group' === $type ) {
 				foreach ( (array) ( $field['sub_fields'] ?? [] ) as $child ) {
-					if ( ! self::safe_acf_field( $child ) ) { continue; }
+					if ( ! self::safe_acf_field( $child, 1 ) ) { continue; }
 					$name = $child['name']; $key = $child['key'];
 					if ( ! array_key_exists( $name, $actual ) && ! array_key_exists( $key, $actual ) ) { return false; }
 					if ( ! self::acf_value_matches( $expected[ $key ] ?? ( $expected[ $name ] ?? null ), $actual[ $name ] ?? ( $actual[ $key ] ?? null ), $child ) ) { return false; }
@@ -369,13 +457,24 @@ final class Nova_Bridge_Suite_Content_Transport {
 			return true;
 		}
 		if ( 'true_false' === $type ) { return (int) $expected === (int) $actual; }
-		if ( in_array( $actual, [ null, false, '' ], true ) && in_array( $expected, [ '', [], 0 ], true ) ) { return true; }
+		if ( in_array( $actual, [ null, false, '' ], true ) && in_array( $expected, [ '', [], 0, null ], true ) ) { return true; }
+		if ( self::carried_acf_field( $field ) ) { return self::same_plain_value( $expected, $actual ); }
 		if ( is_array( $expected ) && is_array( $actual ) ) {
 			if ( ! in_array( $type, [ 'google_map', 'link' ], true ) && count( $expected ) !== count( $actual ) ) { return false; }
 			foreach ( $expected as $key => $value ) { if ( ! array_key_exists( $key, $actual ) || ! is_scalar( $value ) || ! is_scalar( $actual[ $key ] ) || (string) $value !== (string) $actual[ $key ] ) { return false; } }
 			return true;
 		}
 		return is_scalar( $expected ) && is_scalar( $actual ) && (string) $expected === (string) $actual;
+	}
+
+	/** ACF reads numbers back as strings; compare carried values by their stored text. */
+	private static function same_plain_value( $expected, $actual ): bool {
+		if ( is_array( $expected ) || is_array( $actual ) ) {
+			if ( ! is_array( $expected ) || ! is_array( $actual ) || count( $expected ) !== count( $actual ) ) { return false; }
+			foreach ( $expected as $key => $value ) { if ( ! array_key_exists( $key, $actual ) || ! self::same_plain_value( $value, $actual[ $key ] ) ) { return false; } }
+			return true;
+		}
+		return ( null === $expected ? '' : (string) $expected ) === ( null === $actual || false === $actual ? '' : (string) $actual );
 	}
 
 	public static function error( string $message, int $status = 400 ): WP_Error {
