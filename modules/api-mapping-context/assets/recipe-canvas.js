@@ -157,9 +157,55 @@
 		}
 		return null;
 	}
+	// Breadcrumbs repeat the page heading. Exclude their lists and items only: themes sometimes leave a
+	// breadcrumb wrapper unclosed, so the browser nests the whole page inside it.
+	var outsideContent = 'nav,header,footer,form,[role="navigation"],[role="banner"],[role="contentinfo"],[hidden],[aria-hidden="true"],ol[class*="breadcrumb"],ul[class*="breadcrumb"],li[class*="breadcrumb"],span[class*="breadcrumb"],a[class*="breadcrumb"],p[id*="breadcrumb"]';
+	// Compare what a reader sees: WordPress filters may add line breaks between blocks and curl quotes and dashes.
+	function normalizeText( text ) {
+		return String( text || '' ).replace( /[\u2018\u2019\u201a\u201b\u2032]/g, "'" ).replace( /[\u201c\u201d\u201e\u201f\u2033]/g, '"' ).replace( /[\u2013\u2014]/g, '-' ).replace( /\u2026/g, '...' ).replace( /[\s\u200b]+/g, '' );
+	}
+	// The same media file in any generated size: "photo-1024x683.jpg", "photo-scaled.jpg" and "photo.jpg" match.
+	function mediaStem( value ) {
+		var path; try { path = new URL( String( value || '' ).trim(), 'https://media.invalid/' ).pathname; } catch ( error ) { return ''; }
+		var name = decodeURIComponent( path.split( '/' ).pop() || '' ).toLowerCase(), stem = name.replace( /\.(?:jpe?g|png|gif|webp|avif|svg)$/, '' );
+		if ( stem === name ) { return ''; }
+		return stem.replace( /-\d+x\d+$/, '' ).replace( /-(?:scaled|rotated)$/, '' ).replace( /-e\d{10,}$/, '' );
+	}
+	function contentRoots( document ) {
+		var roots = Array.from( document.querySelectorAll( 'main,[role="main"]' ) ).filter( function ( root ) { return ! root.closest( outsideContent ); } );
+		roots = roots.filter( function ( root ) { return ! roots.some( function ( other ) { return other !== root && other.contains( root ); } ); } );
+		return roots.length ? roots : document.body ? [ document.body ] : [];
+	}
+	// ACF values are printed by the theme: accept exactly one element showing the value, never a guess among copies.
+	function valueMatch( document, locator ) {
+		var roots = contentRoots( document ), matches = [];
+		if ( typeof locator.media === 'string' ) {
+			var stem = mediaStem( locator.media ); if ( ! stem ) { return null; }
+			roots.forEach( function ( root ) {
+				root.querySelectorAll( 'img,[style*="background-image"]' ).forEach( function ( node ) {
+					if ( node.closest( outsideContent ) || matches.includes( node ) ) { return; }
+					var sources = node.tagName === 'IMG' ? [ node.getAttribute( 'src' ) ].concat( String( node.getAttribute( 'srcset' ) || '' ).split( ',' ).map( function ( entry ) { return entry.trim().split( /\s+/ )[0]; } ) ) : [ ( /url\(\s*(['"]?)(.*?)\1\s*\)/.exec( node.getAttribute( 'style' ) || '' ) || [] )[2] ];
+					if ( sources.some( function ( source ) { return source && mediaStem( source ) === stem; } ) ) { matches.push( node ); }
+				} );
+			} );
+		} else {
+			var expected = normalizeText( locator.text ); if ( expected.length < 3 ) { return null; }
+			roots.forEach( function ( root ) {
+				root.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,li,a,button,span,strong,em,b,i,small,blockquote,figcaption,label,dt,dd,td,th,div,section,article,aside' ).forEach( function ( node ) {
+					if ( ! node.closest( outsideContent ) && ! matches.includes( node ) && normalizeText( node.textContent ) === expected ) { matches.push( node ); }
+				} );
+			} );
+			// Wrappers repeat their only child's text; keep the innermost element.
+			matches = matches.filter( function ( node ) { return ! matches.some( function ( other ) { return other !== node && node.contains( other ); } ); } );
+		}
+		// Responsive themes print hidden copies for other screen sizes; only a shown element counts.
+		var view = document.defaultView; if ( view && view.getComputedStyle ) { matches = matches.filter( function ( node ) { return visible( node, view ); } ); }
+		return matches.length === 1 ? { node: matches[0], owner: matches[0], precision: locator.precision === 'region' ? 'region' : 'field' } : null;
+	}
 	function locate( document, item, config, htmlTargets ) {
 		var locator = item && item.locator; if ( ! locator || locator.reference_id !== config.referenceId ) { return null; }
 		if ( locator.strategy === 'custom_html' ) { return htmlTargets && htmlTargets.get( locator.marker ) || null; }
+		if ( locator.strategy === 'value_match' ) { return valueMatch( document, locator ); }
 		var strategy = locator.strategy, id = String( locator.node_id || '' ), control = controlPath( locator ), owner, selector;
 		if ( strategy === 'elementor' ) {
 			if ( ! safeId.test( id ) ) { return null; }

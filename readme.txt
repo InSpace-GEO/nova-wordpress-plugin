@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.3
+Stable tag: 1.2.4
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.4 =
+* ACF layout preview: selecting a field now highlights it on the example page, and clicking content on the page selects its field. Because the theme decides where each value is printed, a field is found by its value: the one element in the page content showing exactly that text, or the one image of that media file (in any generated size, including background images). Values shown more than once, very short values, links and page links are not guessed and stay in the field list.
 
 = 1.2.3 =
 * ACF layouts: a group, repeater or flexible content field is no longer hidden because one of its sub-fields is a page link or another type without dedicated handling. Page-built themes that put their whole page in a flexible "content builder" can now be read, mapped and published. Page links are read and written natively and keep their example target in a layout. Other sub-field types (for example clones, users or icon pickers) are carried over unchanged and are never filled from content. Password sub-fields still keep their container out.
