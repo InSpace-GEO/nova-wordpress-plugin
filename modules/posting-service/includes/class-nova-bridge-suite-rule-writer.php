@@ -1,6 +1,7 @@
 <?php
 /** Journaled, source-free native Elementor documents from frozen local rendering rules. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-posting-url-scope.php';
 
@@ -49,7 +50,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
     private static function locked( string $identity, callable $callback ) {
         global $wpdb;
         if ( ! isset( $wpdb->posts ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->posts ) ) { self::fail( 'storage', 'Native WordPress database storage is unavailable.' ); }
-        $name = 'nova-rule:' . substr( hash( 'sha256', $wpdb->posts . ':' . $identity ), 0, 54 );
+        $name = Nova_Bridge_Suite_Native_Lock::name( $wpdb, 'nova-rule:', $wpdb->posts . ':' . $identity, 54 );
         if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $name ) ) ) { self::fail( 'busy', 'Another native operation is using this page. Retry the same operation shortly.' ); }
         try { return $callback(); }
         finally { $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) ); }
