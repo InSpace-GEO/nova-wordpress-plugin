@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.6
+Stable tag: 1.2.7
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.7 =
+* Layout preview: posts shown through a Beaver Themer singular layout now outline their title and content. The content is found in Themer's Post Content module, and a title printed by the theme or a heading module matches the stored title even when WordPress curls its quotes and dashes or the title contains HTML entities.
 
 = 1.2.6 =
 * Deliveries: WordPress installations that share one MySQL server (separate databases, common on shared hosting) no longer block each other. MySQL named locks are shared by the whole server, and every installation computed the same lock names, so when one notification reached several installations at once only one accepted it and the others answered 409 nova_posting_connection_busy. Lock names now include the installation's database name. Requests to the same installation are still serialized as before.
