@@ -33,7 +33,8 @@
 	function prepareStaticLayout( win, document ) {
 		if ( ! win.getComputedStyle ) { return 0; }
 		var changed = 0, excluded = 'nav,header,footer,[role="navigation"],[role="dialog"],[hidden],[aria-hidden="true"]';
-		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content' ).forEach( function ( main ) {
+		// Divi Theme Builder templates render the post inside #main-content without a main, article or .entry-content.
+		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content,#main-content,.et-l--body' ).forEach( function ( main ) {
 			if ( main.closest( excluded ) ) { return; }
 			for ( var ancestor = main; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement ) {
 				var ancestorStyle = win.getComputedStyle( ancestor );
@@ -244,7 +245,9 @@
 			return { node: owner, owner: owner, precision: 'widget' };
 		} else if ( strategy === 'core' ) {
 			selector = { title: '.entry-title', content: '.entry-content', name: '.woocommerce-products-header__title', description: '.term-description', bottom_content: '.wc-content-below-products', excerpt: '.wp-block-post-excerpt,.entry-summary,.post-excerpt', featured_image: '.wp-block-post-featured-image img,img.wp-post-image' }[ control ];
-			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
+			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); }
+			// Theme-builder templates print the post body through their own post-content module (Divi, Elementor Pro).
+			if ( ! owner && control === 'content' ) { owner = unique( document, '.et_pb_post_content' ) || unique( document, '.elementor-widget-theme-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
 			// Themes and builders print the title in their own markup; accept exactly one visible H1 with the same text.
 			if ( ! owner && control === 'title' && item.current_value && item.current_value.trim() ) {
 				var normalize = function ( text ) { return String( text || '' ).replace( /\s+/g, ' ' ).trim(); }, expected = normalize( item.current_value ), headings = Array.from( document.querySelectorAll( 'h1' ) ).filter( function ( heading ) { return normalize( heading.textContent ) === expected && ! heading.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"],[hidden],[aria-hidden="true"]' ); } );
