@@ -1,5 +1,11 @@
 # Release verification
 
+## 1.2.7 candidate (local, real theme markup and staging)
+
+All 128 local suites passed. A new canvas suite models a post rendered through a Beaver Themer singular layout (no `.entry-content` or `.entry-title`; the title in a heading module with a curled apostrophe; the body in Themer's Post Content module): the content is outlined in the Post Content module, a stored title with a straight apostrophe or an HTML entity matches the heading, a different title, two Post Content modules, two matching headings and a heading in the footer are not guessed. The 1.2.6 canvas fails this suite.
+
+Both canvases ran in a browser against a script-free copy of a client's Beaver Themer blog post: the 1.2.6 canvas located neither field; the 1.2.7 canvas located the title heading and the Post Content module, both visible. Staging has no Beaver Themer, so the admin canvas was not exercised there.
+
 ## 1.2.6 candidate (local and real MySQL)
 
 All 127 local suites passed. A new suite checks that five installations with the same table prefix and NOVA site ID get five different connection, discovery, delivery, admission and schema locks, that the native writers' locks (rules, stored layouts, translations, owned post types) are scoped the same way, that one installation always gets the same name and releases the lock it took, that installations sharing a database with different table prefixes stay apart, that names stay within MySQL's 64 characters, and that database drop-ins without a readable `dbname` fall back to `DB_NAME`.

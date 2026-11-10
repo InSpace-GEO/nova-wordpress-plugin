@@ -246,11 +246,13 @@
 		} else if ( strategy === 'core' ) {
 			selector = { title: '.entry-title', content: '.entry-content', name: '.woocommerce-products-header__title', description: '.term-description', bottom_content: '.wc-content-below-products', excerpt: '.wp-block-post-excerpt,.entry-summary,.post-excerpt', featured_image: '.wp-block-post-featured-image img,img.wp-post-image' }[ control ];
 			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); }
-			// Theme-builder templates print the post body through their own post-content module (Divi, Elementor Pro).
-			if ( ! owner && control === 'content' ) { owner = unique( document, '.et_pb_post_content' ) || unique( document, '.elementor-widget-theme-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
+			// Theme-builder templates print the post body through their own post-content module (Divi, Elementor Pro, Beaver Themer).
+			if ( ! owner && control === 'content' ) { owner = unique( document, '.et_pb_post_content' ) || unique( document, '.elementor-widget-theme-post-content' ) || unique( document, '.fl-module-fl-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
 			// Themes and builders print the title in their own markup; accept exactly one visible H1 with the same text.
+			// WordPress prints the stored title with entities decoded and quotes and dashes curled.
 			if ( ! owner && control === 'title' && item.current_value && item.current_value.trim() ) {
-				var normalize = function ( text ) { return String( text || '' ).replace( /\s+/g, ' ' ).trim(); }, expected = normalize( item.current_value ), headings = Array.from( document.querySelectorAll( 'h1' ) ).filter( function ( heading ) { return normalize( heading.textContent ) === expected && ! heading.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"],[hidden],[aria-hidden="true"]' ); } );
+				var named = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' }, decoded = String( item.current_value ).replace( /&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|(amp|quot|apos|lt|gt|nbsp));/gi, function ( entity, dec, hex, name ) { var code = dec ? parseInt( dec, 10 ) : hex ? parseInt( hex, 16 ) : 0; return name ? named[ name.toLowerCase() ] : code > 0 && code <= 0x10ffff ? String.fromCodePoint( code ) : entity; } );
+				var expected = normalizeText( decoded ), headings = expected ? Array.from( document.querySelectorAll( 'h1' ) ).filter( function ( heading ) { return normalizeText( heading.textContent ) === expected && ! heading.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"],[hidden],[aria-hidden="true"]' ); } ) : [];
 				owner = headings.length === 1 ? headings[0] : null;
 			} if ( ! owner || owner.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"]' ) ) { return null; }
 			if ( control === 'bottom_content' && ( config.referenceType !== 'term' || ! owner.closest( 'main,[role="main"],.woocommerce,.content,.site-content' ) ) ) { return null; }
