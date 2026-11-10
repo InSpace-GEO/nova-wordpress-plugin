@@ -1,5 +1,17 @@
 # Release verification
 
+## 1.2.3 candidate (local and staging)
+
+All 124 local suites passed. A new suite covers an ACF content builder: flexible layouts with page links, a select that switches a button between a page link and a required address, an icon picker, a clone and two same-named checkboxes. The builder is now exposed and detected, reads back exactly, keeps page links and carried values from the example (not mappable), lists the shared checkbox once, writes it under both field keys, skips a required address hidden by its condition while still requiring a visible one, and round-trips through publication. Invalid page links, unreadable link targets and non-plain carried values are refused; markup in a carried value is filtered like post content. Password sub-fields and same-named sub-fields of different types still hide their container. A layout captured with the 1.2.2 filter still compiles and publishes only its own fields, and a changed schema identity is still refused. Against a client's exported field groups the 1.2.2 filter exposed only the page-header fields, and the candidate also exposes the content builder.
+
+Staging (ACF Pro 6.8.0.1) ran the candidate ZIP with two temporary field groups limited to lab page templates: a content builder with hero, card and text layouts (page links, conditional buttons, same-named checkboxes, an icon picker and a user field), and a copy of a client's real content-builder group. Example pages with only ACF content were captured and delivered as drafts through the stored-layout writer (emulated, no posting service):
+
+- Both builders were hidden by the 1.2.2 filter, and the candidate read them and detected both pages as ACF layouts.
+- Delivered text landed in the right rows and cards; page links, a URL-type card button, images, the icon picker and user values were kept from the example; a required button address hidden by its button type was left empty without blocking delivery.
+- A layout captured with the 1.2.2 filter delivered its own top-level field and left the builder untouched.
+
+Test pages and the temporary field groups were removed afterwards. Not covered: delivery through the remote posting service, updating an existing published page, and mapping a page link to delivered content (page links keep their example target).
+
 ## 1.2.2 candidate (local and staging)
 
 All local suites passed (the WordPress-install-only locale proof was skipped as before). New checks cover unfilled optional fields in fixed layouts: an unfilled WPBakery FAQ section is removed with its heading, separator and toggles; an emptied column stays beside a filled one; only unfilled questions are removed when others are filled; an element with any filled field stays; required fields never remove their element; whitespace-only and `&nbsp;` values count as unfilled; explicit removals and unfilled fields combine; Gutenberg groups, spacers and columns and Elementor sections, columns and dividers follow the same rule; and the saved-layout delivery path removes an unfilled optional element while existing layouts publish unchanged.
