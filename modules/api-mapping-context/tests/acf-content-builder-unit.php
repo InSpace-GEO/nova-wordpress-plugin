@@ -60,6 +60,13 @@ check( 1 === count( array_filter( array_keys( $fields ), static function ( $path
 $hero = array_values( array_filter( $fixed['blueprint']['schema']['builder']['layouts'], static function ( $layout ) { return 'hero' === $layout['name']; } ) )[0];
 check( 1 === count( array_keys( array_column( $hero['sub_fields'], 'name' ), 'hide_block', true ) ), 'The saved schema lists a shared sub-field once.' );
 
+// Preview: the theme prints these values, so the canvas looks for them by value.
+$visual = array_column( Nova_Bridge_Suite_Recipe_Visual::enrich( [ 'builder' => 'acf' ] + $fixed + [ 'recipe_preset' => [ 'mode' => 'static' ] ], $resource )['preview_fields'], 'locator', 'target' );
+check( [ 'strategy' => 'value_match', 'node_id' => 'acf', 'text' => 'Example hero', 'precision' => 'field' ] === $visual['/document/builder/0/title'], 'A text field is located by its text.' );
+check( 'First card.' === $visual['/document/builder/1/cards/0/text']['text'] && 'region' === $visual['/document/builder/1/cards/0/text']['precision'], 'An editor field is located by its visible text.' );
+check( 'https://site.example/media/42.png' === $visual['/document/builder/0/image']['media'], 'An image is located by its media file.' );
+foreach ( [ '/document/builder/1/cards/1/button_url', '/document/builder/0/button_link', '/document/builder/2/icon' ] as $path ) { check( 'unbound' === $visual[$path]['strategy'], 'Addresses, page links and carried values are not looked up on the page: ' . $path ); }
+
 // Writing: a required button address hidden by the button type is not required.
 $provider = new ACF();
 $compiled = $provider->finalize( $fixed['blueprint'], 'approval' );
