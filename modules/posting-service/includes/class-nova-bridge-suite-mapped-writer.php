@@ -1,6 +1,7 @@
 <?php
 /** Exact local row plans. No generic save hooks, remote commands or whole-parent ACF writes. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-publication-status.php';
 require_once __DIR__ . '/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Writer_Failure extends RuntimeException {
@@ -104,6 +105,8 @@ final class Nova_Bridge_Suite_Mapped_Writer {
         if ( 'update' !== $operation || ( isset( $context['effective_operation'] ) && $context['effective_operation'] !== $operation ) || ( isset( $context['operation'] ) && $context['operation'] !== $operation ) ) { self::fail( 'operation', 'The worker operation differs from the approved local mapping.' ); }
         $publication = $local['routing']['publication'] ?? 'preserve';
         if ( ! in_array( $publication, [ 'preserve', 'draft', 'publish' ], true ) ) { self::fail( 'publication', 'The approved publication policy is unsupported.' ); }
+        // The client's NOVA setting on the delivery decides when present; an update never demotes.
+        $publication = Nova_Bridge_Suite_Publication_Status::routing( $publication, $content, false );
         $desired = 'preserve' === $publication ? $snapshot['post']['post_status'] : $publication;
         if ( ! in_array( $snapshot['post']['post_status'], [ 'publish', 'draft', 'private', 'pending', 'future' ], true ) || ! in_array( $desired, [ 'publish', 'draft', 'private', 'pending', 'future' ], true ) ) { self::fail( 'publication', 'This native post state is outside the direct writer scope.' ); }
         $taxonomy = self::taxonomy_plan( $snapshot, $operation, $desired );
