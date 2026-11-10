@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.5
+Stable tag: 1.2.6
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.6 =
+* Deliveries: WordPress installations that share one MySQL server (separate databases, common on shared hosting) no longer block each other. MySQL named locks are shared by the whole server, and every installation computed the same lock names, so when one notification reached several installations at once only one accepted it and the others answered 409 nova_posting_connection_busy. Lock names now include the installation's database name. Requests to the same installation are still serialized as before.
 
 = 1.2.5 =
 * Layout preview: posts and pages shown through a Divi Theme Builder template no longer appear blank. Their template sections that wait for Divi's entrance animation are now shown, and the post content is outlined in Divi's Post Content module (and Elementor Pro's Post Content widget) when the theme has no standard content wrapper.

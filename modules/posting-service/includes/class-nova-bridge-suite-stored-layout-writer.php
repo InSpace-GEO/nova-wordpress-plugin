@@ -1,6 +1,7 @@
 <?php
 /** Source-free native publishing from an immutable layout and fitted scalar values. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-provider.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
@@ -103,7 +104,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     private static function locked( array $plan, callable $work ) {
         global $wpdb;
         if ( ! isset( $wpdb->posts ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->posts ) ) { self::fail( 'storage', 'Native database storage is unavailable.' ); }
-        $lock = 'nova-layout:' . substr( hash( 'sha256', $wpdb->posts . ':' . $plan['site_id'] . ':' . $plan['target']['target_url'] ), 0, 50 );
+        $lock = Nova_Bridge_Suite_Native_Lock::name( $wpdb, 'nova-layout:', $wpdb->posts . ':' . $plan['site_id'] . ':' . $plan['target']['target_url'], 50 );
         if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $lock ) ) ) { self::fail( 'busy', 'Another native operation owns this URL. Retry shortly.' ); }
         try { return $work(); } finally { $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) ); }
     }

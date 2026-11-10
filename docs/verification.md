@@ -1,5 +1,18 @@
 # Release verification
 
+## 1.2.6 candidate (local and real MySQL)
+
+All 127 local suites passed. A new suite checks that five installations with the same table prefix and NOVA site ID get five different connection, discovery, delivery, admission and schema locks, that the native writers' locks (rules, stored layouts, translations, owned post types) are scoped the same way, that one installation always gets the same name and releases the lock it took, that installations sharing a database with different table prefixes stay apart, that names stay within MySQL's 64 characters, and that database drop-ins without a readable `dbname` fall back to `DB_NAME`.
+
+Simulated against a local MySQL 8.0.46 server with five databases, using WordPress's own `wpdb` and the plugin's `Posting_Jobs` and `Posting_Connection::guard()` in separate PHP processes, each holding the lock for 3 seconds in place of a delivery batch:
+
+- Five installations notified at once: 1.2.5 accepted one and returned 409 `nova_posting_connection_busy` for the other four; 1.2.6 accepted all five in parallel.
+- Two notifications to one installation at once: both versions accepted the first and returned 409 for the second.
+- While one installation held its lock, `IS_USED_LOCK` from another installation's database reported that installation's own lock and the 1.2.5 shared name as free.
+- During the update itself, a request still running 1.2.5 code and one running 1.2.6 on the same installation do not exclude each other, because the names differ. This lasts only while the plugin files are replaced.
+
+Not covered: a live multi-installation host and real NOVA notifications.
+
 ## 1.2.5 candidate (local and real theme markup)
 
 All 126 local suites passed. A new canvas suite models a post rendered through a Divi Theme Builder body template (no main, article or `.entry-content`; an entrance-animated section around the title and content; Divi's Post Content module): the section is shown, the content is outlined in the Post Content module, the title is outlined, and two Post Content modules are not guessed. The 1.2.4 canvas fails this suite.

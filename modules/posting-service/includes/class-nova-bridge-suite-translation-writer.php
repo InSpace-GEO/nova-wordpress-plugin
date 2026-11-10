@@ -1,6 +1,7 @@
 <?php
 /** A TranslatePress or Weglot translation shares a native post with the original. */
 defined( 'ABSPATH' ) || exit;
+require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
 require_once __DIR__ . '/class-nova-wordpress-weglot.php';
 require_once __DIR__ . '/class-nova-wordpress-translatepress.php';
@@ -243,7 +244,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
         if ( empty( $wpdb->posts ) ) { return self::error( 'storage', 'The native publication lock is unavailable.' ); }
         $target = $plan['provider'];
         $scope = 'translatepress' === $target['provider'] ? $target['provider'] : 'weglot:' . $target['post_id'];
-        $lock = 'nova-localize:' . substr( hash( 'sha256', $wpdb->posts . ':' . $scope ), 0, 48 );
+        $lock = Nova_Bridge_Suite_Native_Lock::name( $wpdb, 'nova-localize:', $wpdb->posts . ':' . $scope, 48 );
         if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $lock ) ) ) { return self::error( 'busy', 'Another native translation is being saved. Retry this delivery shortly.' ); }
         try { return self::apply_locked( $plan, $op ); }
         finally { $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) ); }

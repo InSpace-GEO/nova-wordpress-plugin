@@ -1,6 +1,7 @@
 <?php
 /** Durable, private delivery journal. Unfinished work is never removed by retention. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 
 class Nova_Bridge_Suite_Posting_Jobs {
     public const PROTOCOL = 'nova.delivery-snapshot/v1';
@@ -326,15 +327,19 @@ class Nova_Bridge_Suite_Posting_Jobs {
 
     /** Connection-scoped native lock also serializes target writes across different content jobs. */
     public function lock( string $identity, int $wait = 0 ) {
-        $name = 'nova:' . substr( hash( 'sha256', $this->table . ':' . $identity ), 0, 58 );
+        $name = $this->lock_name( $identity );
         $query = $wait > 0 ? $this->db->prepare( 'SELECT GET_LOCK(%s, %d)', $name, min( 30, $wait ) ) : $this->db->prepare( 'SELECT GET_LOCK(%s, 0)', $name );
         $result = $this->db->get_var( $query );
         return '1' === (string) $result ? true : $this->error( 'target_busy' );
     }
 
     public function unlock( string $identity ): void {
-        $name = 'nova:' . substr( hash( 'sha256', $this->table . ':' . $identity ), 0, 58 );
+        $name = $this->lock_name( $identity );
         $this->db->get_var( $this->db->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
+    }
+
+    private function lock_name( string $identity ): string {
+        return Nova_Bridge_Suite_Native_Lock::name( $this->db, 'nova:', $this->table . ':' . $identity, 58 );
     }
 
     public function uncertain_target( array $job ) {
