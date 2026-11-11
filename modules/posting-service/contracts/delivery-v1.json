@@ -790,7 +790,7 @@
           "type": "string",
           "maxLength": 2048,
           "pattern": "^https?://[^/?#@\\s]+(?:[/?][^#\\s]*)?$",
-          "description": "Absolute URL the item actually has in the CMS. For unpublished items, the URL it will get when published."
+          "description": "Absolute URL the item actually has in the CMS. For unpublished items, the URL it will get when published. It must identify the item by its path: when only a query string does (for example WordPress plain permalinks, /?p=123), omit publication. Such a report is accepted but not forwarded."
         },
         "url_status": {
           "type": "string",
@@ -818,6 +818,7 @@
         },
         "language": {
           "type": "string",
+          "maxLength": 35,
           "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$",
           "description": "Language of the reported item. When sent it must equal the delivery language."
         },

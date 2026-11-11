@@ -514,6 +514,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 }
             }
             if ( ! is_string( $url ) || ! is_string( $cms_status ) ) { return null; }
+            if ( self::query_identified( $url ) ) { return null; }
             $report = [ 'url' => $url, 'url_status' => 'publish' === $cms_status ? 'final' : 'provisional', 'cms_status' => $cms_status, 'native' => $native, 'observed_at' => Nova_Bridge_Suite_Posting_Protocol::now() ];
             $optional = [ 'intended_url' => $snapshot['url'] ?? null, 'language' => is_string( $snapshot['language'] ?? null ) ? str_replace( '_', '-', $snapshot['language'] ) : null ];
             foreach ( $optional as $key => $value ) {
@@ -525,6 +526,18 @@ final class Nova_Bridge_Suite_Posting_Worker {
         } catch ( Throwable $error ) {
             return null;
         }
+    }
+
+    /**
+     * NOVA stores page URLs as paths, so a URL that only its query identifies (plain permalinks:
+     * /?p=123, ?page_id=45, a draft preview) would name the homepage or another page. Omit it.
+     */
+    private static function query_identified( string $url ): bool {
+        $parts = wp_parse_url( $url );
+        $query = is_array( $parts ) ? (string) ( $parts['query'] ?? '' ) : '';
+        if ( '' === $query ) { return false; }
+        $path = (string) ( $parts['path'] ?? '' );
+        return '' === $path || '/' === $path || 1 === preg_match( '/(?:^|&)(?:p|page_id|preview)=/i', $query );
     }
 
     private static function sample_permalink( int $post_id ) {
