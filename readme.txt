@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.7
+Stable tag: 1.2.8
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.8 =
+* Custom fields: an administrator can again use an existing post or category as the example for an ACF/SCF layout, and deliveries to those layouts are verified. ACF stores a hidden reference key (such as `_content`) next to each field, and WordPress refuses those protected keys to every role, so the setup stopped with "You cannot inspect the complete metadata for this custom-field example." Permission is now checked on the field itself, as it already was for fixed component layouts and ordinary field writes.
 
 = 1.2.7 =
 * Layout preview: posts shown through a Beaver Themer singular layout now outline their title and content. The content is found in Themer's Post Content module, and a title printed by the theme or a heading module matches the stored title even when WordPress curls its quotes and dashes or the title contains HTML entities.

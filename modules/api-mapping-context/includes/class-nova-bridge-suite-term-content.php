@@ -67,7 +67,8 @@ final class Nova_Bridge_Suite_Term_Content {
     }
     private static function acf_schema( string $taxonomy, int $id ) { return Nova_Bridge_Suite_Content_Transport::acf_schema_for_screen( [ 'taxonomy' => $taxonomy, 'post_id' => $taxonomy . '_' . $id ] ); }
     private static function acf_caps( int $id, array $names ) {
-        foreach ( $names as $name ) { foreach ( [ $name, '_' . $name ] as $key ) { if ( ! current_user_can( 'edit_term_meta', $id, $key ) ) { return self::error( 'You cannot access this category custom-field metadata.', 403 ); } } } return true;
+        // ACF's protected _name reference keys are denied to every role; authorize the editorial field.
+        foreach ( $names as $name ) { if ( ! current_user_can( 'edit_term_meta', $id, $name ) ) { return self::error( 'You cannot access this category custom-field metadata.', 403 ); } } return true;
     }
     public static function read( string $taxonomy, int $id, array $context = [] ) {
         $resource = self::resource( $taxonomy, $id ); if ( is_wp_error( $resource ) ) { return $resource; }

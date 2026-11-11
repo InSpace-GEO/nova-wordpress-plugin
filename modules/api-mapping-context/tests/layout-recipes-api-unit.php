@@ -20,7 +20,9 @@ function remove_filter( $name, $callback, $priority = 10 ) { global $filters; re
 function do_action( $name, ...$arguments ) { global $actions; $hooks = $actions[$name] ?? []; ksort( $hooks ); foreach ( $hooks as $entries ) { foreach ( $entries as $entry ) { call_user_func_array( $entry[0], array_slice( $arguments, 0, $entry[1] ) ); } } }
 function apply_filters( $name, $value, ...$arguments ) { global $filters; $hooks = $filters[$name] ?? []; ksort( $hooks ); foreach ( $hooks as $entries ) { foreach ( $entries as $entry ) { $value = call_user_func_array( $entry[0], array_slice( array_merge( [ $value ], $arguments ), 0, $entry[1] ) ); } } return $value; }
 function register_rest_route( $namespace, $route, $handlers ) { global $routes; $routes[$route] = $handlers; }
-function current_user_can( $capability, ...$args ) { global $administrator, $denied_caps; return $administrator && ! in_array( $capability, $denied_caps, true ) && ( ! in_array( $capability, [ 'edit_post', 'edit_term' ], true ) || ( $args[0] ?? 0 ) !== 22 ); }
+// Like WordPress's map_meta_cap(), protected (underscore) meta keys are denied to every role unless
+// an auth filter allows them; $wordpress_meta_caps opts a test into that rule.
+function current_user_can( $capability, ...$args ) { global $administrator, $denied_caps, $wordpress_meta_caps, $denied_meta_keys; if ( in_array( $capability, [ 'edit_post_meta', 'edit_term_meta' ], true ) && is_string( $args[1] ?? null ) && ( in_array( $args[1], $denied_meta_keys ?? [], true ) || ( ! empty( $wordpress_meta_caps ) && 0 === strpos( $args[1], '_' ) ) ) ) { return false; } return $administrator && ! in_array( $capability, $denied_caps, true ) && ( ! in_array( $capability, [ 'edit_post', 'edit_term' ], true ) || ( $args[0] ?? 0 ) !== 22 ); }
 function wp_verify_nonce( $nonce, $action ) { global $nonce_valid; return $nonce_valid && $nonce === 'valid' && $action === 'wp_rest'; }
 function wp_salt( $scheme ) { return 'isolated-test-' . $scheme; }
 function get_current_user_id() { global $current_user; return $current_user; }

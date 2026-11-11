@@ -1,5 +1,15 @@
 # Release verification
 
+## 1.2.8 candidate (local and staging WordPress)
+
+All 128 local suites passed. The ACF recipe suite now models WordPress's own meta capability rule, which refuses protected (underscore) keys to every role unless an auth filter allows them: an administrator can capture an ACF flexible-content post example and an ACF category example, a denied editorial field is still refused before any value is read. The 1.2.7 code fails this suite.
+
+On staging WordPress (single site, ACF Pro active), `current_user_can( 'edit_post_meta', $post, 'content' )` is true for an administrator and false for `_content` and `_thumbnail_id`, which is the rule the 1.2.7 capture check ran into.
+
+1.2.8 installed on staging (ACF Pro 6.8, single site). As an administrator, with read-only calls: delivery verification of three pages with an ACF group, repeater and flexible content field returned verified (1.2.7 refuses it, because WordPress denies the `_name` keys there); capturing one of them as an example returned its three flexible-content rows with their layouts and wrote nothing. Staging's field group is attached to individual pages, so for the capture its location rules were matched to every page in memory for that one call. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: capturing an example in the admin screen and a live delivery to an ACF layout.
+
 ## 1.2.7 candidate (local, real theme markup and staging)
 
 All 128 local suites passed. A new canvas suite models a post rendered through a Beaver Themer singular layout (no `.entry-content` or `.entry-title`; the title in a heading module with a curled apostrophe; the body in Themer's Post Content module): the content is outlined in the Post Content module, a stored title with a straight apostrophe or an HTML entity matches the heading, a different title, two Post Content modules, two matching headings and a heading in the footer are not guessed. The 1.2.6 canvas fails this suite.
