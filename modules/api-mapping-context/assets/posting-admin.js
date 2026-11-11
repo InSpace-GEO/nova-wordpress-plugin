@@ -34,7 +34,7 @@
                 [ 'Delivery', 'State / phase', 'Last issue', 'Action' ].forEach( function ( label ) { head.appendChild( node( 'th', label ) ); } ); table.appendChild( head );
                 jobs.forEach( function ( job ) {
                     var current = job.protocol === 'nova.delivery-snapshot/v1';
-                    var row = node( 'tr' ); row.appendChild( node( 'td', current ? job.content_id : 'Historical content ' + job.content_id + ' / ' + job.version ) ); row.appendChild( node( 'td', current ? [ job.state, job.phase ].filter( Boolean ).join( ' / ' ).replace( /_/g, ' ' ) : 'Historical protocol: manual review required' ) ); row.appendChild( node( 'td', typeof job.last_error === 'string' ? job.last_error : '' ) );
+                    var row = node( 'tr' ); row.appendChild( node( 'td', current ? job.content_id : 'Historical content ' + job.content_id + ' / ' + job.version ) ); row.appendChild( node( 'td', current ? [ job.state, job.phase ].filter( Boolean ).join( ' / ' ).replace( /_/g, ' ' ) : 'Historical protocol: manual review required' ) ); var issue = typeof job.last_error === 'string' ? job.last_error : ''; if ( issue && typeof job.last_error_detail === 'string' && job.last_error_detail ) { issue += ': ' + job.last_error_detail; } row.appendChild( node( 'td', issue ) );
                     var action = node( 'td' );
                     if ( current && 'blocked' === job.state ) { action.appendChild( button( 'Resume safely', async function () {
                         if ( busy ) { return; } busy = true;

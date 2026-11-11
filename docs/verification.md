@@ -1,5 +1,13 @@
 # Release verification
 
+## 1.2.13 candidate (local and staging WordPress)
+
+131 of 132 local suites passed against a WordPress 7.1.4 core fixture; the remaining suite (localized custom fields) fails the same way on 1.2.12. New checks cover dated post planning at the delivery slug, the stored-layout opt-in (other writers still refuse dated post routes), slug, date, host and post type mismatches, a %category% structure still being refused, and the kept failure message (tags stripped, the publication_failed event unchanged).
+
+On staging (WordPress 7.1, WPML with three languages, ACF Pro 6.8.11, a classic theme rendering ACF flexible content, post permalinks /%year%/%monthnum%/%day%/%postname%/), as an administrator: with 1.2.12, planning a post's target stopped before writing with the permalink error. With 1.2.13, through the stored-layout writer's plan() and apply() with an ACF layout captured on the site, a published post was created at /2026/11/11/<slug>/ and reported with that URL, and a draft post was saved. A page with a 12-row ACF layout still published at /<slug>/. All test items were force-deleted.
+
+Not covered: a live NOVA delivery, and the failure message in the admin list for a live failure.
+
 ## 1.2.12 candidate (local and staging WordPress)
 
 All 132 local suites passed. A new suite checks the ACF row rules directly: a flexible-content row whose mapped optional fields are empty is left out; a row with any filled mapped field stays; a row left with only a style setting once its repeater rows are gone is left out, but one still showing a fixed heading stays (only its emptied rows go); a top-level field takes nothing with it; explicit omissions pass through; a field's min, a required field and a layout's min each keep the rows they need. It also checks that image entries follow their rows when earlier rows go, and compiles a captured fixed ACF layout end to end (an empty first row is removed and counted; one filled field keeps it). The WPBakery/Avada suite now checks that an image import after a removed element still points at its Image Frame; without the re-pointing that check fails, so 1.2.2 to 1.2.11 attached such an image to the wrong position.

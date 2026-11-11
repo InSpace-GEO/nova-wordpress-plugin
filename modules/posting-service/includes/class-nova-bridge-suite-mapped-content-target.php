@@ -77,8 +77,34 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         $details = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $element, 'element_type' => ( $term ? 'tax_' : 'post_' ) . $name ] ); $language = is_object( $details ) ? ( $details->language_code ?? null ) : ( $details['language_code'] ?? null );
         return $language === $context['code'] ? true : self::error( 'create_language_readback', 'The witnessed native item was not saved in its requested default language. No duplicate will be inserted.' );
     }
+    private const POST_DATE_TOKENS = [ '%year%' => '[0-9]{4}', '%monthnum%' => '[0-9]{2}', '%day%' => '[0-9]{2}', '%hour%' => '[0-9]{2}', '%minute%' => '[0-9]{2}', '%second%' => '[0-9]{2}' ];
+    /** The post permalink structure when its only tags besides %postname% are post-date tags, e.g. /%year%/%monthnum%/%day%/%postname%/. */
+    public static function dated_post_structure(): ?string {
+        $structure = get_option( 'permalink_structure', '' );
+        if ( ! is_string( $structure ) || 1 !== substr_count( $structure, '%postname%' ) ) { return null; }
+        $rest = str_replace( '%postname%', '', $structure ); $dated = false;
+        foreach ( array_keys( self::POST_DATE_TOKENS ) as $token ) { if ( false !== strpos( $rest, $token ) ) { $dated = true; $rest = str_replace( $token, '', $rest ); } }
+        return $dated && ! preg_match( '/%[a-zA-Z0-9_]+%/', $rest ) ? $structure : null;
+    }
+    /**
+     * NOVA addresses a post by its undated slug URL. Under a dated structure WordPress serves that post at
+     * /<date>/<slug>/, so the two identify the same item when the native path is exactly the structure filled
+     * with dates and the delivery's slug. Every other resource still requires the identical URL.
+     */
+    public static function same_native_url( string $actual, string $wanted, string $resource ): bool {
+        if ( $actual === $wanted ) { return true; }
+        if ( 'post_type:post' !== $resource || null === ( $structure = self::dated_post_structure() ) ) { return false; }
+        $native = self::normalize_url( $actual ); $delivery = self::normalize_url( $wanted ); $home = self::normalize_url( get_option( 'home', home_url( '/' ) ) );
+        if ( is_wp_error( $native ) || is_wp_error( $delivery ) || is_wp_error( $home ) || $native['origin'] !== $delivery['origin'] || isset( wp_parse_url( $wanted )['query'] ) || isset( wp_parse_url( $actual )['query'] ) ) { return false; }
+        $base = '/' === $home['path'] ? '' : $home['path'];
+        if ( 0 !== strpos( $delivery['path'], $base . '/' ) ) { return false; }
+        $slug = substr( $delivery['path'], strlen( $base ) + 1 ); if ( '' === $slug || false !== strpos( $slug, '/' ) ) { return false; }
+        $pattern = preg_quote( rtrim( '/' . ltrim( $structure, '/' ), '/' ), '#' );
+        $pattern = str_replace( array_merge( array_keys( self::POST_DATE_TOKENS ), [ '%postname%' ] ), array_merge( array_values( self::POST_DATE_TOKENS ), [ preg_quote( $slug, '#' ) ] ), $pattern );
+        return 1 === preg_match( '#^' . preg_quote( $base, '#' ) . $pattern . '$#D', $native['path'] );
+    }
     /** Derive native routing from the site's registered permalink structure only. */
-    public static function creation( string $resource, string $url, ?string $language = null, ?array $provider_context = null ) {
+    public static function creation( string $resource, string $url, ?string $language = null, ?array $provider_context = null, bool $dated_posts = false ) {
         $language_home = $provider_context['home'] ?? null;
         $wanted = self::owned_url( $url, $language_home ); if ( is_wp_error( $wanted ) ) { return $wanted; }
         if ( isset( wp_parse_url( $wanted['identity'] )['query'] ) ) { return self::error( 'create_route', 'Creation requires a native pretty permalink without query parameters.' ); }
@@ -89,6 +115,10 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         $token = $term ? '%' . $name . '%' : ( 'page' === $name ? '%pagename%' : '%postname%' );
         if ( $term || ! in_array( $name, [ 'post', 'page' ], true ) ) { $structure = $wp_rewrite->get_extra_permastruct( $name ); if ( ! $term ) { $token = '%' . $name . '%'; } }
         else { $structure = 'page' === $name ? $wp_rewrite->get_page_permastruct() : get_option( 'permalink_structure', '' ); }
+        // Writers that verify with same_native_url() opt in: a dated post structure is planned at the undated
+        // slug URL NOVA delivers, and the dated permalink WordPress gives that post is accepted afterwards.
+        $dated = $dated_posts && ! $term && 'post' === $name && null !== self::dated_post_structure();
+        if ( $dated ) { $structure = '/%postname%/'; }
         if ( ! is_string( $structure ) || substr_count( $structure, $token ) !== 1 || preg_match( '/%[a-zA-Z0-9_]+%/', str_replace( $token, '', $structure ) ) ) { return self::error( 'create_route', 'This native permalink structure needs an explicit certified creation adapter.' ); }
         if ( isset( $provider_context['code'] ) && 'wpml' === $provider_context['provider'] && ! in_array( $name, [ 'post', 'page' ], true ) ) {
             $base = trim( (string) ( $object->rewrite['slug'] ?? '' ), '/' );
@@ -112,6 +142,8 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         $slug = rawurldecode( array_pop( $segments ) ); $parent = 0;
         if ( $segments ) { $parentUrl = $wanted['origin'] . $sides[0] . implode( '/', $segments ) . $sides[1]; $resolved = self::resolve( $parentUrl, $resource, null, $language_home ); if ( is_wp_error( $resolved ) ) { return $resolved; } $parent = $resolved['reference_id']; }
         $occupied = self::resolve( $url, null, null, $language_home ); if ( ! is_wp_error( $occupied ) ) { return self::error( 'target_exists', 'The planned URL already belongs to an existing native item.' ); } if ( 'nova_mapped_target_not_found' !== $occupied->get_error_code() ) { return $occupied; }
+        // Dated posts are not found by their undated URL. WordPress would rename a second post with this slug.
+        if ( $dated && get_posts( [ 'post_type' => 'post', 'name' => $slug, 'post_status' => 'any', 'posts_per_page' => 1, 'offset' => 0, 'fields' => 'ids', 'suppress_filters' => true ] ) ) { return self::error( 'target_exists', 'A post with this slug already exists.' ); }
         return [ 'slug' => $slug, 'parent' => $parent, 'target_url' => $wanted['identity'] ] + ( null !== $language ? [ 'language' => $language, 'native_language' => $native_language ] : [] );
     }
     private static function routing_resources() {

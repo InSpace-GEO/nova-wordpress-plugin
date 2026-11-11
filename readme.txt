@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.12
+Stable tag: 1.2.13
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.13 =
+* Fixed posts on sites whose post permalinks contain the date (for example /%year%/%monthnum%/%day%/%postname%/): a delivery mapped to WordPress posts stopped before writing with "This native permalink structure needs an explicit certified creation adapter". The post is now created with the delivery's slug, WordPress gives it its dated link, and that link is accepted as the delivery URL and reported back. A post that already uses the slug stops the delivery instead of being duplicated. Pages, custom post types, categories and sites without dated post links are unchanged.
+* Publishing status: a delivery that failed in WordPress now shows WordPress's own message after the code (for example "nova_layout_writer_native: ..."), so the failing check is visible without server access.
 
 = 1.2.12 =
 * Fixed ACF/SCF layouts: a repeater or flexible-content row whose mapped optional fields a delivery leaves empty is now left out of the new page instead of being published empty, as builder elements already were. A row left showing nothing once its own rows are gone is left out too; style settings (choices, toggles, colours) on their own do not keep a row. ACF's row minimums are kept: when a field's minimum, a required field or a layout's minimum needs the row, it is published with its empty values. Mapped images in later rows stay with their own row; in builder layouts, images after a removed element now also keep their element.

@@ -362,9 +362,9 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $retained_writer = $job['payload']['native_writer'] ?? '';
                 $retained_translation = 'dictionary_translation' === $retained_writer;
                 $configuration = $retained_local || $retained_translation || $retained_layout ? $job['payload']['configuration'] : call_user_func( $this->configuration, $snapshot, $job['site_id'] );
-                if ( is_wp_error( $configuration ) ) { return $this->native_failure( $job, $snapshot, $configuration->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                if ( is_wp_error( $configuration ) ) { return $this->native_failure( $job, $snapshot, $configuration->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $configuration->get_error_message() ); }
                 $native_snapshot = Nova_Bridge_Suite_Posting_Protocol::writer_snapshot( $snapshot, $configuration );
-                if ( is_wp_error( $native_snapshot ) ) { return $this->native_failure( $job, $snapshot, $native_snapshot->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                if ( is_wp_error( $native_snapshot ) ) { return $this->native_failure( $job, $snapshot, $native_snapshot->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $native_snapshot->get_error_message() ); }
                 // Only the transient writer view contains private local template details.
                 // The journal, ETag, attempt authority and receipts keep the exact wire body.
                 $snapshot = $native_snapshot;
@@ -377,7 +377,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( ! isset( self::WRITERS[$writer_name] ) || 'dictionary_translation' === $writer_name ) { $writer_name = 'fixed_mapping'; }
                 if ( $this->default_dispatch && ( '' === $retained_writer || $retained_translation || ( ! $stored_layout && ! $owned_cpt ) ) ) {
                     $provider = Nova_Bridge_Suite_Translation_Writer::provider( $snapshot['language'] );
-                    if ( is_wp_error( $provider ) ) { return $this->native_failure( $job, $snapshot, $provider->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                    if ( is_wp_error( $provider ) ) { return $this->native_failure( $job, $snapshot, $provider->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $provider->get_error_message() ); }
                     if ( $retained_translation || null !== $provider ) {
                         // Fixed references, local rules and term writers edit the shared original.
                         if ( ! $stored_layout && ! $owned_cpt ) { return $this->native_failure( $job, $snapshot, 'nova_translation_mapping_unsupported', [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
@@ -395,7 +395,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                     $selected = ( $retained_local || $retained_layout ) && isset( $job['payload']['selected_policy'] ) ? $job['payload']['selected_policy'] : call_user_func( $this->policy, $this->client, $snapshot, $configuration );
                 }
                 if ( is_wp_error( $selected ) && 'nova_translation_source_pending' === $selected->get_error_code() ) { return $this->retry( $job, $selected->get_error_code() ); }
-                if ( is_wp_error( $selected ) ) { return $this->native_failure( $job, $snapshot, $selected->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                if ( is_wp_error( $selected ) ) { return $this->native_failure( $job, $snapshot, $selected->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $selected->get_error_message() ); }
                 $reference = $selected['reference'] ?? []; $routing = $selected['routing'] ?? [];
                 $operation = $routing['operation'] ?? null; $target = $reference['reference_id'] ?? 0;
                 $source_free = ( $local_rules || $static_term || $stored_layout || $owned_cpt ) && 'create' === $operation && 0 === $target;
@@ -409,7 +409,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( is_wp_error( $job ) ) { return $job; }
                 $plan = call_user_func( [ $this->writer, 'plan' ], $snapshot, $configuration, $context );
                 if ( is_wp_error( $plan ) && 'nova_translation_source_pending' === $plan->get_error_code() ) { return $this->retry( $job, $plan->get_error_code() ); }
-                if ( is_wp_error( $plan ) ) { return $this->native_failure( $job, $snapshot, $plan->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                if ( is_wp_error( $plan ) ) { return $this->native_failure( $job, $snapshot, $plan->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $plan->get_error_message() ); }
                 if ( ! is_array( $plan ) ) { return $this->block( $job, 'plan_invalid' ); }
                 $job = $this->save_payload( $job, [ 'plan' => $plan ], 'planned', [ 'target_id' => $target ] );
                 if ( is_wp_error( $job ) ) { return $job; }
@@ -445,7 +445,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( 'nova_translation_busy' === $result->get_error_code() ) { return $this->retry( $job, 'nova_translation_busy' ); }
                 if ( 'nova_writer_ambiguous_commit' === $result->get_error_code() ) { return $this->retry( $job, 'native_commit_reconciliation' ); }
                 $proof = call_user_func( [ $this->writer, 'recover' ], $job['payload']['plan'], $job['operation_id'] );
-                if ( is_array( $proof ) && 'not_committed' === ( $proof['state'] ?? null ) && true === ( $proof['no_native_commit'] ?? false ) ) { return $this->native_failure( $job, $snapshot, $proof['failure_code'] ?? $result->get_error_code(), $proof ); }
+                if ( is_array( $proof ) && 'not_committed' === ( $proof['state'] ?? null ) && true === ( $proof['no_native_commit'] ?? false ) ) { return $this->native_failure( $job, $snapshot, $proof['failure_code'] ?? $result->get_error_code(), $proof, $result->get_error_message() ); }
                 return is_array( $proof ) && ! empty( $proof[$native_id_key] ) ? $this->retry( $job, 'native_commit_reconciliation' ) : $this->block( $job, $result->get_error_code() );
             }
             if ( is_array( $result ) && 'not_committed' === ( $result['state'] ?? null ) && true === ( $result['no_native_commit'] ?? false ) && false === ( $result['safe_to_apply'] ?? null ) ) { return $this->native_failure( $job, $snapshot, $result['failure_code'] ?? 'native_target_unavailable', $result ); }
@@ -484,9 +484,14 @@ final class Nova_Bridge_Suite_Posting_Worker {
         }
     }
 
-    private function native_failure( array $job, array $snapshot, string $code, array $proof ) {
+    private function native_failure( array $job, array $snapshot, string $code, array $proof, string $message = '' ) {
         $code = preg_match( '/^[a-z0-9_]{1,100}$/D', $code ) ? $code : 'native_failure';
-        return $this->queue_event( $job, $snapshot, 'publication_failed', [ 'reason' => $code ], 'complete', [ 'native_absence_proof' => $proof, 'failure_code' => $code ] );
+        // The code alone hides which WordPress check failed (e.g. nova_layout_writer_native wraps ~40 of them).
+        // Keep the WordPress message locally so the delivery list can show it; the event schema stays unchanged.
+        $extra = [ 'native_absence_proof' => $proof, 'failure_code' => $code ];
+        $message = trim( (string) preg_replace( '/\s+/u', ' ', strip_tags( $message ) ) );
+        if ( '' !== $message ) { $extra['failure_message'] = function_exists( 'mb_substr' ) ? mb_substr( $message, 0, 500 ) : substr( $message, 0, 500 ); }
+        return $this->queue_event( $job, $snapshot, 'publication_failed', [ 'reason' => $code ], 'complete', $extra );
     }
 
     private function queue_event( array $job, array $snapshot, string $kind, array $evidence, string $continue, array $extra = [] ) {
