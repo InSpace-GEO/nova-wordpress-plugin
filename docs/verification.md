@@ -1,5 +1,13 @@
 # Release verification
 
+## 1.2.9 candidate (local and staging WordPress)
+
+All 129 local suites passed. A new suite runs the refusal explanation against WordPress's own hook and meta API: a field refused without its own filter is named with "a capability filter on this site"; a field auth filter is named and attributed to the plugin folder it was loaded from; a filter outside plugins and themes is not attributed; a field a plugin marks as protected is explained as such; plugins hooked into capability filters are listed as candidates, not as the cause. The ACF recipe suite checks that the 403 message names the refused field.
+
+1.2.9 installed on staging. As an administrator, with read-only calls and filters added in memory for one process: capture of a page with ACF group, repeater and flexible content still succeeds; with a permission filter on one field the capture names that field and the filter; with a capability filter refusing one field, saved-field verification names that field and lists the plugins on staging that change capabilities, without NOVA itself. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: the message on a client site where a field is actually refused.
+
 ## 1.2.8 candidate (local and staging WordPress)
 
 All 128 local suites passed. The ACF recipe suite now models WordPress's own meta capability rule, which refuses protected (underscore) keys to every role unless an auth filter allows them: an administrator can capture an ACF flexible-content post example and an ACF category example, a denied editorial field is still refused before any value is read. The 1.2.7 code fails this suite.

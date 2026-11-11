@@ -104,6 +104,65 @@ final class Nova_Bridge_Suite_Content_Transport {
 		return $catalog;
 	}
 
+	/**
+	 * Explain why WordPress refuses an editorial field to the current user, naming the field
+	 * and, where WordPress can tell, the plugin or theme that decided it. Used in 403 messages.
+	 */
+	public static function meta_denial( string $object_type, int $object_id, string $name ): string {
+		$subtype = function_exists( 'get_object_subtype' ) ? (string) get_object_subtype( $object_type, $object_id ) : '';
+		$hooks = [];
+		foreach ( array_filter( [ $subtype ? "auth_{$object_type}_meta_{$name}_for_{$subtype}" : '', "auth_{$object_type}_meta_{$name}" ] ) as $hook ) {
+			if ( function_exists( 'has_filter' ) && has_filter( $hook ) ) { $hooks[] = $hook; }
+		}
+		if ( $hooks ) {
+			$registered = function_exists( 'get_registered_meta_keys' ) ? array_merge( get_registered_meta_keys( $object_type ), $subtype ? get_registered_meta_keys( $object_type, $subtype ) : [] ) : [];
+			$reason = isset( $registered[ $name ] ) ? 'its registered meta permission callback' : 'a permission filter for this field';
+			$sources = self::filter_sources( $hooks );
+		} elseif ( function_exists( 'is_protected_meta' ) && is_protected_meta( $name, $object_type ) ) {
+			$reason = 'it is marked as protected metadata';
+			$sources = self::filter_sources( [ 'is_protected_meta' ] );
+		} else {
+			// Many plugins adjust capabilities; these are candidates, not the proven cause.
+			$candidates = self::filter_sources( [ 'map_meta_cap', 'user_has_cap' ] );
+			return sprintf( 'WordPress refuses the field "%s" to this account (a capability filter on this site%s).', $name, $candidates ? '; plugins and themes that change capabilities: ' . implode( ', ', $candidates ) : '' );
+		}
+		return sprintf( 'WordPress refuses the field "%s" to this account (%s%s).', $name, $reason, $sources ? ', added by ' . implode( ', ', $sources ) : '' );
+	}
+
+	/** Plugin or theme folders that registered callbacks on these hooks; WordPress core is left out. */
+	private static function filter_sources( array $hooks ): array {
+		global $wp_filter;
+		$sources = [];
+		foreach ( $hooks as $hook ) {
+			$callbacks = isset( $wp_filter[ $hook ] ) && is_object( $wp_filter[ $hook ] ) ? (array) $wp_filter[ $hook ]->callbacks : ( (array) ( $wp_filter[ $hook ] ?? [] ) );
+			foreach ( $callbacks as $priority ) {
+				foreach ( (array) $priority as $entry ) {
+					$source = self::callback_source( $entry['function'] ?? null );
+					if ( null !== $source ) { $sources[ $source ] = true; }
+				}
+			}
+		}
+		return array_slice( array_keys( $sources ), 0, 6 );
+	}
+
+	private static function callback_source( $callback ): ?string {
+		try {
+			if ( is_string( $callback ) && false !== strpos( $callback, '::' ) ) { $callback = explode( '::', $callback, 2 ); }
+			if ( is_array( $callback ) && 2 === count( $callback ) ) { $reflection = new ReflectionMethod( $callback[0], (string) $callback[1] ); }
+			elseif ( $callback instanceof Closure || is_string( $callback ) ) { $reflection = new ReflectionFunction( $callback ); }
+			elseif ( is_object( $callback ) && method_exists( $callback, '__invoke' ) ) { $reflection = new ReflectionMethod( $callback, '__invoke' ); }
+			else { return null; }
+		} catch ( Throwable $error ) { return null; }
+		$file = str_replace( DIRECTORY_SEPARATOR, '/', (string) $reflection->getFileName() );
+		if ( preg_match( '#/(?:mu-)?plugins/([^/]+)#', $file, $match ) ) {
+			// NOVA never refuses a field it asks about; leave its own folder out of the explanation.
+			if ( basename( dirname( __DIR__, 3 ) ) === $match[1] ) { return null; }
+			return 'plugin ' . preg_replace( '/\.php$/', '', $match[1] );
+		}
+		if ( preg_match( '#/themes/([^/]+)#', $file, $match ) ) { return 'theme ' . $match[1]; }
+		return null;
+	}
+
 	public static function safe_key( $key ): bool {
 		return Nova_Bridge_Suite_Layout_Custom_Fields::safe_key( $key );
 	}

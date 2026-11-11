@@ -102,6 +102,8 @@ $protected_term = Nova_Bridge_Suite_Recipe_ACF::design( '', 31, '', 'product_cat
 check( ! is_wp_error( $protected_term ), 'An administrator could not capture an ACF term example because WordPress protects its _name reference keys.' );
 $before_reads = $acf_reads; $denied_meta_keys = [ 'matrix' ];
 rejected( Nova_Bridge_Suite_Recipe_ACF::design( 'page', 11 ), 403, 'A denied editorial ACF field was inspected.' );
+$named = Nova_Bridge_Suite_Recipe_ACF::design( 'page', 11 );
+check( is_wp_error( $named ) && false !== strpos( $named->get_error_message(), 'WordPress refuses the field "matrix"' ), 'The refusal did not name the refused ACF field.' );
 check( $acf_reads === $before_reads, 'ACF values were read before the editorial field permission check.' );
 $denied_meta_keys = []; $wordpress_meta_caps = false;
 $term_design = design( 'acf', 'rules', 'taxonomy:product_cat' );
