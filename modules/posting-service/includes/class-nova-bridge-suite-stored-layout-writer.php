@@ -79,10 +79,20 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     private static function target( array $content, array $configuration, string $type ): array {
         $association = self::association( $content ); $url = self::checked( self::target_url( $content['url'] ?? '', $content['language'] ) ); $resource = 'post_type:' . $type;
         if ( $association ) {
-            if ( ! in_array( $association['state'] ?? '', [ 'committed', 'retired' ], true ) || ( $association['template_id'] ?? '' ) !== $configuration['template']['id'] || ( $association['content_item_id'] ?? '' ) !== $content['content_item_id'] || self::compare( $content['content_item_version_id'], $association['content_item_version_id'] ?? '0' ) <= 0 ) { self::fail( 'association', 'This URL belongs to another mapping, content item, language or unfinished/newer delivery.' ); }
+            // Another mapping or content item may take the page over. Only an unfinished operation, or an
+            // older or equal version of the same content item, is refused.
+            $same_item = ( $association['template_id'] ?? '' ) === $configuration['template']['id'] && ( $association['content_item_id'] ?? '' ) === $content['content_item_id'];
+            if ( ! in_array( $association['state'] ?? '', [ 'committed', 'retired' ], true ) || ( $same_item && self::compare( $content['content_item_version_id'], $association['content_item_version_id'] ?? '0' ) <= 0 ) ) { self::fail( 'association', 'This URL has an unfinished delivery, or a newer or equal version of this content item.' ); }
             $wanted = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ) );
-            if ( $wanted['identity'] !== $association['target']['target_url'] ) { self::fail( 'url_changed', 'A retained page cannot be moved to a different delivery URL.' ); }
             $target = $association['target'];
+            if ( $wanted['identity'] !== $target['target_url'] ) {
+                // NOVA may now address the page by the link WordPress gave it (reported on success), such as a dated post link.
+                $current = Nova_Bridge_Suite_Mapped_Content_Target::native_url( $resource, 'post', (int) $association['post_id'] );
+                $actual = is_string( $current ) ? Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $current ) : null;
+                $post = get_post( (int) $association['post_id'] );
+                if ( ! is_array( $actual ) || $actual['identity'] !== $wanted['identity'] || ! $post ) { self::fail( 'url_changed', 'A retained page cannot be moved to a different delivery URL.' ); }
+                $target = [ 'slug' => $post->post_name, 'parent' => (int) $post->post_parent, 'target_url' => $wanted['identity'] ] + $target;
+            }
             if ( Nova_Bridge_Suite_Stored_Layout_Language::is_multilingual_post_provider() ) {
                 $target = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::existing( $resource, (int) $association['post_id'], $url, $content['language'] ) );
             }
@@ -98,7 +108,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         }
         $id = (int) $found['reference_id']; $post = get_post( $id );
         if ( $found['reference_type'] !== 'post' || ! $post || $post->post_type !== $type || ! current_user_can( 'edit_post', $id ) || ! in_array( $post->post_status, [ 'draft', 'publish' ], true ) ) { self::fail( 'target', 'The exact URL must identify an editable draft or published page of the mapped type.' ); }
-        if ( '' !== get_post_meta( $id, self::OWNER, true ) || 0 === strpos( (string) $post->post_content_filtered, self::FORMAT . ':' ) ) { self::fail( 'ownership', 'This existing page already has a stored-layout owner or reservation. Reconcile its retained association before replacing it.' ); }
+        // A page another NOVA delivery wrote (another URL record or environment) is replaced like any other page at this exact URL.
         return [ 'post_id' => $id, 'target' => self::checked( Nova_Bridge_Suite_Stored_Layout_Language::existing( $resource, $id, $url, $content['language'] ) ), 'association' => null ];
     }
     private static function locked( array $plan, callable $work ) {
@@ -182,14 +192,10 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             $title = sanitize_text_field( $title ); if ( '' === trim( $title ) || strlen( $title ) > 1000 ) { self::fail( 'title', 'The fitted layout needs a nonempty page title.' ); }
             $post_fields['title'] = $title; $provider = self::provider( $type, $payload, $status, $builder );
             $before = $target_id ? self::native_state( $target_id, $payload['theme_presentation'] ?? null, $payload['elementor_document_settings'] ?? null, $builder, $payload ) : null;
-            if ( $target_id && ( $before['type'] !== $type || ! in_array( $before['status'], [ 'draft', 'publish' ], true ) || $before['slug'] !== $target['slug'] || $before['parent'] !== $target['parent'] || ( ! $association && $before['owner'] !== '' ) ) ) { self::fail( 'target_changed', 'The existing page identity, status or ownership changed during planning.' ); }
+            if ( $target_id && ( $before['type'] !== $type || ! in_array( $before['status'], [ 'draft', 'publish' ], true ) || $before['slug'] !== $target['slug'] || $before['parent'] !== $target['parent'] ) ) { self::fail( 'target_changed', 'The existing page identity or status changed during planning.' ); }
             if ( $target_id && ! current_user_can( 'edit_post', $target_id ) ) { self::fail( 'permission', 'The configured actor cannot edit the retained page.' ); }
-            if ( $target_id && $association ) {
-                $expected_owner = self::owner( [ 'site_id' => $content['site_id'], 'delivery_identity' => $content, 'template_id' => $configuration['template']['id'], 'association_before' => $association, 'operation_id' => $operation ] );
-                // A retired interrupted creation may have reserved its page before claiming it.
-                $unclaimed_retired = 'retired' === ( $association['state'] ?? '' ) && '' === $before['owner'];
-                if ( $before['owner'] !== $expected_owner && ! $unclaimed_retired ) { self::fail( 'ownership', 'The retained page belongs to another native operation.' ); }
-            }
+            // The page's current owner (another delivery, mapping or environment) is frozen in native_before;
+            // apply refuses if the page changes after this plan, and that other operation then finds its page changed.
             // A newer authorized delivery replaces the saved layout even if content or design
             // changed since the previous publication. Freeze today's state for this operation's
             // apply/recovery checks; do not require the previous success's whole-page digest.
@@ -362,7 +368,6 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                         $before = $plan['native_before']; $claimed = $before; $claimed['owner'] = self::owner( $plan );
                         // A lost ownership-marker response may be resumed only for this exact frozen plan.
                         if ( ! self::same_native_state( $state, $before ) && ! self::same_native_state( $state, $claimed ) ) { self::fail( 'human_changed', 'The existing page changed after planning.' ); }
-                        if ( $before['owner'] !== '' && $before['owner'] !== self::owner( $plan ) ) { self::fail( 'ownership', 'The page belongs to another native operation.' ); }
                         self::check_url( $plan, $id );
                     }
                     elseif ( $state['reservation'] !== self::reservation_marker( $plan ) || $state['elements'] || '' !== $state['content'] || 'draft' !== $state['status'] ) { self::fail( 'reservation_changed', 'The reserved page changed before the native layout save.' ); }
@@ -382,6 +387,8 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                     self::checked( Nova_Bridge_Suite_Stored_Layout_Provider::apply( $plan['builder'] ?? 'elementor', $id, $plan['payload'], $plan['post_fields'], $operation ) );
                     self::check_content( $plan, $id );
                 }
+                // After the verified save (and again on a resumed one): another builder must not keep rendering the replaced page.
+                if ( $plan['target_post_id'] && is_callable( [ 'Nova_Bridge_Suite_Recipe_Builders', 'release_carriers' ] ) ) { Nova_Bridge_Suite_Recipe_Builders::release_carriers( $id, $plan['builder'] ?? 'elementor' ); }
                 if ( isset( $plan['custom_fields'] ) ) {
                     $write = ! in_array( $record['state'], [ 'saved', 'publishing' ], true );
                     if ( $write && 'fields' !== $record['state'] ) { $record['state'] = 'fields'; self::checkpoint( $key, $record ); }

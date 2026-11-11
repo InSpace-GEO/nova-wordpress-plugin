@@ -74,11 +74,11 @@ $payload['acf_layout']['post_content'] = '<!-- wp:paragraph --><p>Protected bloc
 check( ! is_wp_error( $provider->publication_apply( $id, $payload, [ 'title' => 'ACF and blocks' ] ) ), 'An explicitly captured block body must verify after applying its ACF layout.' );
 $test_native_carriers = [ 'gutenberg' ];
 check( ! is_wp_error( $provider->publication_apply( $id, $payload, [ 'title' => 'ACF and blocks' ] ) ), 'An unchanged captured block body must remain updateable.' );
+// A delivery overwrites whatever the page at its exact URL holds: another block body or another builder.
 $posts[$id]->post_content .= '<!-- wp:paragraph --><p>Another layout.</p><!-- /wp:paragraph -->';
-check( is_wp_error( $provider->publication_snapshot( $id, $payload ) ), 'An unrelated block document must still require its own layout.' );
-$posts[$id]->post_content = $payload['acf_layout']['post_content'];
+check( ! is_wp_error( $provider->publication_snapshot( $id, $payload ) ) && ! is_wp_error( $provider->publication_apply( $id, $payload, [ 'title' => 'ACF and blocks' ] ) ) && $posts[$id]->post_content === $payload['acf_layout']['post_content'], 'An unrelated block body is replaced by the captured ACF body.' );
 $test_native_carriers = [ 'gutenberg', 'elementor' ];
-check( is_wp_error( $provider->publication_snapshot( $id, $payload ) ), 'Matching body text must not authorize replacing another native builder.' );
+check( ! is_wp_error( $provider->publication_snapshot( $id, $payload ) ) && ! is_wp_error( $provider->publication_apply( $id, $payload, [ 'title' => 'ACF and blocks' ] ) ), 'A page another builder rendered can be replaced by the ACF layout.' );
 $test_native_carriers = [ 'gutenberg' ];
 $draft_payload = $payload;
 $draft_payload['nova_media'][$path] = [ 'kind' => 'acf', 'id_target' => $path, 'url' => '', 'clear' => true ];

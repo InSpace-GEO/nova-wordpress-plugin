@@ -473,7 +473,10 @@ final class Nova_Bridge_Suite_Posting_Worker {
             $job = $this->save_payload( $job, [ 'result' => $verified ], 'committed' );
             if ( is_wp_error( $job ) ) { return $job; }
             $publication_ref = $static_term ? $verified['publication_ref'] : 'wordpress:post:' . $verified['post_id'] . ';operation:' . $job['operation_id'];
-            return $this->queue_event( $job, $snapshot, 'publication_succeeded', [ 'published_at' => Nova_Bridge_Suite_Posting_Protocol::now(), 'publication_ref' => $publication_ref ], 'complete' );
+            $evidence = [ 'published_at' => Nova_Bridge_Suite_Posting_Protocol::now(), 'publication_ref' => $publication_ref ];
+            $publication = self::publication_report( $snapshot, $verified, $static_term, $job['payload']['native_writer'] ?? '', $job['payload']['plan'] ?? [] );
+            if ( null !== $publication ) { $evidence['publication'] = $publication; }
+            return $this->queue_event( $job, $snapshot, 'publication_succeeded', $evidence, 'complete' );
         } catch ( Throwable $error ) {
             return $this->retry( $job, 'worker_interrupted' );
         } finally {
@@ -482,6 +485,66 @@ final class Nova_Bridge_Suite_Posting_Worker {
             if ( null !== $publication_lock ) { $this->jobs->unlock( $publication_lock ); }
             $this->jobs->unlock( $lock );
         }
+    }
+
+    /**
+     * The URL the verified item actually has, read from WordPress itself rather than from
+     * the writer's plan, so WPML/Polylang and date-based permalinks report their real URL.
+     * Optional evidence: returns null instead of blocking success when WordPress cannot
+     * give an absolute URL that matches the contract.
+     */
+    private static function publication_report( array $snapshot, array $verified, bool $static_term, string $writer = '', array $plan = [] ): ?array {
+        try {
+            if ( $static_term ) {
+                $term = get_term( (int) ( $verified['term_id'] ?? 0 ) );
+                if ( ! is_object( $term ) || is_wp_error( $term ) ) { return null; }
+                $url = get_term_link( $term ); $cms_status = 'publish';
+                $native = [ 'system' => 'wordpress', 'type' => (string) $term->taxonomy, 'id' => (string) $term->term_id ];
+            } else {
+                $id = (int) ( $verified['post_id'] ?? 0 ); $cms_status = get_post_status( $id );
+                // get_permalink() gives the ?p= form for unpublished posts. Build their future URL the way the editor does.
+                $url = in_array( $cms_status, [ 'draft', 'pending', 'future', 'auto-draft' ], true ) ? self::sample_permalink( $id ) : get_permalink( $id );
+                $native = [ 'system' => 'wordpress', 'type' => (string) get_post_type( $id ), 'id' => (string) $id ];
+                // TranslatePress/Weglot translate the original in place: the verified post is the
+                // original, and its localized URL comes from the provider, as the writer checks at plan time.
+                if ( 'dictionary_translation' === $writer ) {
+                    if ( ! is_array( $plan['provider'] ?? null ) || ! is_string( $url ) ) { return null; }
+                    $localized = Nova_Bridge_Suite_Translation_Writer::translated_url( $plan['provider'], $url );
+                    $url = is_array( $localized ) ? ( $localized['identity'] ?? null ) : null;
+                }
+            }
+            if ( ! is_string( $url ) || ! is_string( $cms_status ) ) { return null; }
+            if ( self::query_identified( $url ) ) { return null; }
+            $report = [ 'url' => $url, 'url_status' => 'publish' === $cms_status ? 'final' : 'provisional', 'cms_status' => $cms_status, 'native' => $native, 'observed_at' => Nova_Bridge_Suite_Posting_Protocol::now() ];
+            $optional = [ 'intended_url' => $snapshot['url'] ?? null, 'language' => is_string( $snapshot['language'] ?? null ) ? str_replace( '_', '-', $snapshot['language'] ) : null ];
+            foreach ( $optional as $key => $value ) {
+                // Each optional field is checked on its own so one odd value never drops the URL.
+                $candidate = $report + [ $key => $value ];
+                if ( is_string( $value ) && true === Nova_Bridge_Suite_Posting_Protocol::validate( $candidate, 'ConnectorPublication' ) ) { $report = $candidate; }
+            }
+            return true === Nova_Bridge_Suite_Posting_Protocol::validate( $report, 'ConnectorPublication' ) ? $report : null;
+        } catch ( Throwable $error ) {
+            return null;
+        }
+    }
+
+    /**
+     * NOVA stores page URLs as paths, so a URL that only its query identifies (plain permalinks:
+     * /?p=123, ?page_id=45, a draft preview) would name the homepage or another page. Omit it.
+     */
+    private static function query_identified( string $url ): bool {
+        $parts = wp_parse_url( $url );
+        $query = is_array( $parts ) ? (string) ( $parts['query'] ?? '' ) : '';
+        if ( '' === $query ) { return false; }
+        $path = (string) ( $parts['path'] ?? '' );
+        return '' === $path || '/' === $path || 1 === preg_match( '/(?:^|&)(?:p|page_id|preview)=/i', $query );
+    }
+
+    private static function sample_permalink( int $post_id ) {
+        if ( ! function_exists( 'get_sample_permalink' ) && defined( 'ABSPATH' ) && is_file( ABSPATH . 'wp-admin/includes/post.php' ) ) { require_once ABSPATH . 'wp-admin/includes/post.php'; }
+        if ( ! function_exists( 'get_sample_permalink' ) ) { return null; }
+        $sample = get_sample_permalink( $post_id );
+        return is_array( $sample ) && is_string( $sample[0] ?? null ) ? str_replace( [ '%pagename%', '%postname%' ], (string) ( $sample[1] ?? '' ), $sample[0] ) : null;
     }
 
     private function native_failure( array $job, array $snapshot, string $code, array $proof, string $message = '' ) {

@@ -175,7 +175,7 @@ $GLOBALS['recipe_meta'][901]['_wpb_post_custom_css'] = '.x{color:red}'; $GLOBALS
 recipe_assert( is_wp_error( $adapter->publication_verify( 901, $payload ) ), 'A changed document fails verification' );
 $bad = $payload; $bad['meta']['_edit_lock'] = '1'; recipe_assert( is_wp_error( $adapter->publication_probe( 'page', $bad, 'publish' ) ), 'Protected metadata is refused' );
 $GLOBALS['recipe_meta'][902] = [ '_elementor_edit_mode' => 'builder' ]; $GLOBALS['recipe_posts'][902] = (object) [ 'ID' => 902, 'post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Other', 'post_content' => '', 'post_excerpt' => '' ];
-recipe_assert( is_wp_error( $adapter->publication_apply( 902, $payload, [ 'title' => 'x' ] ) ), 'An item owned by another builder is not overwritten' );
+recipe_assert( true === $adapter->publication_apply( 902, $payload, [ 'title' => 'x' ] ) && $payload['layout']['raw_shortcodes'] === $GLOBALS['recipe_posts'][902]->post_content, 'An item another builder rendered is overwritten at its exact URL' );
 
 // Avada: an image is its URL (attribute or Image Frame content) plus a companion "attachment|size" attribute.
 if ( ! defined( 'FUSION_BUILDER_VERSION' ) ) { define( 'FUSION_BUILDER_VERSION', '3.15.6' ); }

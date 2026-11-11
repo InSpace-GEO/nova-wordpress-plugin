@@ -86,6 +86,38 @@ final class Nova_Bridge_Suite_Recipe_Builders {
         return array_values( array_unique( $builders ) );
     }
 
+    /** Metadata that makes a builder render an item from its own document instead of the post content. */
+    private const CARRIER_META = [
+        'elementor' => [ '_elementor_edit_mode', '_elementor_data' ],
+        'cornerstone' => [ '_cornerstone_data' ],
+        'divi5' => [ '_et_pb_use_divi_5' ],
+        'divi4' => [ '_et_pb_use_builder' ],
+        'avada' => [ '_fusion_builder_status', '_fusion_builder_shortcodes' ],
+        'wpbakery' => [ '_wpb_vc_js_status' ],
+        'enfold' => [ '_aviaLayoutBuilder_active' ],
+        'beaver' => [ '_fl_builder_enabled', '_fl_builder_data', '_fl_builder_draft' ],
+        'breakdance' => [ '_breakdance_data' ],
+    ];
+    public const REPLACED_META = '_nova_replaced_builder_meta';
+
+    /**
+     * A delivery replaced this item's design with a layout of $builder. Move other builders' markers
+     * aside, so the new layout is what renders. They are kept under one key (the latest replacement
+     * wins per key) rather than deleted. Repeating it changes nothing.
+     */
+    public static function release_carriers( int $post_id, string $builder ): array {
+        $moved = [];
+        foreach ( self::CARRIER_META as $carrier => $keys ) {
+            if ( $carrier === $builder ) { continue; }
+            foreach ( $keys as $key ) { if ( metadata_exists( 'post', $post_id, $key ) ) { $moved[ $key ] = get_post_meta( $post_id, $key, false ); } }
+        }
+        if ( ! $moved ) { return []; }
+        $kept = get_post_meta( $post_id, self::REPLACED_META, true );
+        update_post_meta( $post_id, self::REPLACED_META, wp_slash( array_merge( is_array( $kept ) ? $kept : [], $moved ) ) );
+        foreach ( array_keys( $moved ) as $key ) { delete_post_meta( $post_id, $key ); }
+        return array_keys( $moved );
+    }
+
     public static function starter( string $builder, string $mode = 'mixed' ) {
         $adapter = self::adapter( $builder );
         if ( is_wp_error( $adapter ) ) { return $adapter; }
@@ -895,14 +927,8 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         $content = $this->publication_document( $payload ); if ( is_wp_error( $content ) ) { return $content; }
         return [ 'wordpress' => (string) ( $GLOBALS['wp_version'] ?? '' ), 'provider_version' => $this->builder . '-shortcodes-v1', $this->builder => $this->version() ];
     }
-    private function publication_target( $post ) {
-        $carriers = self::native_carriers_of( $post );
-        return array_diff( $carriers, [ $this->builder, 'gutenberg' ] ) ? Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'This item uses another native builder. Select its matching layout instead.' ) : true;
-    }
-    private static function native_carriers_of( $post ): array { return is_callable( [ 'Nova_Bridge_Suite_Recipe_Builders', 'native_carriers' ] ) ? Nova_Bridge_Suite_Recipe_Builders::native_carriers( $post ) : []; }
     public function publication_snapshot( int $id, array $payload ) {
         $post = get_post( $id ); if ( ! $post || ! current_user_can( 'edit_post', $id ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'permission', 'The retained native item cannot be inspected.', 403 ); }
-        $target = $this->publication_target( $post ); if ( is_wp_error( $target ) ) { return $target; }
         $meta = [];
         foreach ( array_merge( array_keys( $payload['meta'] ?? [] ), array_keys( $this->publication_state( '' ) ) ) as $key ) { $meta[ $key ] = [ 'present' => metadata_exists( 'post', $id, $key ), 'value' => self::arrays( get_post_meta( $id, $key, true ) ) ]; }
         return [ 'content' => (string) $post->post_content, 'meta' => $meta ];
@@ -910,7 +936,6 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     public function publication_apply( int $id, array $payload, array $fields ) {
         $post = get_post( $id ); if ( ! $post || ! current_user_can( 'edit_post', $id ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'permission', 'The retained native item is not editable.', 403 ); }
         $probe = $this->publication_probe( $post->post_type, $payload, $post->post_status ); if ( is_wp_error( $probe ) ) { return $probe; }
-        $target = $this->publication_target( $post ); if ( is_wp_error( $target ) ) { return $target; }
         $content = $this->publication_document( $payload );
         $saved = wp_update_post( wp_slash( [ 'ID' => $id, 'post_content' => $content, 'post_title' => (string) ( $fields['title'] ?? $post->post_title ), 'post_excerpt' => (string) ( $fields['excerpt'] ?? '' ) ] ), true );
         if ( is_wp_error( $saved ) ) { return $saved; }

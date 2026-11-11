@@ -19,7 +19,10 @@ function wp_generate_uuid4() { static $n = 100; return '11111111-1111-4111-8111-
 function get_current_user_id() { return $GLOBALS['actor'] ?? 0; }
 function wp_set_current_user( $id ) { $GLOBALS['actor'] = $id; }
 require_once __DIR__ . '/posting-actor-worker-fixture.php';
-function get_post_status( $id ) { return 'publish'; }
+function get_post_status( $id ) { return class_exists( 'Contract_Test_Writer', false ) ? Contract_Test_Writer::$status : 'publish'; }
+function get_post_type( $id ) { return 'post'; }
+function get_permalink( $id ) { return $GLOBALS['fixture_permalink'] ?? 'https://native.fixture.invalid/2026/11/06/post-' . $id . '/'; }
+function get_sample_permalink( $id ) { return [ 'https://native.fixture.invalid/2026/11/06/%postname%/', 'post-' . $id ]; }
 foreach ( [ 'posting-client', 'posting-protocol', 'receipt-json', 'posting-discovery', 'posting-worker' ] as $file ) { require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-' . $file . '.php'; }
 require __DIR__ . '/contract-fixture.php';
 $checks = 0;
@@ -145,6 +148,9 @@ foreach ( [ 'draft', 'future', 'pending', 'private', 'publish' ] as $saved_statu
     delivery_check( 'complete' === $result['state'] && 'committed' === $result['phase'] && 1 === Contract_Test_Writer::$apply, $saved_status . ' completes after one verified native save.' );
     delivery_check( $saved_status === $result['payload']['result']['cms_post_status'] && [ 'received_complete', 'publication_succeeded' ] === array_column( $events, 'kind' ), 'Success attests application while retaining the actual native status.' );
     delivery_check( ! empty( $events[1]['published_at'] ) && false !== strpos( $events[1]['publication_ref'], ';operation:' . $job['operation_id'] ), 'Existing success contract retains the verification timestamp and native operation reference.' );
+    $report = $events[1]['publication'] ?? [];
+    delivery_check( 'https://native.fixture.invalid/2026/11/06/post-77/' === ( $report['url'] ?? null ) && ( 'publish' === $saved_status ? 'final' : 'provisional' ) === $report['url_status'] && $saved_status === $report['cms_status'], 'Success reports the URL WordPress actually gave the item: ' . $saved_status );
+    delivery_check( [ 'system' => 'wordpress', 'type' => 'post', 'id' => '77' ] == $report['native'] && 'https://native.fixture.invalid/service/' === $report['intended_url'] && 'en' === $report['language'] && ! isset( $events[0]['publication'] ), 'The URL report carries the delivery URL, language and native identity on success only.' );
 }
 [ $job, $store, $server, $worker ] = delivery_fixture(); Contract_Test_Writer::$status = 'draft'; Contract_Test_Writer::$verify_error = new WP_Error( 'fixture_verification_failed' );
 $result = $worker->process( $job );

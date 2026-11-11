@@ -197,7 +197,7 @@ final class Nova_Bridge_Suite_Posting_Protocol {
         $value = (array) $event;
         $success = 'publication_succeeded' === $value['kind'];
         $failure = in_array( $value['kind'], [ 'pull_failed', 'publication_failed' ], true );
-        if ( ! self::decimal_id( $value['content_item_version_id'] ) || $value['version_number'] > 2147483647 || $failure !== array_key_exists( 'reason', $value ) || $success !== array_key_exists( 'published_at', $value ) || $success !== array_key_exists( 'publication_ref', $value ) ) { return self::error( 'event_evidence', 'The connector event does not contain exactly the evidence required for its outcome.' ); }
+        if ( ! self::decimal_id( $value['content_item_version_id'] ) || $value['version_number'] > 2147483647 || $failure !== array_key_exists( 'reason', $value ) || $success !== array_key_exists( 'published_at', $value ) || $success !== array_key_exists( 'publication_ref', $value ) || ( ! $success && array_key_exists( 'publication', $value ) ) ) { return self::error( 'event_evidence', 'The connector event does not contain exactly the evidence required for its outcome.' ); }
         return true;
     }
 

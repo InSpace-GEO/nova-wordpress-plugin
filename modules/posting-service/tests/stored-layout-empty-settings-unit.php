@@ -59,7 +59,8 @@ $edits = [
     'excerpt' => static function () { $GLOBALS['posts'][10]->post_excerpt = 'Human excerpt'; },
     'reservation' => static function () { $GLOBALS['posts'][10]->post_content_filtered = 'changed-marker'; },
 ];
-$mutable_edits = [ 'body', 'elements', 'nonempty settings', 'unrelated nonempty settings', 'header', 'width', 'template', 'status', 'author', 'title', 'excerpt', 'reservation' ];
+// Another delivery's owner marker is part of what a newer delivery overwrites at its exact URL.
+$mutable_edits = [ 'body', 'elements', 'nonempty settings', 'unrelated nonempty settings', 'header', 'width', 'template', 'status', 'author', 'title', 'excerpt', 'reservation', 'owner', 'owner site', 'owner URL', 'owner template', 'missing owner' ];
 foreach ( $mutable_edits as $label ) {
     [ $old, $result ] = empty_settings_committed(); $meta[10]['_elementor_page_settings'] = ''; $edits[$label]();
     $current_state = empty_settings_state( $old ); $before = [ $posts, $meta, $options, $saves, $inserts ];
@@ -69,7 +70,7 @@ foreach ( $mutable_edits as $label ) {
     $updated = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $next, op( 2 ) ) );
     check( $updated['post_id'] === 10 && $inserts === 1 && $saves === 2, 'A higher version replaces mutable ' . $label . ' state on the same owned page.' );
 }
-foreach ( [ 'owner', 'owner site', 'owner URL', 'owner template', 'missing owner', 'type', 'slug', 'parent' ] as $label ) {
+foreach ( [ 'type', 'slug', 'parent' ] as $label ) {
     [ $old, $result ] = empty_settings_committed(); $meta[10]['_elementor_page_settings'] = ''; $edits[$label]();
     $before = [ $posts, $meta, $options, $saves, $inserts ];
     [ $content, $config ] = fixture( '502' );

@@ -81,4 +81,21 @@ delivery_check( 'ready' === $waiting['state'] && 'nova_translation_busy' === $wa
 Contract_Test_Writer::$apply_error = null;
 $done = $worker->process( delivery_resume( $waiting ) );
 delivery_check( 'complete' === $done['state'] && isset( $done['payload']['events']['publication_succeeded'] ), 'The same operation finishes when the translation lock becomes available.' );
+
+// A TranslatePress page shares the original post: the URL report must be the localized URL.
+$GLOBALS['fixture_permalink'] = 'https://en.fixture.invalid/site/article/';
+$report = new ReflectionMethod( 'Nova_Bridge_Suite_Posting_Worker', 'publication_report' ); if ( PHP_VERSION_ID < 80100 ) { $report->setAccessible( true ); }
+$verified = [ 'post_id' => 77, 'cms_post_status' => 'publish' ];
+$localized = $report->invoke( null, $snapshot, $verified, false, 'dictionary_translation', [ 'provider' => [ 'provider' => 'translatepress', 'language' => 'fr_FR' ] ] );
+delivery_check( is_array( $localized ) && 0 === strpos( $localized['url'], 'https://fr.fixture.invalid/site/article' ) && 'fr-FR' === $localized['language'], 'A dictionary translation reports its localized URL, not the original permalink.' );
+delivery_check( null === $report->invoke( null, $snapshot, $verified, false, 'dictionary_translation', [] ), 'Without its provider a dictionary translation reports no URL rather than the original one.' );
+$original = $report->invoke( null, $snapshot, $verified, false, 'owned_cpt_v3', [] );
+delivery_check( 'https://en.fixture.invalid/site/article/' === $original['url'], 'Other writers report the post permalink unchanged.' );
+foreach ( [ 'https://en.fixture.invalid/?p=77', 'https://en.fixture.invalid?page_id=77', 'https://en.fixture.invalid/site/?p=77&preview=true' ] as $plain ) {
+    $GLOBALS['fixture_permalink'] = $plain;
+    delivery_check( null === $report->invoke( null, $snapshot, $verified, false, 'owned_cpt_v3', [] ), 'A URL only its query identifies is not reported: ' . $plain );
+}
+$GLOBALS['fixture_permalink'] = 'https://en.fixture.invalid/site/article/?utm_source=x';
+delivery_check( is_array( $report->invoke( null, $snapshot, $verified, false, 'owned_cpt_v3', [] ) ), 'A path URL with an unrelated query is still reported.' );
+unset( $GLOBALS['fixture_permalink'] );
 echo "Translation worker dispatch: $checks checks passed.\n";
