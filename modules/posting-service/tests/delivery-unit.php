@@ -171,6 +171,16 @@ $result['phase'] = 'attempt_check'; $server->attempt = '00000000-0000-4000-8000-
 $result = $worker->process( delivery_resume( $result ) );
 delivery_check( 'complete' === $result['state'] && 1 === Contract_Test_Writer::$apply && count( $result['payload']['prior_attempts'] ) === 2, 'A replacement attempt attests the already verified frozen write without duplicating it.' );
 
+[ $job, $store, $server, $worker ] = delivery_fixture();
+Contract_Test_Writer::$apply_error = new WP_Error( 'nova_layout_writer_native', "<b>Salient header</b>\n differs after saving." );
+Contract_Test_Writer::$recover_value = [ 'state'=>'not_committed', 'no_native_commit'=>false, 'safe_to_apply'=>true, 'post_id'=>77 ];
+$pending = $worker->process( $job );
+delivery_check( 'native_commit_reconciliation' === $pending['last_error'] && 'nova_layout_writer_native: Salient header differs after saving.' === $pending['payload']['native_error_detail'], 'Reserved pages retain their real native error alongside reconciliation, with plain text details.' );
+delivery_check( count( $server->posts ) === 1 && ! isset( $pending['payload']['failure_code'] ), 'An uncertain commit is not reported as failed or successful.' );
+Contract_Test_Writer::$apply_error = null; Contract_Test_Writer::$recover_value = null;
+$reconciled = $worker->process( delivery_resume( $pending ) );
+delivery_check( 'complete' === $reconciled['state'] && '' === $reconciled['last_error'] && '' === $reconciled['payload']['native_error_detail'] && 1 === Contract_Test_Writer::$apply, 'Successful reconciliation clears stale issue details and does not repeat the write.' );
+
 // An actor can leave between the native commit, verification, and the final acknowledgement.
 [ $job, $store, $server, $worker ] = delivery_fixture();
 Contract_Test_Writer::$verify_error = new WP_Error( 'fixture_verification_failed' );

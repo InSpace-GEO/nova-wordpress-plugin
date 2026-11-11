@@ -77,4 +77,22 @@ check(normalized[0].omitted === true, 'Removed elements are marked in the canvas
   check(title.properties.visibility === 'visible', 'Visibility-hidden entrance animations are shown');
   check(box.properties['background-image'] === 'url("https://site.test/layer.jpg")' && layer.properties['background-image'] === undefined, 'An empty image layer paints its sized container');
 }
+// Nectar Slider is readable without its scripts, while shared navigation stays untouched.
+{
+  const root = element('div'), slider = element('div', {}, {}, root), navigationSlider = element('div', {}, {}, root);
+  navigationSlider.excluded = true;
+  const container = element('div', {'data-height': '450'}, {}, slider), track = element('div', {}, {}, container);
+  const duplicate = element('div', {}, {}, track), first = element('div', {}, {}, track), second = element('div', {}, {}, track);
+  duplicate.classList = {contains: name => ['swiper-slide', 'swiper-slide-duplicate'].includes(name)};
+  for (const node of [first, second]) { node.classList = {contains: name => name === 'swiper-slide'}; }
+  slider.selectors.set('.swiper-container', [container]); container.selectors.set('.swiper-wrapper', [track]);
+  root.selectors.set('.nectar-slider-wrap', [slider, navigationSlider]);
+  const document = {documentElement: html, body, baseURI: 'https://site.test/', querySelectorAll: () => [root]};
+  canvas.prepareStaticLayout(win, document);
+  check(slider.attrs['data-nova-static-slider'] === '1' && first.attrs['data-nova-static-slide'] === '1', 'The first real slide is selected for static preview');
+  check(!duplicate.attrs['data-nova-static-slide'] && !second.attrs['data-nova-static-slide'], 'Cloned and later slides are not shown');
+  check(!navigationSlider.attrs['data-nova-static-slider'], 'A slider in navigation remains untouched');
+  check(container.properties.height === '450px', 'The native slider height is retained');
+  check(canvas.prepareStaticLayout(win, document) === 0, 'Preparing the slider twice changes nothing');
+}
 console.log('PASS recipe canvas builder checks: ' + checks);

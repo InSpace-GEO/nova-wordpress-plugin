@@ -578,6 +578,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     private static function verify_operation( array $operation, int $id ) {
         $post = get_post( $id );
         if ( ! $post || $post->post_type !== $operation['post_type'] || 'draft' !== $post->post_status || ! current_user_can( 'edit_post', $id ) || (string) $post->post_title !== $operation['title'] ) { return self::error( 'draft_changed', 'The generated item is no longer the expected draft. Review it before retrying.', 409 ); }
+        if ( array_key_exists( 'excerpt', $operation['post_fields'] ?? [] ) && (string) $post->post_excerpt !== $operation['post_fields']['excerpt'] ) { return self::error( 'draft_changed', 'The saved draft excerpt differs from the translated excerpt. Review it before retrying.', 409 ); }
         $payload = $operation['writer_payload']; $builder = $operation['builder'];
         $media = null;
         if ( ! empty( $payload['nova_media'] ) ) {
@@ -653,9 +654,12 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $checked = self::reviewed( $record ); if ( is_wp_error( $checked ) ) { return $checked; }
         $compiled = self::compile( $record['recipe'], $body['content'], 'draft:' . $op_id ); if ( is_wp_error( $compiled ) ) { return $compiled; }
         $payload = $compiled['writer_payload']; $template = $record['recipe']['blueprint']['template'] ?? '';
+        // Keep the administrator's test-draft title, while carrying mapped native fields beside the layout.
+        $fields = [ 'post_type' => $type, 'title' => $title ];
+        if ( array_key_exists( 'excerpt', $compiled['post_fields'] ?? [] ) ) { $fields['excerpt'] = $compiled['post_fields']['excerpt']; }
         $meta = ! empty( $payload['meta_all'] ) ? Nova_Bridge_Suite_Content_Transport::validate_payload( $payload['meta_all'], $type, 0, $template ) : null;
         if ( is_wp_error( $meta ) ) { return $meta; }
-        $operation = [ 'operation_id' => $op_id, 'user_id' => get_current_user_id(), 'request_digest' => $digest, 'profile_id' => $record['id'], 'revision' => $revision, 'builder' => $record['builder'], 'post_type' => $type, 'title' => $title, 'template' => $template, 'writer_payload' => $payload, 'phase' => 'writing', 'updated_at' => time() ];
+        $operation = [ 'operation_id' => $op_id, 'user_id' => get_current_user_id(), 'request_digest' => $digest, 'profile_id' => $record['id'], 'revision' => $revision, 'builder' => $record['builder'], 'post_type' => $type, 'title' => $title, 'template' => $template, 'post_fields' => array_intersect_key( $fields, [ 'excerpt' => true ] ), 'writer_payload' => $payload, 'phase' => 'writing', 'updated_at' => time() ];
         // The new native draft is reserved without any thumbnail; never overwrite a later manual choice.
         foreach ( $payload['nova_media'] ?? [] as $entry ) { if ( 'featured' === ( $entry['kind'] ?? '' ) ) { $operation['featured_before'] = 0; break; } }
         $claimed = self::mutate( Nova_WordPress_Environment::key( self::OPERATIONS ), static function ( array $state ) use ( $op_id, $operation ) { if ( isset( $state[$op_id] ) ) { return self::error( 'draft_busy', 'Another request already claimed this draft. Use Recover draft.', 409 ); } if ( count( $state ) >= 100 ) { return self::error( 'draft_history', 'The retained draft journal reached its limit. No draft history was removed.', 409 ); } $state[$op_id] = $operation; return [ 'state' => $state, 'result' => $operation ]; } );
@@ -664,9 +668,9 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $force_draft = static function ( $data, $postarr, $raw = [] ) use ( $operation ) { $incoming = $raw['post_title'] ?? $postarr['post_title'] ?? ''; if ( empty( $postarr['ID'] ) && ( $data['post_type'] ?? '' ) === $operation['post_type'] && in_array( $incoming, [ $operation['title'], wp_slash( $operation['title'] ) ], true ) ) { $data['post_status'] = 'draft'; $data['post_title'] = wp_slash( $operation['title'] ); } return $data; };
         add_action( 'wp_insert_post', $witness, 1, 3 ); add_filter( 'wp_insert_post_data', $force_draft, PHP_INT_MAX, 3 );
         try {
-            $native_payload = $payload; unset( $native_payload['meta_all'], $native_payload['nova_media'] ); $fields = [ 'post_type' => $type, 'title' => $title ];
+            $native_payload = $payload; unset( $native_payload['meta_all'], $native_payload['nova_media'] );
             if ( 'core' === $record['builder'] ) { $result = Nova_Bridge_Suite_Recipe_Core::write_draft( $native_payload, $fields ); }
-            elseif ( 'acf' === $record['builder'] ) { $post_fields = [ 'post_type' => $type, 'post_status' => 'draft', 'post_title' => $title, 'post_content' => $payload['acf_layout']['post_content'] ?? '', 'post_author' => get_current_user_id() ]; if ( $template ) { $post_fields['page_template'] = $template; } $inserted = wp_insert_post( wp_slash( $post_fields ), true ); $result = is_wp_error( $inserted ) ? $inserted : new WP_REST_Response( [ 'id' => $inserted ] ); }
+            elseif ( 'acf' === $record['builder'] ) { $post_fields = [ 'post_type' => $type, 'post_status' => 'draft', 'post_title' => $title, 'post_excerpt' => $fields['excerpt'] ?? '', 'post_content' => $payload['acf_layout']['post_content'] ?? '', 'post_author' => get_current_user_id() ]; if ( $template ) { $post_fields['page_template'] = $template; } $inserted = wp_insert_post( wp_slash( $post_fields ), true ); $result = is_wp_error( $inserted ) ? $inserted : new WP_REST_Response( [ 'id' => $inserted ] ); }
             else { $result = Nova_Bridge_Suite_Recipe_Builders::write_draft( $record['builder'], $native_payload, $fields ); }
             if ( is_wp_error( $result ) ) { self::update_operation( $operation, 'uncertain' ); return $result; }
             $data = $result instanceof WP_REST_Response ? $result->get_data() : $result; $id = (int) ( $data['id'] ?? $data['post_id'] ?? 0 );

@@ -75,7 +75,7 @@ final class Nova_Bridge_Suite_Recipe_Core {
     }
     public static function write_draft( array $payload, array $post_fields ) {
         if ( preg_match( '/<!--\s+wp:divi\//i', (string) ( $payload['content'] ?? '' ) ) ) { return new WP_Error( 'nova_unavailable_builder', 'Divi 5 block layouts cannot be written as WordPress content.' ); }
-        $fields = [ 'post_type' => $post_fields['post_type'], 'post_status' => 'draft', 'post_title' => $post_fields['title'], 'post_content' => $payload['content'] ?? '', 'post_author' => get_current_user_id() ]; if ( ! empty( $payload['template'] ) ) { $fields['page_template'] = $payload['template']; }
+        $fields = [ 'post_type' => $post_fields['post_type'], 'post_status' => 'draft', 'post_title' => $post_fields['title'], 'post_excerpt' => $post_fields['excerpt'] ?? '', 'post_content' => $payload['content'] ?? '', 'post_author' => get_current_user_id() ]; if ( ! empty( $payload['template'] ) ) { $fields['page_template'] = $payload['template']; }
         $id = wp_insert_post( wp_slash( $fields ), true ); if ( is_wp_error( $id ) ) { return $id; }
         if ( (string) get_post_field( 'post_content', $id ) !== ( $payload['content'] ?? '' ) ) { wp_delete_post( $id, true ); return new WP_Error( 'nova_recipe_core', 'WordPress did not retain the planned native content; the new draft was removed.', [ 'status' => 500 ] ); } return new WP_REST_Response( [ 'id' => $id ], 201 );
     }
