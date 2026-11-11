@@ -102,7 +102,6 @@ final class Nova_Bridge_Suite_Recipe_Enfold {
     public function publication_snapshot( int $id, array $payload ) {
         return self::guard( function () use ( $id, $payload ) {
             $post = get_post( $id ); if ( ! $post || ! current_user_can( 'edit_post', $id ) || ! self::available() ) { return self::error( 'The retained Avia item is not available for native inspection.', 403 ); }
-            $target = $this->target( $post ); if ( is_wp_error( $target ) ) { return $target; }
             $builder = self::builder();
             return [ 'content' => (string) $post->post_content, 'editor' => (string) $builder->get_posts_alb_content( $id ), 'active' => (string) $builder->get_alb_builder_status( $id ), 'tree' => $builder->get_shortcode_tree( $id ), 'template' => (string) get_page_template_slug( $id ), 'meta' => self::meta( $id, array_keys( $payload['meta'] ?? [] ) ) ];
         } );
@@ -111,7 +110,6 @@ final class Nova_Bridge_Suite_Recipe_Enfold {
         return self::guard( function () use ( $id, $payload, $fields ) {
             $post = get_post( $id ); if ( ! $post || ! current_user_can( 'edit_post', $id ) ) { return self::error( 'The retained Avia item is not editable.', 403 ); }
             $valid = $this->publication_probe( $post->post_type, $payload, $post->post_status ); if ( is_wp_error( $valid ) ) { return $valid; }
-            $target = $this->target( $post ); if ( is_wp_error( $target ) ) { return $target; }
             $source = Nova_Bridge_Suite_Enfold_Document::source( $payload['enfold_document'], $id );
             $meta = []; foreach ( $payload['meta'] ?? [] as $key => $snapshot ) { if ( $snapshot['present'] ) { $meta[$key] = $snapshot['value']; } }
             $data = [ 'ID' => $id, 'post_content' => $source, 'post_title' => (string) ( $fields['title'] ?? '' ), 'post_excerpt' => (string) ( $fields['excerpt'] ?? '' ), 'page_template' => ( $payload['template'] ?? '' ) ?: 'default', 'meta_input' => $meta ];

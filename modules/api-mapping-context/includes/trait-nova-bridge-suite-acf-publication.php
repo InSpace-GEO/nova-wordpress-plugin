@@ -41,15 +41,6 @@ trait Nova_Bridge_Suite_ACF_Publication {
     private function publication_post( int $id, array $payload ) {
         $post = get_post( $id );
         if ( ! $post || $post->post_type !== ( $payload['acf_layout']['post_type'] ?? '' ) || ! current_user_can( 'edit_post', $id ) ) { return self::error( 'The retained ACF item cannot be edited.', 403 ); }
-        if ( is_callable( [ 'Nova_Bridge_Suite_Recipe_Builders', 'native_carriers' ] ) ) {
-            $carriers = Nova_Bridge_Suite_Recipe_Builders::native_carriers( $post );
-            // Ordinary block markup may be part of the explicitly captured ACF design.
-            // Only accept that exact retained body; another native builder is still distinct.
-            $captured = (string) $post->post_content === ( $payload['acf_layout']['post_content'] ?? '' );
-            if ( $carriers && ( ! $captured || array_diff( $carriers, [ 'gutenberg' ] ) ) ) {
-                return self::error( 'The existing item uses a native page builder. Choose its matching layout before replacing its design.' );
-            }
-        }
         return $post;
     }
 

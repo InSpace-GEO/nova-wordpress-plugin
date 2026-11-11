@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.14
+Stable tag: 1.3.0
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.3.0 =
+* Publishing status: when a delivery is published, NOVA now receives the URL WordPress actually gave the page or post, read from WordPress itself, with its status (final once published, provisional for drafts, pending and scheduled posts). NOVA can then show and track the real address, for example a dated post link (/2026/11/11/my-post/) instead of the planned /blog/my-post/, and localized WPML, Polylang, TranslatePress and Weglot URLs. The report is optional: if WordPress cannot give a usable absolute URL, or only a query such as ?p=123 identifies the page, it is left out and success is reported as before. Requires the matching posting-service release, which is deployed.
+* Content-rule (Elementor) posts now follow the site's own post permalinks, including date and category structures: the slug comes from the delivery URL's last segment and WordPress decides the final link, which is reported back. Plain ?p= permalinks are still refused, and a path owned by an unrelated page still stops the delivery.
 
 = 1.2.14 =
 * Fixed ACF/SCF layouts: an optional select, radio or button-group field that a delivery leaves empty (for example a heading-level setting the content does not fill) stopped the page with "... contains an unknown choice". It is now saved empty, as ACF itself allows for a field that is not required. A required field still needs one of its choices, and an unknown choice is still refused; that message now names the value and the allowed choices.
