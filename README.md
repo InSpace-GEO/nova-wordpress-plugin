@@ -104,6 +104,10 @@ The preview also finds an excerpt or featured image rendered by a theme or Beave
 
 Automatic builder detection follows the example's active Elementor or Beaver Builder mode, ignoring disabled editor data retained on that item. If both are active, the wizard names the candidates and opens **Advanced: builder detection**. Select the builder that renders that example and retry **Use this existing page**.
 
+When Beaver Builder replaces the page body, block comments in its saved WordPress editor copy do not require a second builder choice. Detection keeps the distinction when Beaver is disabled, unavailable or configured not to replace the body.
+
+Empty Beaver Themer connection entries do not prevent mapping headings, text, buttons or links. Fields with active connections remain protected and identify that connection as the reason. Reopen the example to refresh its available fields.
+
 Elementor widgets that show the page title, excerpt or featured image through a dynamic tag stay unchanged and name the field to map instead. Other dynamic tags remain protected.
 
 To leave an example element out of every generated page, select one of its fields and choose **Remove this element from new pages**. The whole element is removed, including its other fields; the example page itself is unchanged. Choosing a purpose for one of its fields keeps the element again. Removal is available for fixed builder layouts.

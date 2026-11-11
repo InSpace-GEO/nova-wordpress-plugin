@@ -255,6 +255,28 @@ $bb_field = field_target( $beaver->fields( $bb_visual ), $bb_target );
 recipe_assert( 'beaver' === $bb_field['locator']['strategy'] && 'native-beaver-id' === $bb_field['native_node_id'] && [ 'settings', 'heading' ] === $bb_field['control_path'], 'Beaver field exposes exact retained native node identity' );
 $bb_visual['document'][0]['children'][0]['children'][0]['children'][0]['settings']['connections']['heading'] = 'native-dynamic-connection';
 recipe_assert( ! field_target( $beaver->fields( $bb_visual ), $bb_target )['writable'], 'Connected native Beaver fields cannot be replaced through visual selection' );
+foreach ( [ '', null, false, 0, '0', [] ] as $empty_connection ) {
+    $bb_visual['document'][0]['children'][0]['children'][0]['children'][0]['settings']['connections']['heading'] = $empty_connection;
+    recipe_assert( field_target( $beaver->fields( $bb_visual ), $bb_target )['writable'], 'Empty Beaver connection slots remain ordinary editable content' );
+    $changed = recipe_ok( $beaver->bind( $bb_visual, [ 'target' => $bb_target, 'format' => 'text' ], 'Mapped native heading' ), 'Map an unconnected Beaver heading' );
+    recipe_assert( Nova_Bridge_Suite_Recipe_Engine::get( $changed, $bb_target ) === 'Mapped native heading', 'The mapped heading reaches the native field' );
+    recipe_assert( $changed['document'][0]['children'][0]['children'][0]['children'][0]['settings']['connections']['heading'] === $empty_connection, 'Mapping keeps the empty connection representation' );
+}
+foreach ( [ 'native-dynamic-connection', [ 'object' => 'post', 'property' => 'title' ] ] as $active_connection ) {
+    $bb_visual['document'][0]['children'][0]['children'][0]['children'][0]['settings']['connections']['heading'] = $active_connection;
+    $connected_field = field_target( $beaver->fields( $bb_visual ), $bb_target );
+    recipe_assert( ! $connected_field['writable'] && str_contains( $connected_field['reason'], 'active field connection' ), 'An actual Beaver connection stays protected with a specific explanation' );
+    recipe_assert( is_wp_error( $beaver->bind( $bb_visual, [ 'target' => $bb_target, 'format' => 'text' ], 'Replacement' ) ), 'The compiler refuses to overwrite an active Beaver connection' );
+}
+$bb_controls = [ 'document' => [
+    [ 'type' => 'module', 'settings' => [ 'type' => 'heading', 'heading' => 'Heading', 'link' => '/heading', 'connections' => [ 'heading' => '', 'link' => '' ] ], 'children' => [] ],
+    [ 'type' => 'module', 'settings' => [ 'type' => 'rich-text', 'text' => '<p>Introduction</p>', 'connections' => [ 'text' => '' ] ], 'children' => [] ],
+    [ 'type' => 'module', 'settings' => [ 'type' => 'button', 'text' => 'Contact', 'link' => '/contact', 'connections' => [ 'text' => '', 'link' => '' ] ], 'children' => [] ],
+] ];
+$bb_control_fields = $beaver->fields( $bb_controls );
+recipe_assert( count( $bb_control_fields ) === 5 && count( array_filter( $bb_control_fields, static fn( $field ) => $field['writable'] ) ) === 5, 'Headings, text, buttons and links with empty Themer slots all remain mappable' );
+$bb_controls['document'][1]['settings']['text'] = '[contact-form-7 id="8"]';
+recipe_assert( ! field_target( $beaver->fields( $bb_controls ), '/document/1/settings/text' )['writable'], 'An empty connection does not unlock an interactive form' );
 $image_html = '<figure class="wp-block-image fixed-style"><img src="https://example.test/old.jpg" alt="Original alt" class="wp-image-321 keep-image"/><figcaption>Keep caption</figcaption></figure>';
 $image_native = [ 'document' => [ [ 'blockName' => 'core/image', 'attrs' => [ 'id' => 321, 'sizeSlug' => 'large' ], 'innerBlocks' => [], 'innerHTML' => $image_html, 'innerContent' => [ $image_html ] ] ] ];
 $native_image = field_target( $gutenberg->fields( $image_native ), '/document/0/innerHTML' );

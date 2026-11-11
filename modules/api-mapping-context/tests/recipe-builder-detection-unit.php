@@ -46,6 +46,28 @@ check( [ 'status' => 422, 'detected_builders' => [ 'elementor', 'beaver' ] ] ===
 check( str_contains( $conflict->get_error_message(), 'Elementor, Beaver Builder' ) && str_contains( $conflict->get_error_message(), 'Advanced: builder detection' ), 'The error names the builders and points to the existing recovery control.' );
 $meta = [ '_elementor_edit_mode' => 'builder', '_elementor_data' => 'not valid json' ];
 check( 'elementor' === Nova_Bridge_Suite_Recipe_Visual::detected_builder( $resource, 42 ), 'An enabled malformed native document is left to native validation, never captured as plain WordPress.' );
+$post->post_content = '<!-- wp:html --><h2>Exported editor copy</h2><!-- /wp:html -->';
+$meta = [ '_fl_builder_enabled' => '1', '_fl_builder_data' => $beaver ];
+check( is_wp_error( Nova_Bridge_Suite_Recipe_Visual::detected_builder( $resource, 42 ) ), 'Without the native renderer, block content is not assumed to be an export.' );
+if ( ! class_exists( 'FLBuilderModel' ) ) {
+    class FLBuilderModel {
+        public static function is_builder_enabled( $id ) { return $GLOBALS['beaver_post_type_enabled'] && get_post_meta( $id, '_fl_builder_enabled', true ); }
+    }
+}
+function apply_filters( $name, $value, $id ) { check( 'fl_builder_do_render_content' === $name && 42 === $id, 'Detection checks Beaver rendering for the selected example.' ); return $GLOBALS['beaver_do_render']; }
+$beaver_post_type_enabled = true; $beaver_do_render = true;
+$before = serialize( [ $post, $meta ] );
+check( 'beaver' === Nova_Bridge_Suite_Recipe_Visual::detected_builder( $resource, 42 ), 'An active Beaver layout with an exported block body maps as Beaver.' );
+check( [ 'beaver', 'gutenberg' ] === Nova_Bridge_Suite_Recipe_Builders::native_carriers( $post ), 'Stored-carrier protection still sees the block body.' );
+check( $before === serialize( [ $post, $meta ] ), 'Resolving the exported body does not modify either document.' );
+$beaver_do_render = false;
+check( is_wp_error( Nova_Bridge_Suite_Recipe_Visual::detected_builder( $resource, 42 ) ), 'A custom renderer that opts out of Beaver replacement is not guessed.' );
+$beaver_do_render = true; $beaver_post_type_enabled = false;
+check( is_wp_error( Nova_Bridge_Suite_Recipe_Visual::detected_builder( $resource, 42 ) ), 'Beaver disabled for this post type does not hide block content.' );
+$beaver_post_type_enabled = true; $meta['_fl_builder_enabled'] = '0';
+check( 'gutenberg' === Nova_Bridge_Suite_Recipe_Visual::detected_builder( $resource, 42 ), 'A block page with a retained Beaver document continues to map its blocks.' );
+$meta['_fl_builder_enabled'] = '1'; $meta['_elementor_edit_mode'] = 'builder'; $meta['_elementor_data'] = $elementor;
+check( is_wp_error( Nova_Bridge_Suite_Recipe_Visual::detected_builder( $resource, 42 ) ), 'Resolving the exported body does not hide a competing active native builder.' );
 $allowed = false;
 check( is_wp_error( Nova_Bridge_Suite_Recipe_Builders::detect_reference( 42 ) ), 'Detection still enforces editor permission.' );
 echo 'PASS ' . $checks . " builder detection checks.\n";

@@ -56,7 +56,7 @@ final class Nova_Bridge_Suite_Recipe_Builders {
         if ( $post_id < 1 ) { return self::error( 'reference', 'Choose an actual native reference before inspecting its builder.', 404 ); }
         $post = get_post( $post_id );
         if ( ! $post || ! current_user_can( 'manage_options' ) || ! current_user_can( 'edit_post', $post_id ) ) { return self::error( 'reference', 'The native reference cannot be inspected by this account.', 403 ); }
-        return array_values( array_filter( self::native_carriers( $post ), static function ( $builder ) use ( $post_id ) {
+        $detected = array_values( array_filter( self::native_carriers( $post ), static function ( $builder ) use ( $post_id ) {
             // Both editors keep their old document after switching back to WordPress or another
             // builder. Their native renderers use these per-post flags, not the retained tree.
             // Keep native_carriers() conservative for callers protecting stored documents.
@@ -64,6 +64,15 @@ final class Nova_Bridge_Suite_Recipe_Builders {
             if ( 'beaver' === $builder ) { return (bool) get_post_meta( $post_id, '_fl_builder_enabled', true ); }
             return true;
         } ) );
+        // Beaver replaces the normal post body when enabled. Its saved editor/export
+        // body can still contain block comments; that is not a second rendered layout.
+        // Keep both candidates when the native renderer is unavailable or opted out.
+        if ( in_array( 'beaver', $detected, true ) && in_array( 'gutenberg', $detected, true )
+            && is_callable( [ 'FLBuilderModel', 'is_builder_enabled' ] ) && FLBuilderModel::is_builder_enabled( $post_id )
+            && apply_filters( 'fl_builder_do_render_content', true, $post_id ) ) {
+            $detected = array_values( array_diff( $detected, [ 'gutenberg' ] ) );
+        }
+        return $detected;
     }
 
     /** Shared read-only carrier inspection; callers enforce their own editor permissions. */
@@ -585,10 +594,11 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 $sensitive_markup = is_string( $native_value ) && preg_match( '/\[(?:gravityform|wpforms|contact-form|fluentform)|\$variable\(|<script\b/i', $native_value );
                 if ( 'divi5' === $this->builder && is_string( $native_value ) && false !== strpos( $native_value, '@ET-DC@' ) ) { $sensitive_markup = true; }
                 $control = basename( $target );
-                $connected = 'beaver' === $this->builder && isset( $node['settings']['connections'][$control] );
+                // Themer retains empty connection entries for ordinary editable controls.
+                $connected = 'beaver' === $this->builder && ! empty( $node['settings']['connections'][$control] );
                 $writable = ! $node_protected && ! $sensitive_markup && ! $connected && is_string( $value );
                 $result['fields'][] = [ 'target' => $target, 'label' => $label . ' · ' . ucwords( str_replace( '_', ' ', $kind ) ), 'format' => $format, 'kind' => $kind, 'value' => $value,
-                    'context' => $node_context, 'writable' => $writable, 'protected' => ! $writable, 'reason' => $writable ? '' : 'This native value belongs to a protected, dynamic or interactive region.' ] + $this->provenance( $node, $path, $target );
+                    'context' => $node_context, 'writable' => $writable, 'protected' => ! $writable, 'reason' => $writable ? '' : ( $connected ? 'This Beaver field has an active field connection. Edit or map its source instead.' : 'This native value belongs to a protected, dynamic or interactive region.' ) ] + $this->provenance( $node, $path, $target );
                 if ( null !== $semantic_value ) { $result['fields'][count( $result['fields'] ) - 1]['sample'] = $semantic_value; }
             };
             if ( 'wpbakery' === $this->builder ) {

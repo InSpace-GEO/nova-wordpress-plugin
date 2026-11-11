@@ -1,5 +1,11 @@
 # Release verification
 
+## 1.3.2
+
+All 139 local suites passed. On staging with Beaver Builder 2.10.2.2, a native draft with retained WordPress block content reproduced the ambiguous-builder error in 1.3.1 even though Beaver replaced that body in the real WordPress render loop. The fix opened the Beaver layout through the mapping endpoint, exposed its live heading and left both stored documents unchanged. Disabling Beaver restored block detection. Missing renderers, rendering opt-outs and competing native builders remain explicit conflicts. Disposable staging pages were removed. This change does not add composite layouts with independently editable builder documents.
+
+The same fixture reproduced five incorrectly protected heading, text and button controls with empty Themer connection entries. With the fix, all five mapped through the endpoint, survived native draft creation and reopening, and rendered their updated text and URLs. Empty connection representations were retained. Local tests confirm active connections and interactive form content remain protected. Themer connection metadata was emulated on Beaver Lite; no production site was changed.
+
 ## 1.3.1
 
 - All 139 local suites passed with the WordPress 6.9 fixture. Coverage includes native layout writes, media, builder detection, preview locators, delivery recovery and receipt timestamps.
