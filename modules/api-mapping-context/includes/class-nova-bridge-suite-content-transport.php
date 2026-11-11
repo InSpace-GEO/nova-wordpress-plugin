@@ -1,6 +1,7 @@
 <?php
 /** Authenticated, schema-gated editorial transport, independent of show_in_rest. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
 
 final class Nova_Bridge_Suite_Content_Transport {
@@ -233,7 +234,7 @@ final class Nova_Bridge_Suite_Content_Transport {
 		$catalog = self::field_catalog( $post->post_type, $post->ID );
 		$result = [];
 		foreach ( $catalog['meta'] as $key => $registration ) {
-			if ( current_user_can( 'edit_post_meta', $post->ID, $key ) ) {
+			if ( Nova_WordPress_Meta_Permission::can_edit( 'post', $post->ID, $key ) ) {
 				$value = get_post_meta( $post->ID, $key, true );
 				$schema = is_array( $registration['show_in_rest'] ?? false ) ? ( $registration['show_in_rest']['schema'] ?? [] ) : [];
 				$schema['type'] = $schema['type'] ?? ( $registration['type'] ?? 'string' );
@@ -292,7 +293,7 @@ final class Nova_Bridge_Suite_Content_Transport {
 
 	private static function can_write_acf( string $post_type, int $post_id, string $name ): bool {
 		$registered = array_merge( get_registered_meta_keys( 'post' ), get_registered_meta_keys( 'post', $post_type ) );
-		if ( $post_id && ! current_user_can( 'edit_post_meta', $post_id, $name ) ) { return false; }
+		if ( $post_id && ! Nova_WordPress_Meta_Permission::can_edit( 'post', $post_id, $name ) ) { return false; }
 		if ( ! $post_id && isset( $registered[ $name ] ) ) { return self::can_create_meta( $post_type, $name, $registered[ $name ] ); }
 		return true;
 	}
@@ -319,7 +320,7 @@ final class Nova_Bridge_Suite_Content_Transport {
 			}
 			if ( ! isset( $catalog['meta'][ $key ] ) ) { return self::error( 'Unknown or protected meta_all field: ' . $key ); }
 			$registration = $catalog['meta'][ $key ];
-			$allowed = $post_id ? current_user_can( 'edit_post_meta', $post_id, $key ) : self::can_create_meta( $post_type, $key, $registration );
+			$allowed = $post_id ? Nova_WordPress_Meta_Permission::can_edit( 'post', $post_id, $key ) : self::can_create_meta( $post_type, $key, $registration );
 			if ( ! $allowed ) { return self::error( 'Meta authorization denied: ' . $key . ( $post_id ? '' : '. Create a draft first, then update this field using its ID.' ), 403 ); }
 			$schema = is_array( $registration['show_in_rest'] ?? false ) ? ( $registration['show_in_rest']['schema'] ?? [] ) : [];
 			$schema['type'] = $schema['type'] ?? ( $registration['type'] ?? 'string' );
@@ -471,7 +472,7 @@ final class Nova_Bridge_Suite_Content_Transport {
 
 	public static function write_fields( WP_Post $post, array $payload, bool $unslashed_acf_input = false ) {
 		// Re-check object-scoped permissions after a create; an ID now exists.
-		foreach ( $payload['meta'] as $key => $value ) { if ( ! current_user_can( 'edit_post_meta', $post->ID, $key ) ) { return self::error( 'Meta authorization denied: ' . $key, 403 ); } }
+		foreach ( $payload['meta'] as $key => $value ) { if ( ! Nova_WordPress_Meta_Permission::can_edit( 'post', $post->ID, $key ) ) { return self::error( 'Meta authorization denied: ' . $key, 403 ); } }
 		foreach ( $payload['acf'] as $name => $entry ) { if ( ! self::can_write_acf( $post->post_type, $post->ID, $name ) ) { return self::error( 'ACF authorization denied: ' . $name, 403 ); } }
 		foreach ( $payload['meta'] as $key => $value ) {
 			$updated = update_post_meta( $post->ID, $key, wp_slash( $value ) );

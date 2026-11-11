@@ -1,6 +1,7 @@
 <?php
 /** Editorial fields explicitly selected alongside a fixed native post layout. */
 defined( 'ABSPATH' ) || exit;
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 
 final class Nova_Bridge_Suite_Layout_Custom_Fields {
     private const ACF = [ 'text', 'textarea', 'wysiwyg', 'url', 'email' ];
@@ -40,7 +41,7 @@ final class Nova_Bridge_Suite_Layout_Custom_Fields {
                 if ( ! empty( $registration['readonly'] ) || ! empty( $registration['disabled'] ) || ! empty( $registration['multiple'] ) ) { continue; }
                 if ( 'meta' === $provider && ( empty( $registration['single'] ) || empty( $registration['show_in_rest'] ) ) ) { continue; }
                 if ( function_exists( 'is_protected_meta' ) && is_protected_meta( $name, 'post' ) ) { continue; }
-                if ( $example && ! current_user_can( 'edit_post_meta', $example, $name ) ) { continue; }
+                if ( $example && ! Nova_WordPress_Meta_Permission::can_edit( 'post', $example, $name ) ) { continue; }
                 $field = [ 'provider' => $provider, 'name' => $name, 'key' => 'acf' === $provider ? ( $registration['key'] ?? '' ) : $name, 'type' => $registration['type'] ?? '' ];
                 if ( ! self::valid( $field ) ) { continue; }
                 $field['label'] = (string) ( $registration['label'] ?? $name );

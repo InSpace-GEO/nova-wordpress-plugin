@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.9
+Stable tag: 1.2.10
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.10 =
+* Custom fields: works with ACF 6.8.11 and later. That release refuses WordPress's custom-field permission on every key that stores an ACF field, for every user, so WordPress's own Custom Fields box cannot bypass ACF. NOVA asked exactly that permission before reading or writing ACF fields, so capturing an ACF example failed with "WordPress refuses the field ..." and ACF values in deliveries were refused. NOVA now checks the same permission with only that ACF guard set aside, as ACF does for its own saves. Field permission filters, protected keys and other plugins' capability rules still apply.
 
 = 1.2.9 =
 * Custom fields: when WordPress refuses an ACF/SCF field while a post or category is captured as an example, or while saved fields are verified, the message now names the field and why: a permission filter or registered permission callback for that field, the field being marked as protected, or a capability filter on the site. Where WordPress can tell, it also names the plugin or theme that added the rule. Permissions themselves are unchanged.
