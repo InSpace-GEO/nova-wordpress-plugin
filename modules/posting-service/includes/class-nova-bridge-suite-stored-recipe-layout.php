@@ -192,8 +192,14 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             $layout = self::checked( self::validate( $draft ) ); $effective = Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $draft );
             $values = self::checked( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $effective, $destination_values ) );
             $adapter = self::checked( Nova_Bridge_Suite_Recipe_Engine::adapter( $layout['builder'] ) );
-            $blueprint = $layout['blueprint']; $post_fields = $layout['post_fields']; $media = []; $custom = [];
+            $blueprint = $layout['blueprint']; $post_fields = $layout['post_fields']; $media = []; $custom = []; $vacant = []; $kept = [];
             foreach ( $layout['bindings'] as $path => $binding ) {
+                if ( in_array( $binding['kind'], [ 'recipe', 'media' ], true ) ) {
+                    // An optional element the delivery left empty is dropped rather than published blank.
+                    $optional = 'adapt' === $binding['mode'] && empty( $effective['fields'][$path]['required'] );
+                    // An unfilled optional image keeps the captured image, so on its own it neither empties nor keeps its element.
+                    if ( ! $optional || ! Nova_Bridge_Suite_Recipe_Engine::blank( $values[$path] ?? null ) ) { $kept[] = $path; } elseif ( 'recipe' === $binding['kind'] ) { $vacant[] = $path; }
+                }
                 if ( 'protected' === $binding['mode'] ) { continue; }
                 $value = 'leave_empty' === $binding['mode'] ? '' : ( $values[$path] ?? '' );
                 $rich = 'rich_text' === ( $effective['fields'][$path]['description']['value_type'] ?? '' );
@@ -209,7 +215,16 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 if ( 'post' === $binding['kind'] ) { $post_fields[$binding['column']] = $value; }
                 else { $blueprint = self::checked( $adapter->bind( $blueprint, $binding, $value ) ); }
             }
-            if ( ! empty( $layout['omissions'] ) ) { $blueprint = Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $layout['omissions'], $adapter ); }
+            $removed = $layout['omissions'] ?? [];
+            if ( $vacant && ! in_array( $layout['builder'], [ 'core', 'acf' ], true ) ) {
+                $fields = array_values( self::inventory( $layout['builder'], $layout['blueprint'], $layout['resource_id'] ) );
+                $removed = Nova_Bridge_Suite_Recipe_Engine::vacant_elements( $layout['blueprint'], $fields, $vacant, $kept, $removed );
+            }
+            if ( $vacant && 'acf' === $layout['builder'] && method_exists( $adapter, 'vacant_rows' ) ) {
+                // Repeater and flexible-content rows play the part of elements, within ACF's row minimums.
+                $removed = $adapter::vacant_rows( $blueprint, $vacant, $kept, $removed );
+            }
+            if ( $removed ) { $blueprint = Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $removed, $adapter ); $media = Nova_Bridge_Suite_Recipe_Engine::shift_pointers( $media, $removed ); }
             $compiled = self::checked( $adapter->finalize( $blueprint, 'stored-layout:' . $seed, [ 'recipe' => [ 'blueprint' => $layout['blueprint'] ] ] ) );
             if ( ! is_array( $compiled['writer_payload'] ?? null ) ) { self::fail( 'The builder did not produce a complete native payload.' ); }
             if ( $media ) { $compiled['writer_payload']['nova_media'] = $media; }

@@ -1,5 +1,126 @@
 # Release verification
 
+## 1.2.14 candidate (local and staging WordPress)
+
+131 of 132 local suites passed against a WordPress 7.1.4 core fixture, the same as 1.2.13 (the localized custom fields suite fails on both). The ACF publication suite now checks that an optional select left empty passes the publication probe and that an unknown choice is still refused with the value and the allowed choices named.
+
+On staging (ACF Pro 6.8.11, a text block whose heading-level select has choices h1/h2, not required and without allow null), as an administrator through the stored-layout writer's plan() and apply(): with 1.2.13 a page delivery that maps the heading level and leaves it empty stopped with "acf.content.2.h_type contains an unknown choice", as on a client site; with 1.2.14 the page was published. A dated post still published. Test items were force-deleted.
+
+Not covered: a live NOVA delivery.
+
+## 1.2.13 candidate (local and staging WordPress)
+
+131 of 132 local suites passed against a WordPress 7.1.4 core fixture; the remaining suite (localized custom fields) fails the same way on 1.2.12. New checks cover dated post planning at the delivery slug, the stored-layout opt-in (other writers still refuse dated post routes), slug, date, host and post type mismatches, a %category% structure still being refused, and the kept failure message (tags stripped, the publication_failed event unchanged).
+
+On staging (WordPress 7.1, WPML with three languages, ACF Pro 6.8.11, a classic theme rendering ACF flexible content, post permalinks /%year%/%monthnum%/%day%/%postname%/), as an administrator: with 1.2.12, planning a post's target stopped before writing with the permalink error. With 1.2.13, through the stored-layout writer's plan() and apply() with an ACF layout captured on the site, a published post was created at /2026/11/11/<slug>/ and reported with that URL, and a draft post was saved. A page with a 12-row ACF layout still published at /<slug>/. All test items were force-deleted.
+
+Not covered: a live NOVA delivery, and the failure message in the admin list for a live failure.
+
+## 1.2.12 candidate (local and staging WordPress)
+
+All 132 local suites passed. A new suite checks the ACF row rules directly: a flexible-content row whose mapped optional fields are empty is left out; a row with any filled mapped field stays; a row left with only a style setting once its repeater rows are gone is left out, but one still showing a fixed heading stays (only its emptied rows go); a top-level field takes nothing with it; explicit omissions pass through; a field's min, a required field and a layout's min each keep the rows they need. It also checks that image entries follow their rows when earlier rows go, and compiles a captured fixed ACF layout end to end (an empty first row is removed and counted; one filled field keeps it). The WPBakery/Avada suite now checks that an image import after a removed element still points at its Image Frame; without the re-pointing that check fails, so 1.2.2 to 1.2.11 attached such an image to the wrong position.
+
+On staging (ACF Pro 6.8.0.1), one process per scenario as an administrator: a static ACF layout was captured from a lab page with a group, a 3-row repeater (sections, min 3) with a nested 2-row repeater (bullets, min 2) and a 3-row flexible content field (modules, min 3, layouts feature and proof); 43 fields mapped. Each scenario ran through the preview compiler, the delivery path (saved layout, fitted values, native payload) and the plugin's ACF writer onto a new draft page, read back through ACF, after which the draft was force-deleted. The lab field group was matched to every page in memory, and some scenarios lifted minimums in memory through ACF's load_field filter:
+
+- Real minimums, every module row and section 1's bullets left empty: nothing removed; empty values saved; ACF accepted the save.
+- Modules min 0, the proof row left empty: that row removed; the two feature rows kept their own delivered values and fixed text in order.
+- Sections and bullets min 0, section 1's bullets and all of section 2 left empty: both bullets and section 2 removed (5 rows); section 1 kept with its heading and no bullets; section 3 moved up with its own values.
+- Modules min 0 with the feature layout's min 1, both feature rows left empty: one feature row removed, the other kept empty for the layout minimum.
+
+Preview, delivery payload and saved result matched in every scenario. No test drafts remain. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: images in removed ACF rows on staging (the lab has no ACF image fields; covered by the unit suites), and a live NOVA delivery.
+
+## 1.2.11 candidate (local and staging WordPress)
+
+All 131 local suites passed. A new suite models ACF's post_template location rule with WordPress's own meta semantics (post 0 has no template, an existing post without one has ''): a group shown on "Default template" pages applies to the default-template example and to a new page, and named templates still choose their own group for both. The 1.2.10 code fails it.
+
+On staging, as an administrator with read-only calls, a local field group (never saved) was shown on "Default template" pages. With 1.2.10 the example page had its flexible content field, a new page had none, and capture failed with "The example and new-item ACF schemas differ", as reported on a client site. With 1.2.11 both had the field and capture succeeded. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: a live delivery creating a page with these fields.
+
+## 1.2.10 candidate (local and staging WordPress)
+
+All 130 local suites passed. A new suite runs the shared meta permission check through WordPress's own hook API with ACF 6.8.11's Custom Fields guard modelled: ACF top-level and row keys are allowed where only that guard refuses them, the guard is restored afterwards at its priority, protected reference keys stay refused, another plugin's refusal still applies, term meta is unchanged, and nothing is added when ACF's guard is absent.
+
+On staging (ACF Pro 6.8.0.1), ACF 6.8.11's guard was added in memory for one process, as an administrator with read-only calls. With 1.2.9, capture and saved-field verification of a page with ACF group, repeater and flexible content both failed with "WordPress refuses the field ...", as reported on a client site running ACF Pro 6.8.11. With 1.2.10 both succeed, and the guard still refuses WordPress's own custom-field permission afterwards. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: a live delivery writing ACF fields under ACF 6.8.11.
+
+## 1.2.9 candidate (local and staging WordPress)
+
+All 129 local suites passed. A new suite runs the refusal explanation against WordPress's own hook and meta API: a field refused without its own filter is named with "a capability filter on this site"; a field auth filter is named and attributed to the plugin folder it was loaded from; a filter outside plugins and themes is not attributed; a field a plugin marks as protected is explained as such; plugins hooked into capability filters are listed as candidates, not as the cause. The ACF recipe suite checks that the 403 message names the refused field.
+
+1.2.9 installed on staging. As an administrator, with read-only calls and filters added in memory for one process: capture of a page with ACF group, repeater and flexible content still succeeds; with a permission filter on one field the capture names that field and the filter; with a capability filter refusing one field, saved-field verification names that field and lists the plugins on staging that change capabilities, without NOVA itself. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: the message on a client site where a field is actually refused.
+
+## 1.2.8 candidate (local and staging WordPress)
+
+All 128 local suites passed. The ACF recipe suite now models WordPress's own meta capability rule, which refuses protected (underscore) keys to every role unless an auth filter allows them: an administrator can capture an ACF flexible-content post example and an ACF category example, a denied editorial field is still refused before any value is read. The 1.2.7 code fails this suite.
+
+On staging WordPress (single site, ACF Pro active), `current_user_can( 'edit_post_meta', $post, 'content' )` is true for an administrator and false for `_content` and `_thumbnail_id`, which is the rule the 1.2.7 capture check ran into.
+
+1.2.8 installed on staging (ACF Pro 6.8, single site). As an administrator, with read-only calls: delivery verification of three pages with an ACF group, repeater and flexible content field returned verified (1.2.7 refuses it, because WordPress denies the `_name` keys there); capturing one of them as an example returned its three flexible-content rows with their layouts and wrote nothing. Staging's field group is attached to individual pages, so for the capture its location rules were matched to every page in memory for that one call. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: capturing an example in the admin screen and a live delivery to an ACF layout.
+
+## 1.2.7 candidate (local, real theme markup and staging)
+
+All 128 local suites passed. A new canvas suite models a post rendered through a Beaver Themer singular layout (no `.entry-content` or `.entry-title`; the title in a heading module with a curled apostrophe; the body in Themer's Post Content module): the content is outlined in the Post Content module, a stored title with a straight apostrophe or an HTML entity matches the heading, a different title, two Post Content modules, two matching headings and a heading in the footer are not guessed. The 1.2.6 canvas fails this suite.
+
+Both canvases ran in a browser against a script-free copy of a client's Beaver Themer blog post: the 1.2.6 canvas located neither field; the 1.2.7 canvas located the title heading and the Post Content module, both visible. Staging has no Beaver Themer, so the admin canvas was not exercised there.
+
+## 1.2.6 candidate (local and real MySQL)
+
+All 127 local suites passed. A new suite checks that five installations with the same table prefix and NOVA site ID get five different connection, discovery, delivery, admission and schema locks, that the native writers' locks (rules, stored layouts, translations, owned post types) are scoped the same way, that one installation always gets the same name and releases the lock it took, that installations sharing a database with different table prefixes stay apart, that names stay within MySQL's 64 characters, and that database drop-ins without a readable `dbname` fall back to `DB_NAME`.
+
+Simulated against a local MySQL 8.0.46 server with five databases, using WordPress's own `wpdb` and the plugin's `Posting_Jobs` and `Posting_Connection::guard()` in separate PHP processes, each holding the lock for 3 seconds in place of a delivery batch:
+
+- Five installations notified at once: 1.2.5 accepted one and returned 409 `nova_posting_connection_busy` for the other four; 1.2.6 accepted all five in parallel.
+- Two notifications to one installation at once: both versions accepted the first and returned 409 for the second.
+- While one installation held its lock, `IS_USED_LOCK` from another installation's database reported that installation's own lock and the 1.2.5 shared name as free.
+- During the update itself, a request still running 1.2.5 code and one running 1.2.6 on the same installation do not exclude each other, because the names differ. This lasts only while the plugin files are replaced.
+
+Not covered: a live multi-installation host and real NOVA notifications.
+
+## 1.2.5 candidate (local and real theme markup)
+
+All 126 local suites passed. A new canvas suite models a post rendered through a Divi Theme Builder body template (no main, article or `.entry-content`; an entrance-animated section around the title and content; Divi's Post Content module): the section is shown, the content is outlined in the Post Content module, the title is outlined, and two Post Content modules are not guessed. The 1.2.4 canvas fails this suite.
+
+The new canvas ran in a browser against a script-free copy of a client's Divi Theme Builder post: the template section went from opacity 0 to 1, and the title and post content were located and visible. Staging has no Divi theme, so the admin canvas was not exercised there.
+
+## 1.2.4 candidate (local, real theme markup and staging)
+
+All 125 local suites passed. A new canvas suite covers value matching: a heading repeated in breadcrumbs and the site header still resolves to the content heading, including when the theme leaves its breadcrumb wrapper unclosed; whitespace between blocks and curly quotes and dashes added by WordPress do not matter; a multi-paragraph editor field outlines its region; repeated labels, values not on the page, very short values, non-image values, an image shown twice and another reference never bind; an image matches its upload in another generated size, a scaled original and a CSS background. The content-builder suite checks that text, editor and image fields get value locators and that addresses, page links and carried values stay unbound.
+
+The matching code ran in a browser against a saved copy of a client's custom-theme ACF page (scripts from the copy were not needed). All 13 sample values resolved to the right element: the intro heading (also present in the breadcrumb), intro text, two multi-block text sections, card headings, card text, a card button label with an apostrophe, a grey text block with a list and links, a two-column text, the intro image (scaled original), a card image (resized) and a CSS background image.
+
+Staging (ACF Pro 6.8.0.1) ran the candidate ZIP: the layout design for a lab ACF page returned value locators for the intro, hero title, hero image, button label and an editor field, and left the button type, page link, address, shared checkbox, icon picker and user unbound. The example page and lab field group were removed. Not covered: clicking through the canvas in the admin screen (staging's theme does not print ACF fields).
+
+## 1.2.3 candidate (local and staging)
+
+All 124 local suites passed. A new suite covers an ACF content builder: flexible layouts with page links, a select that switches a button between a page link and a required address, an icon picker, a clone and two same-named checkboxes. The builder is now exposed and detected, reads back exactly, keeps page links and carried values from the example (not mappable), lists the shared checkbox once, writes it under both field keys, skips a required address hidden by its condition while still requiring a visible one, and round-trips through publication. Invalid page links, unreadable link targets and non-plain carried values are refused; markup in a carried value is filtered like post content. Password sub-fields and same-named sub-fields of different types still hide their container. A layout captured with the 1.2.2 filter still compiles and publishes only its own fields, and a changed schema identity is still refused. Against a client's exported field groups the 1.2.2 filter exposed only the page-header fields, and the candidate also exposes the content builder.
+
+Staging (ACF Pro 6.8.0.1) ran the candidate ZIP with two temporary field groups limited to lab page templates: a content builder with hero, card and text layouts (page links, conditional buttons, same-named checkboxes, an icon picker and a user field), and a copy of a client's real content-builder group. Example pages with only ACF content were captured and delivered as drafts through the stored-layout writer (emulated, no posting service):
+
+- Both builders were hidden by the 1.2.2 filter, and the candidate read them and detected both pages as ACF layouts.
+- Delivered text landed in the right rows and cards; page links, a URL-type card button, images, the icon picker and user values were kept from the example; a required button address hidden by its button type was left empty without blocking delivery.
+- A layout captured with the 1.2.2 filter delivered its own top-level field and left the builder untouched.
+
+Test pages and the temporary field groups were removed afterwards. Not covered: delivery through the remote posting service, updating an existing published page, and mapping a page link to delivered content (page links keep their example target).
+
+## 1.2.2 candidate (local and staging)
+
+All local suites passed (the WordPress-install-only locale proof was skipped as before). New checks cover unfilled optional fields in fixed layouts: an unfilled WPBakery FAQ section is removed with its heading, separator and toggles; an emptied column stays beside a filled one; only unfilled questions are removed when others are filled; an element with any filled field stays; required fields never remove their element; whitespace-only and `&nbsp;` values count as unfilled; explicit removals and unfilled fields combine; Gutenberg groups, spacers and columns and Elementor sections, columns and dividers follow the same rule; and the saved-layout delivery path removes an unfilled optional element while existing layouts publish unchanged.
+
+Staging (WordPress with WPBakery 8.7.2 activated for the check) ran the candidate ZIP. Two example pages, one built with WPBakery's own heading, separator, accordion and two-column row and one with Gutenberg heading, group, separator, details and columns blocks, were captured, and each was mapped with a required intro, a required right column and optional FAQ heading, questions, answers and left column. Emulated deliveries (no posting service) ran through the stored-layout writer's plan, apply and finish as drafts:
+
+- With the FAQ fields and the left column unfilled, both pages were created without the FAQ section (heading, separator, accordion or details, and their example questions), and the empty left column stayed in its row beside the filled right column.
+- With the FAQ heading, the first question and answer and the left column filled, the heading, separator and first question were written and only the unfilled second question was left out.
+
+Not covered: delivery through the remote posting service, and updating an existing published page (the drafts used on staging cannot be updated in place by design).
+
 ## 1.2.1 candidate (local and staging lab)
 
 All 123 local suites passed, including new checks for Avada images, content and known-ID publishing, theme image picker types, URL text fields, attribute text content, transparent animation wrappers, visibility-hidden animations, body-level "slider" classes and empty image layers.

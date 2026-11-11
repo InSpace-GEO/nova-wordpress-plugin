@@ -1,6 +1,7 @@
 <?php
 /** Source-free native publishing from an immutable layout and fitted scalar values. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-provider.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
@@ -103,7 +104,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     private static function locked( array $plan, callable $work ) {
         global $wpdb;
         if ( ! isset( $wpdb->posts ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->posts ) ) { self::fail( 'storage', 'Native database storage is unavailable.' ); }
-        $lock = 'nova-layout:' . substr( hash( 'sha256', $wpdb->posts . ':' . $plan['site_id'] . ':' . $plan['target']['target_url'] ), 0, 50 );
+        $lock = Nova_Bridge_Suite_Native_Lock::name( $wpdb, 'nova-layout:', $wpdb->posts . ':' . $plan['site_id'] . ':' . $plan['target']['target_url'], 50 );
         if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $lock ) ) ) { self::fail( 'busy', 'Another native operation owns this URL. Retry shortly.' ); }
         try { return $work(); } finally { $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) ); }
     }
@@ -287,9 +288,16 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             if ( isset( $plan['target']['native_language'] ) ) { $url = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::draft_url( $url, $plan['target'] ) ); }
         }
         $actual = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ) );
-        if ( $actual['identity'] !== $plan['target']['target_url'] ) { self::fail( 'permalink', 'The saved page URL differs from the delivery URL. Its ID was retained; no duplicate will be created.' ); }
+        if ( $actual['identity'] !== $plan['target']['target_url'] && ! Nova_Bridge_Suite_Mapped_Content_Target::same_native_url( $actual['identity'], $plan['target']['target_url'], 'post_type:' . $plan['post_type'] ) ) { self::fail( 'permalink', 'The saved page URL differs from the delivery URL. Its ID was retained; no duplicate will be created.' ); }
     }
-    private static function result( array $record ): array { $id = (int) $record['post_id']; return [ 'state' => 'complete', 'operation_id' => $record['plan']['operation_id'], 'post_id' => $id, 'cms_post_status' => get_post_status( $id ), 'url' => in_array( $record['plan']['target']['native_language']['provider'] ?? '', [ 'wpml', 'polylang' ], true ) ? $record['plan']['target']['target_url'] : get_permalink( $id ), 'native_digest' => $record['native_digest'] ]; }
+    private static function result( array $record ): array {
+        $id = (int) $record['post_id']; $url = in_array( $record['plan']['target']['native_language']['provider'] ?? '', [ 'wpml', 'polylang' ], true ) ? $record['plan']['target']['target_url'] : get_permalink( $id );
+        // A dated post lives at /<date>/<slug>/, not at the undated delivery URL; report where it really is.
+        if ( 'post' === ( $record['plan']['post_type'] ?? '' ) && preg_match( '/%(year|monthnum|day|hour|minute|second)%/', (string) get_option( 'permalink_structure', '' ) ) && null !== Nova_Bridge_Suite_Mapped_Content_Target::dated_post_structure() ) {
+            $native = Nova_Bridge_Suite_Mapped_Content_Target::native_url( 'post_type:post', 'post', $id ); if ( is_string( $native ) ) { $url = $native; }
+        }
+        return [ 'state' => 'complete', 'operation_id' => $record['plan']['operation_id'], 'post_id' => $id, 'cms_post_status' => get_post_status( $id ), 'url' => $url, 'native_digest' => $record['native_digest'] ];
+    }
     private static function complete( array $plan, array $record ): array {
         $id = (int) $record['post_id']; $state = self::check_content( $plan, $id ); self::check_url( $plan, $id );
         if ( $state['status'] !== $plan['desired_status'] ) { self::fail( 'publication', 'The retained page has not reached the intended native publication state.' ); }

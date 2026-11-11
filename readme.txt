@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.1
+Stable tag: 1.2.14
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,49 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.14 =
+* Fixed ACF/SCF layouts: an optional select, radio or button-group field that a delivery leaves empty (for example a heading-level setting the content does not fill) stopped the page with "... contains an unknown choice". It is now saved empty, as ACF itself allows for a field that is not required. A required field still needs one of its choices, and an unknown choice is still refused; that message now names the value and the allowed choices.
+
+= 1.2.13 =
+* Fixed posts on sites whose post permalinks contain the date (for example /%year%/%monthnum%/%day%/%postname%/): a delivery mapped to WordPress posts stopped before writing with "This native permalink structure needs an explicit certified creation adapter". The post is now created with the delivery's slug, WordPress gives it its dated link, and that link is accepted as the delivery URL and reported back. A post that already uses the slug stops the delivery instead of being duplicated. Pages, custom post types, categories and sites without dated post links are unchanged.
+* Publishing status: a delivery that failed in WordPress now shows WordPress's own message after the code (for example "nova_layout_writer_native: ..."), so the failing check is visible without server access.
+
+= 1.2.12 =
+* Fixed ACF/SCF layouts: a repeater or flexible-content row whose mapped optional fields a delivery leaves empty is now left out of the new page instead of being published empty, as builder elements already were. A row left showing nothing once its own rows are gone is left out too; style settings (choices, toggles, colours) on their own do not keep a row. ACF's row minimums are kept: when a field's minimum, a required field or a layout's minimum needs the row, it is published with its empty values. Mapped images in later rows stay with their own row; in builder layouts, images after a removed element now also keep their element.
+
+= 1.2.11 =
+* Custom fields: ACF/SCF field groups shown on pages with the "Default template" now also apply to new pages. ACF reads the template of a not-yet-created item as missing rather than empty, so its default-template rule did not match, and capturing a page as an example stopped with "The example and new-item ACF schemas differ". A new item is now matched with the default template WordPress gives it; named templates are unchanged.
+
+= 1.2.10 =
+* Custom fields: works with ACF 6.8.11 and later. That release refuses WordPress's custom-field permission on every key that stores an ACF field, for every user, so WordPress's own Custom Fields box cannot bypass ACF. NOVA asked exactly that permission before reading or writing ACF fields, so capturing an ACF example failed with "WordPress refuses the field ..." and ACF values in deliveries were refused. NOVA now checks the same permission with only that ACF guard set aside, as ACF does for its own saves. Field permission filters, protected keys and other plugins' capability rules still apply.
+
+= 1.2.9 =
+* Custom fields: when WordPress refuses an ACF/SCF field while a post or category is captured as an example, or while saved fields are verified, the message now names the field and why: a permission filter or registered permission callback for that field, the field being marked as protected, or a capability filter on the site. Where WordPress can tell, it also names the plugin or theme that added the rule. Permissions themselves are unchanged.
+
+= 1.2.8 =
+* Custom fields: an administrator can again use an existing post or category as the example for an ACF/SCF layout, and deliveries to those layouts are verified. ACF stores a hidden reference key (such as `_content`) next to each field, and WordPress refuses those protected keys to every role, so the setup stopped with "You cannot inspect the complete metadata for this custom-field example." Permission is now checked on the field itself, as it already was for fixed component layouts and ordinary field writes.
+
+= 1.2.7 =
+* Layout preview: posts shown through a Beaver Themer singular layout now outline their title and content. The content is found in Themer's Post Content module, and a title printed by the theme or a heading module matches the stored title even when WordPress curls its quotes and dashes or the title contains HTML entities.
+
+= 1.2.6 =
+* Deliveries: WordPress installations that share one MySQL server (separate databases, common on shared hosting) no longer block each other. MySQL named locks are shared by the whole server, and every installation computed the same lock names, so when one notification reached several installations at once only one accepted it and the others answered 409 nova_posting_connection_busy. Lock names now include the installation's database name. Requests to the same installation are still serialized as before.
+
+= 1.2.5 =
+* Layout preview: posts and pages shown through a Divi Theme Builder template no longer appear blank. Their template sections that wait for Divi's entrance animation are now shown, and the post content is outlined in Divi's Post Content module (and Elementor Pro's Post Content widget) when the theme has no standard content wrapper.
+
+= 1.2.4 =
+* ACF layout preview: selecting a field now highlights it on the example page, and clicking content on the page selects its field. Because the theme decides where each value is printed, a field is found by its value: the one element in the page content showing exactly that text, or the one image of that media file (in any generated size, including background images). Values shown more than once, very short values, links and page links are not guessed and stay in the field list.
+
+= 1.2.3 =
+* ACF layouts: a group, repeater or flexible content field is no longer hidden because one of its sub-fields is a page link or another type without dedicated handling. Page-built themes that put their whole page in a flexible "content builder" can now be read, mapped and published. Page links are read and written natively and keep their example target in a layout. Other sub-field types (for example clones, users or icon pickers) are carried over unchanged and are never filled from content. Password sub-fields still keep their container out.
+* ACF layouts: sub-fields that share a name inside one row are treated as the single stored value they are. Sub-fields with the same name but a different type still keep their container out.
+* ACF layouts: a required sub-field that the field's conditional logic hides (for example a button address when the button points at a page) no longer has to be filled.
+* Layouts saved before 1.2.3 keep publishing exactly as before. Recapture a layout to include fields that were previously hidden.
+
+= 1.2.2 =
+* Fixed builder layouts: when a delivery leaves an optional field empty, its element is now left out of the new page instead of being published empty. A section or container left with nothing to show (apart from separators and spacers) is left out too, for example an FAQ section whose questions were not filled. A grid column stays in place, empty, while its row still shows other content, so the remaining columns keep their widths. Required fields, and elements that still show any filled field, are never removed. An optional image left empty keeps the example image as before.
 
 = 1.2.1 =
 * WPBakery: themes that register their own image picker, such as Salient, now expose those images for mapping and import, along with links stored as plain text fields and heading text stored as an attribute.

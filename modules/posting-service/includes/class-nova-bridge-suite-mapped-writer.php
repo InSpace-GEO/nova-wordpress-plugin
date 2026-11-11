@@ -1,6 +1,7 @@
 <?php
 /** Exact local row plans. No generic save hooks, remote commands or whole-parent ACF writes. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 require_once __DIR__ . '/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Writer_Failure extends RuntimeException {
@@ -338,7 +339,7 @@ final class Nova_Bridge_Suite_Mapped_Writer {
     private static function check_row_permissions( array $plan, int $post_id ): void {
         $rows = array_column( $plan['snapshot']['meta'], null, 'meta_id' );
         foreach ( $plan['changes']['meta'] as $id => $value ) {
-            if ( ! isset( $rows[ $id ] ) || ! current_user_can( 'edit_post_meta', $post_id, $rows[ $id ]['meta_key'] ) ) { self::fail( 'permission', 'The publishing user cannot edit a mapped native metadata row.' ); }
+            if ( ! isset( $rows[ $id ] ) || ! Nova_WordPress_Meta_Permission::can_edit( 'post', $post_id, $rows[ $id ]['meta_key'] ) ) { self::fail( 'permission', 'The publishing user cannot edit a mapped native metadata row.' ); }
         }
     }
     private static function taxonomy_plan( array $snapshot, string $operation, string $desired ): array {

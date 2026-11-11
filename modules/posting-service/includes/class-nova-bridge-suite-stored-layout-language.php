@@ -194,7 +194,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         $wanted = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url );
         $native = self::in_language( $context, static function () use ( $resource, $id ) { return Nova_Bridge_Suite_Mapped_Content_Target::native_url( $resource, 'post', $id ); } );
         $actual = is_wp_error( $native ) ? $native : Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $native );
-        if ( is_wp_error( $wanted ) || is_wp_error( $actual ) || $actual['identity'] !== $wanted['identity'] || null !== parse_url( $url, PHP_URL_QUERY ) ) { return self::error( 'The existing post must own the exact delivery URL.' ); }
+        if ( is_wp_error( $wanted ) || is_wp_error( $actual ) || ( $actual['identity'] !== $wanted['identity'] && ! Nova_Bridge_Suite_Mapped_Content_Target::same_native_url( $actual['identity'], $wanted['identity'], $resource ) ) || null !== parse_url( $url, PHP_URL_QUERY ) ) { return self::error( 'The existing post must own the exact delivery URL.' ); }
         $target = [ 'slug' => $post->post_name, 'parent' => (int) $post->post_parent, 'target_url' => $wanted['identity'], 'language' => $language, 'native_language' => $context ];
         $verified = self::verify( $resource, $id, $target );
         return is_wp_error( $verified ) ? $verified : $target;
@@ -203,13 +203,13 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
     public static function creation( string $resource, string $url, string $language ) {
         if ( self::provider() === 'core' ) {
             $default = self::native_default();
-            return is_wp_error( $default ) ? $default : Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $default );
+            return is_wp_error( $default ) ? $default : Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $default, null, true );
         }
         if ( ! preg_match( '/^post_type:([a-z0-9_-]{1,20})$/D', $resource, $match ) ) { return self::error( 'Choose a registered native post destination.' ); }
         $context = self::context( $language, $match[1], $url );
         if ( is_wp_error( $context ) ) { return $context; }
         $target = self::in_language( $context, static function () use ( $context, $resource, $url, $language ) {
-            return Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $language, $context );
+            return Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $language, $context, true );
         } );
         if ( ! is_wp_error( $target ) && $target['parent'] && self::post_language( $target['parent'], $context ) !== $context['code'] ) { return self::error( 'The native parent belongs to another language.' ); }
         return $target;

@@ -1,6 +1,7 @@
 <?php
 /** Publish a captured ACF document to the item reserved by the existing delivery journal. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 
 trait Nova_Bridge_Suite_ACF_Publication {
     public function publication_support( string $type ): array {
@@ -21,13 +22,17 @@ trait Nova_Bridge_Suite_ACF_Publication {
         $schema = self::catalog( $type, $id, $blueprint['template'] ?? '' );
         if ( Nova_Bridge_Suite_Recipe_Engine::digest( $schema ) !== $blueprint['schema_hash'] ) { return self::error( 'The target item has a different ACF field schema from the saved layout.' ); }
         foreach ( $schema as $name => $field ) {
-            if ( $id && ! current_user_can( 'edit_post_meta', $id, $name ) ) { return self::error( 'The publishing user cannot edit the captured ACF field: ' . $name, 403 ); }
+            if ( $id && ! Nova_WordPress_Meta_Permission::can_edit( 'post', $id, $name ) ) { return self::error( 'The publishing user cannot edit the captured ACF field: ' . $name, 403 ); }
         }
-        $bounds = self::validate_constraints( array_values( $schema ), $blueprint['document'] ); if ( is_wp_error( $bounds ) ) { return $bounds; }
+        $bounds = self::validate_constraints( array_values( $schema ), $blueprint['document'], '/document', 0, self::conditions( self::native_schema( $blueprint, $id ) ) ); if ( is_wp_error( $bounds ) ) { return $bounds; }
         return Nova_Bridge_Suite_Content_Transport::validate_named_acf( $blueprint['document'], self::native_schema( $blueprint, $id ) );
     }
 
     public function publication_probe( string $type, array $payload, string $status ) {
+        return self::under_layout_rules( self::legacy_layout( is_array( $payload['acf_layout'] ?? null ) ? $payload['acf_layout'] : [] ), function () use ( $type, $payload, $status ) { return $this->publication_probe_now( $type, $payload, $status ); } );
+    }
+
+    private function publication_probe_now( string $type, array $payload, string $status ) {
         $support = $this->publication_support( $type ); if ( ! $support['supported'] ) { return self::error( $support['reason'], 403 ); }
         $input = $this->publication_input( $payload, $type ); if ( is_wp_error( $input ) ) { return $input; }
         return [ 'wordpress' => (string) ( $GLOBALS['wp_version'] ?? '' ), 'provider_version' => 'acf-fields-v1' ];
@@ -49,12 +54,20 @@ trait Nova_Bridge_Suite_ACF_Publication {
     }
 
     public function publication_snapshot( int $id, array $payload ) {
+        return self::under_layout_rules( self::legacy_layout( is_array( $payload['acf_layout'] ?? null ) ? $payload['acf_layout'] : [] ), function () use ( $id, $payload ) { return $this->publication_snapshot_now( $id, $payload ); } );
+    }
+
+    private function publication_snapshot_now( int $id, array $payload ) {
         $post = $this->publication_post( $id, $payload ); if ( is_wp_error( $post ) ) { return $post; }
         $input = $this->publication_input( $payload, $post->post_type, $id ); if ( is_wp_error( $input ) ) { return $input; }
         return [ 'fields' => Nova_Bridge_Suite_Content_Transport::read_named_acf( $payload['acf_layout']['schema'], $id ), 'template' => (string) get_page_template_slug( $id ), 'post_content' => (string) $post->post_content ];
     }
 
     public function publication_apply( int $id, array $payload, array $fields ) {
+        return self::under_layout_rules( self::legacy_layout( is_array( $payload['acf_layout'] ?? null ) ? $payload['acf_layout'] : [] ), function () use ( $id, $payload, $fields ) { return $this->publication_apply_now( $id, $payload, $fields ); } );
+    }
+
+    private function publication_apply_now( int $id, array $payload, array $fields ) {
         $post = $this->publication_post( $id, $payload ); if ( is_wp_error( $post ) ) { return $post; }
         $input = $this->publication_input( $payload, $post->post_type, $id ); if ( is_wp_error( $input ) ) { return $input; }
         $result = wp_update_post( wp_slash( [ 'ID' => $id, 'post_title' => $fields['title'], 'post_excerpt' => $fields['excerpt'] ?? '', 'post_content' => $payload['acf_layout']['post_content'] ?? '' ] ), true );
@@ -66,6 +79,10 @@ trait Nova_Bridge_Suite_ACF_Publication {
     }
 
     public function publication_verify( int $id, array $payload ) {
+        return self::under_layout_rules( self::legacy_layout( is_array( $payload['acf_layout'] ?? null ) ? $payload['acf_layout'] : [] ), function () use ( $id, $payload ) { return $this->publication_verify_now( $id, $payload ); } );
+    }
+
+    private function publication_verify_now( int $id, array $payload ) {
         $post = $this->publication_post( $id, $payload ); if ( is_wp_error( $post ) ) { return $post; }
         $input = $this->publication_input( $payload, $post->post_type, $id ); if ( is_wp_error( $input ) ) { return $input; }
         $template = (string) get_page_template_slug( $id );

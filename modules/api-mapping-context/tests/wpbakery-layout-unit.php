@@ -209,6 +209,11 @@ $avada_recipe = [ 'format' => 'nova-layout-recipe/v1', 'builder' => 'avada', 'mo
 $avada_compiled = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $avada_recipe, [ 'title' => 'New Avada heading', 'image_url' => 'https://images.example.test/new.jpg' ], 'avada-check' ), 'An Avada layout with an image binding compiles' );
 recipe_assert( [ 'kind' => 'avada', 'url_target' => $col . '1/text', 'id_target' => $col . '1/attributes/image_id', 'url' => 'https://images.example.test/new.jpg' ] === ( $avada_compiled['writer_payload']['nova_media'][ $col . '1/text' ] ?? null ), 'The compiled Avada payload carries the image import' );
 recipe_assert( false === strpos( $avada_compiled['writer_payload']['layout']['raw_shortcodes'], 'external.jpg' ) && false !== strpos( $avada_compiled['writer_payload']['layout']['raw_shortcodes'], 'New Avada heading' ), 'Avada elements can be removed and mapped' );
+// An unfilled optional element before an image is removed; the image import follows its own element.
+$shift_recipe = $avada_recipe; unset( $shift_recipe['omissions'] ); $shift_recipe['bindings'][0]['required'] = false;
+$shifted = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $shift_recipe, [ 'title' => '', 'image_url' => 'https://images.example.test/new.jpg' ], 'avada-shift' ), 'An Avada layout with a removed element before its image compiles' );
+recipe_assert( 1 === ( $shifted['vacated'] ?? 0 ) && [ $col . '0/text' ] === array_keys( $shifted['writer_payload']['nova_media'] ) && [ 'kind' => 'avada', 'url_target' => $col . '0/text', 'id_target' => $col . '0/attributes/image_id', 'url' => 'https://images.example.test/new.jpg' ] === $shifted['writer_payload']['nova_media'][ $col . '0/text' ], 'The image import still points at the element before the removal: ' . json_encode( $shifted['writer_payload']['nova_media'] ) );
+$shifted_raw = $shifted['writer_payload']['layout']['raw_shortcodes']; recipe_assert( false !== strpos( $shifted_raw, 'photo.jpg' ) && strpos( $shifted_raw, 'photo.jpg' ) < strpos( $shifted_raw, 'external.jpg' ), 'The Image Frame stays in place after the removed heading' );
 $GLOBALS['recipe_posts'][911] = (object) [ 'ID' => 911, 'post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Draft', 'post_content' => '', 'post_excerpt' => '' ];
 $GLOBALS['recipe_meta'][911] = [];
 $avada_payload = $avada_compiled['writer_payload']; unset( $avada_payload['nova_media'] );
@@ -218,4 +223,63 @@ $written = $GLOBALS['recipe_posts'][911]->post_content;
 recipe_assert( $avada_payload['layout']['raw_shortcodes'] === $written && 'active' === $GLOBALS['recipe_meta'][911]['_fusion_builder_status'] && $written === $GLOBALS['recipe_meta'][911]['_fusion_builder_shortcodes'] && $written === $GLOBALS['recipe_meta'][911]['_fusion_builder_content'], 'The Avada document and builder state are saved as the draft writer saves them' );
 $GLOBALS['recipe_meta'][911]['_fusion_builder_shortcodes'] = 'stale';
 recipe_assert( is_wp_error( $avada->publication_verify( 911, $avada_payload ) ), 'Stale Avada builder state fails verification' );
+// Optional fields left empty remove their element; a section left showing nothing goes with it.
+$faq_page = '[vc_row][vc_column][nova_theme_heading]<h1>Intro</h1>[/nova_theme_heading][/vc_column][/vc_row]' . "\n"
+    . '[vc_row][vc_column][nova_theme_heading]<h2>Questions</h2>[/nova_theme_heading]' . "\n" . '[vc_separator]' . "\n"
+    . '[nova_theme_toggles][nova_theme_toggle title="Q1"]<p>A1</p>[/nova_theme_toggle][nova_theme_toggle title="Q2"]<p>A2</p>[/nova_theme_toggle][/nova_theme_toggles][/vc_column][/vc_row]' . "\n"
+    . '[vc_row][vc_column width="1/2"][nova_theme_heading]<h3>Left</h3>[/nova_theme_heading][/vc_column][vc_column width="1/2"][nova_theme_heading]<h3>Right</h3>[/nova_theme_heading][/vc_column][/vc_row]';
+$GLOBALS['recipe_posts'][920] = (object) [ 'ID' => 920, 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'FAQ', 'post_content' => $faq_page, 'post_excerpt' => '' ];
+$faq_capture = recipe_ok( $adapter->capture( 920 ), 'A page with an FAQ section is captured' );
+$faq_fields = array_column( $faq_capture['fields'], null, 'target' );
+$row = static function ( $n ) { return '/document/' . $n . '/children/0/children/'; };
+$toggle = $row( 1 ) . '2/children/';
+recipe_assert( isset( $faq_fields[ $row( 1 ) . '0/text' ], $faq_fields[ $toggle . '1/attributes/title' ], $faq_fields['/document/2/children/0/children/0/text'] ) && ! isset( $faq_fields[ $row( 1 ) . '1/text' ] ), 'FAQ heading, toggles and columns are fields; the separator is not' );
+$optional = static function ( $target, $source, $format = 'text' ) { return [ 'target' => $target, 'source' => $source, 'format' => $format, 'required' => false ]; };
+$faq_recipe = [ 'format' => 'nova-layout-recipe/v1', 'builder' => 'wpbakery', 'mode' => 'static', 'blueprint' => $faq_capture['blueprint'], 'regions' => [], 'bindings' => [
+    [ 'target' => $row( 0 ) . '0/text', 'source' => '/title', 'format' => 'text', 'required' => true ],
+    $optional( $row( 1 ) . '0/text', '/faq_title' ),
+    $optional( $toggle . '0/attributes/title', '/q1' ), $optional( $toggle . '0/text', '/a1', 'html' ),
+    $optional( $toggle . '1/attributes/title', '/q2' ), $optional( $toggle . '1/text', '/a2', 'html' ),
+    $optional( '/document/2/children/0/children/0/text', '/left' ),
+    [ 'target' => '/document/2/children/1/children/0/text', 'source' => '/right', 'format' => 'text', 'required' => true ],
+] ];
+recipe_ok( Nova_Bridge_Suite_Recipe_Engine::validate( $faq_recipe ), 'The FAQ recipe validates' );
+$faq_out = static function ( array $content, string $seed ) use ( $faq_recipe ) { return recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $faq_recipe, $content, $seed ), 'The FAQ layout compiles' ); };
+$compiled = $faq_out( [ 'title' => 'Welcome', 'right' => 'Right side', 'faq_title' => '', 'q1' => '   ', 'a1' => '<p>&nbsp;</p>' ], 'vacant-1' );
+$raw = $compiled['writer_payload']['layout']['raw_shortcodes'];
+recipe_assert( false === strpos( $raw, 'Questions' ) && false === strpos( $raw, 'nova_theme_toggle' ) && false === strpos( $raw, 'vc_separator' ), 'An unfilled FAQ section is removed with its heading, separator and toggles' );
+recipe_assert( '[vc_row][vc_column][nova_theme_heading]<h1>Welcome</h1>[/nova_theme_heading][/vc_column][/vc_row]' . "\n" . '[vc_row][vc_column width="1/2"][/vc_column][vc_column width="1/2"][nova_theme_heading]<h3>Right side</h3>[/nova_theme_heading][/vc_column][/vc_row]' === $raw, 'An emptied column stays so its row keeps its grid; filled content is untouched' );
+recipe_assert( 2 === ( $compiled['vacated'] ?? 0 ) && $raw === nova_mapping_wpb_compact_to_shortcodes( $compiled['writer_payload']['wpbakery_document'] ), 'The removed elements are counted and the structured document matches' );
+$compiled = $faq_out( [ 'title' => 'Welcome', 'right' => 'R', 'left' => 'L', 'faq_title' => 'FAQ', 'q1' => 'Why?', 'a1' => '<p>Because.</p>' ], 'vacant-2' );
+$raw = $compiled['writer_payload']['layout']['raw_shortcodes'];
+recipe_assert( false !== strpos( $raw, '[nova_theme_heading]<h2>FAQ</h2>[/nova_theme_heading]' . "\n" . '[vc_separator]' . "\n" . '[nova_theme_toggles][nova_theme_toggle title="Why?"]<p>Because.</p>[/nova_theme_toggle][/nova_theme_toggles]' ) && false === strpos( $raw, 'Q2' ), 'Only the unfilled question is removed' );
+recipe_assert( 1 === ( $compiled['vacated'] ?? 0 ) && false !== strpos( $raw, '<h3>L</h3>' ), 'Filled optional fields stay' );
+$compiled = $faq_out( [ 'title' => 'Welcome', 'right' => 'R', 'q1' => 'Only a title' ], 'vacant-3' );
+$raw = $compiled['writer_payload']['layout']['raw_shortcodes'];
+recipe_assert( false !== strpos( $raw, '[nova_theme_toggle title="Only a title"][/nova_theme_toggle]' ) && false === strpos( $raw, 'Questions' ) && false !== strpos( $raw, 'vc_separator' ), 'An element with any filled field stays; its empty parts are left blank' );
+$all_required = $faq_recipe; foreach ( $all_required['bindings'] as &$binding ) { $binding['required'] = true; } unset( $binding );
+$compiled = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $all_required, [ 'title' => 'W', 'right' => 'R', 'left' => '', 'faq_title' => '', 'q1' => '', 'a1' => '', 'q2' => '', 'a2' => '' ], 'vacant-4' ), 'Required empty values compile' );
+recipe_assert( ! isset( $compiled['vacated'] ) && false !== strpos( $compiled['writer_payload']['layout']['raw_shortcodes'], 'nova_theme_toggles' ), 'Required fields never remove their element' );
+$with_omission = $faq_recipe; $with_omission['bindings'] = array_values( array_filter( $faq_recipe['bindings'], static function ( $b ) use ( $row ) { return $b['target'] !== $row( 1 ) . '0/text'; } ) ); $with_omission['omissions'] = [ [ 'target' => $row( 1 ) . '0' ] ];
+$compiled = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $with_omission, [ 'title' => 'W', 'right' => 'R', 'left' => 'L' ], 'vacant-5' ), 'Removed and unfilled elements combine' );
+recipe_assert( false === strpos( $compiled['writer_payload']['layout']['raw_shortcodes'], 'Questions' ) && false === strpos( $compiled['writer_payload']['layout']['raw_shortcodes'], 'nova_theme_toggles' ) && 1 === $compiled['omitted'], 'An explicitly removed heading and unfilled toggles empty the section together' );
+
+// The same rule on other builders' shapes.
+$vacant = static function ( $native, $fields, $empty, $kept ) { return Nova_Bridge_Suite_Recipe_Engine::vacant_elements( $native, $fields, $empty, $kept ); };
+$gb = [ 'document' => [
+    [ 'blockName' => 'core/group', 'innerBlocks' => [ [ 'blockName' => 'core/heading', 'innerBlocks' => [] ], [ 'blockName' => 'core/spacer', 'innerBlocks' => [] ], [ 'blockName' => 'core/details', 'innerBlocks' => [] ] ] ],
+    [ 'blockName' => 'core/columns', 'innerBlocks' => [ [ 'blockName' => 'core/column', 'innerBlocks' => [ [ 'blockName' => 'core/paragraph', 'innerBlocks' => [] ] ] ], [ 'blockName' => 'core/column', 'innerBlocks' => [ [ 'blockName' => 'core/paragraph', 'innerBlocks' => [] ] ] ] ] ],
+] ];
+$f = static function ( $node ) { return [ 'target' => $node . '/innerHTML', 'node_target' => $node ]; };
+$gb_fields = [ $f( '/document/0/innerBlocks/0' ), $f( '/document/0/innerBlocks/2' ), $f( '/document/1/innerBlocks/0/innerBlocks/0' ), $f( '/document/1/innerBlocks/1/innerBlocks/0' ) ];
+recipe_assert( [ '/document/0' ] === $vacant( $gb, $gb_fields, [ '/document/0/innerBlocks/0/innerHTML', '/document/0/innerBlocks/2/innerHTML' ], [] ), 'A Gutenberg group left with only a spacer is removed whole' );
+recipe_assert( [ '/document/1/innerBlocks/0/innerBlocks/0' ] === $vacant( $gb, $gb_fields, [ '/document/1/innerBlocks/0/innerBlocks/0/innerHTML' ], [ '/document/1/innerBlocks/1/innerBlocks/0/innerHTML' ] ), 'A Gutenberg column keeps its place beside a filled column' );
+recipe_assert( [ '/document/1' ] === $vacant( $gb, $gb_fields, [ '/document/1/innerBlocks/0/innerBlocks/0/innerHTML', '/document/1/innerBlocks/1/innerBlocks/0/innerHTML' ], [] ), 'Columns that are all emptied take their row with them' );
+recipe_assert( [] === $vacant( $gb, $gb_fields, [], [ '/document/0/innerBlocks/0/innerHTML' ] ), 'Nothing is removed when every field is filled' );
+$el = [ 'document' => [ [ 'elType' => 'section', 'elements' => [ [ 'elType' => 'column', 'elements' => [ [ 'elType' => 'widget', 'widgetType' => 'heading', 'elements' => [] ], [ 'elType' => 'widget', 'widgetType' => 'divider', 'elements' => [] ], [ 'elType' => 'widget', 'widgetType' => 'toggle', 'elements' => [] ] ] ] ] ] ] ];
+$w = static function ( $i ) { return [ 'target' => '/document/0/elements/0/elements/' . $i . '/settings/title', 'node_target' => '/document/0/elements/0/elements/' . $i ]; };
+recipe_assert( [ '/document/0' ] === $vacant( $el, [ $w( 0 ), $w( 2 ) ], [ $w( 0 )['target'], $w( 2 )['target'] ], [] ), 'An Elementor section whose only column is emptied is removed' );
+recipe_assert( [ '/document/0/elements/0/elements/2' ] === $vacant( $el, [ $w( 0 ), $w( 2 ) ], [ $w( 2 )['target'] ], [ $w( 0 )['target'] ] ), 'An Elementor widget beside filled content is removed alone' );
+recipe_assert( Nova_Bridge_Suite_Recipe_Engine::blank( '<p> &nbsp; </p>' ) && ! Nova_Bridge_Suite_Recipe_Engine::blank( '<p><img src="x.jpg"></p>' ) && ! Nova_Bridge_Suite_Recipe_Engine::blank( '0' ), 'Blank means no text and no media' );
+
 echo 'WPBakery and Avada layout checks: ' . ( $assertions - $before ) . " passed.\n";

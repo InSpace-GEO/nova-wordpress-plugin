@@ -1,6 +1,7 @@
 <?php
 /** Native SEO storage behind explicitly approved layout fields. */
 defined( 'ABSPATH' ) || exit;
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-wordpress-layout-seo.php';
 
 final class Nova_WordPress_Stored_SEO {
@@ -17,7 +18,7 @@ final class Nova_WordPress_Stored_SEO {
         // authorization callbacks, while the fixed adapter allowlist requires edit_post.
         if ( $id && isset( $definition[$field] ) && function_exists( 'has_filter' ) ) {
             $key = $definition[$field]; $type = get_post_type( $id );
-            if ( ( has_filter( 'auth_post_meta_' . $key ) || has_filter( 'auth_post_meta_' . $key . '_for_' . $type ) ) && ! current_user_can( 'edit_post_meta', $id, $key ) ) { return self::error( 'The publishing user cannot edit the selected SEO field.' ); }
+            if ( ( has_filter( 'auth_post_meta_' . $key ) || has_filter( 'auth_post_meta_' . $key . '_for_' . $type ) ) && ! Nova_WordPress_Meta_Permission::can_edit( 'post', $id, $key ) ) { return self::error( 'The publishing user cannot edit the selected SEO field.' ); }
         }
         if ( 'rank_math' === $provider && is_callable( [ 'RankMath\\Helper', 'has_cap' ] ) && ! \RankMath\Helper::has_cap( 'onpage_snippet' ) ) { return self::error( 'The publishing user cannot edit Rank Math snippets.' ); }
         if ( 'aioseo' === $provider && ! is_callable( [ 'AIOSEO\\Plugin\\Common\\Models\\Post', 'savePost' ] ) ) { return self::error( 'This All in One SEO version does not expose its supported post model.' ); }

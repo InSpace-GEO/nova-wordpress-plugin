@@ -95,6 +95,24 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         }
         return $canonical;
     }
+    /**
+     * The theme decides where an ACF value is printed, so the canvas finds it by its value: the one
+     * element in the main content showing exactly this text, or the one image of this media file.
+     */
+    public static function acf_locator( array $field ): array {
+        $unbound = [ 'strategy' => 'unbound', 'reason' => 'The theme decides where this custom field is rendered. Select its declared field from the inventory.' ];
+        $value = $field['value'] ?? '';
+        if ( ! is_string( $value ) || '' === trim( $value ) ) { return $unbound; }
+        if ( 'image_url' === ( $field['kind'] ?? '' ) ) {
+            return preg_match( '~^https?://~i', $value ) ? [ 'strategy' => 'value_match', 'node_id' => 'acf', 'media' => $value, 'precision' => 'field' ] : $unbound;
+        }
+        if ( ! in_array( $field['kind'] ?? '', [ 'text', 'textarea', 'wysiwyg', 'email', 'title' ], true ) ) { return $unbound; }
+        $text = trim( preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+        $length = function_exists( 'mb_strlen' ) ? mb_strlen( $text ) : strlen( $text );
+        // Very short values repeat across a page; addresses and anchors are attributes, not visible text.
+        if ( $length < 3 || $length > 20000 || preg_match( '~^(?:https?://|/|#|mailto:|tel:)\S*$~i', $text ) ) { return $unbound; }
+        return [ 'strategy' => 'value_match', 'node_id' => 'acf', 'text' => $text, 'precision' => 'wysiwyg' === ( $field['kind'] ?? '' ) ? 'region' : 'field' ];
+    }
     public static function enrich( array $design, array $resource, int $id = 0, ?array $saved_source = null, string $saved_receipt = '' ): array {
         $builder = $design['builder']; $fields = []; $preview = []; $containers = [];
         $shortcodes = in_array( $builder, [ 'wpbakery', 'avada', 'divi4' ], true ) && is_array( $design['blueprint']['document'] ?? null );
@@ -123,7 +141,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 elseif ( 'product_cat' === ( $resource['taxonomy'] ?? '' ) && 'content_below_products' === ( $field['custom_field_key'] ?? '' ) && ! empty( $field['writable'] ) ) { $locator = [ 'strategy' => 'core', 'control_path' => [ 'bottom_content' ], 'precision' => 'region' ]; }
                 else { $locator = [ 'strategy' => 'unbound', 'reason' => 'This field has no independent element on the source page.' ]; }
             }
-            if ( 'acf' === $builder ) { $locator = [ 'strategy' => 'unbound', 'reason' => 'The theme decides where this custom field is rendered. Select its declared field from the inventory.' ]; }
+            if ( 'acf' === $builder ) { $locator = self::acf_locator( $field ); }
             if ( $shortcodes && is_string( $field['node_target'] ?? null ) && 0 === strpos( $field['node_target'], '/document/' ) ) {
                 $marker = Nova_Bridge_Suite_Shortcode_Preview::marker( $field['node_target'], $shortcode_hash );
                 $locator = [ 'strategy' => 'shortcode', 'marker' => $marker, 'node_id' => $marker, 'kind' => (string) ( $field['kind'] ?? '' ), 'element_type' => $locator['element_type'], 'control_path' => $locator['control_path'], 'precision' => 'element' ];

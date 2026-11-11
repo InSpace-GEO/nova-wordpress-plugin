@@ -1,6 +1,7 @@
 <?php
 /** Local endpoint creation templates and read-only document inspection. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Endpoint_Mappings {
@@ -88,7 +89,7 @@ final class Nova_Bridge_Suite_Endpoint_Mappings {
     private static function can_meta( array $target, string $path ) {
         if ( ! preg_match( '~^/meta/([^/]+)(?:/|$)~', $path, $match ) || empty( $target['reference_id'] ) ) { return true; }
         $key = str_replace( [ '~1', '~0' ], [ '/', '~' ], $match[1] );
-        if ( ! current_user_can( 'term' === ( $target['reference_type'] ?? '' ) ? 'edit_term_meta' : 'edit_post_meta', $target['reference_id'], $key ) ) { return self::error( 'meta_forbidden', 'A selected metadata field cannot be edited by your account.', 403 ); }
+        if ( ! Nova_WordPress_Meta_Permission::can_edit( 'term' === ( $target['reference_type'] ?? '' ) ? 'term' : 'post', $target['reference_id'], $key ) ) { return self::error( 'meta_forbidden', 'A selected metadata field cannot be edited by your account.', 403 ); }
         return true;
     }
 

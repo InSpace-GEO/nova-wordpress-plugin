@@ -93,6 +93,19 @@ check( $acf_reads === $before_reads, 'ACF values were read before post metadata 
 $denied_caps = [ 'edit_term_meta' ];
 rejected( Nova_Bridge_Suite_Recipe_ACF::design( '', 31, '', 'product_cat' ), 403, 'Metadata-denied term values were inspected.' );
 check( $acf_reads === $before_reads, 'ACF values were read before term metadata permission checks.' ); $denied_caps = [];
+// WordPress denies ACF's protected _name reference keys to administrators too; only the
+// editorial field itself decides whether an example can be inspected.
+$wordpress_meta_caps = true;
+$protected = Nova_Bridge_Suite_Recipe_ACF::design( 'page', 11 );
+check( ! is_wp_error( $protected ) && $protected['blueprint']['document']['matrix'][0]['acf_fc_layout'] === '2faq', 'An administrator could not capture an ACF example because WordPress protects its _name reference keys.' );
+$protected_term = Nova_Bridge_Suite_Recipe_ACF::design( '', 31, '', 'product_cat' );
+check( ! is_wp_error( $protected_term ), 'An administrator could not capture an ACF term example because WordPress protects its _name reference keys.' );
+$before_reads = $acf_reads; $denied_meta_keys = [ 'matrix' ];
+rejected( Nova_Bridge_Suite_Recipe_ACF::design( 'page', 11 ), 403, 'A denied editorial ACF field was inspected.' );
+$named = Nova_Bridge_Suite_Recipe_ACF::design( 'page', 11 );
+check( is_wp_error( $named ) && false !== strpos( $named->get_error_message(), 'WordPress refuses the field "matrix"' ), 'The refusal did not name the refused ACF field.' );
+check( $acf_reads === $before_reads, 'ACF values were read before the editorial field permission check.' );
+$denied_meta_keys = []; $wordpress_meta_caps = false;
 $term_design = design( 'acf', 'rules', 'taxonomy:product_cat' );
 $term_result = acf_checked_compile( $term_design );
 check( $term_design['blueprint']['taxonomy'] === 'product_cat' && $term_result['native_document']['high'][0]['score'] === 10.0, 'Source-free taxonomy fields did not use their installed typed schema.' );

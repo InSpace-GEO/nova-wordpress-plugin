@@ -41,7 +41,8 @@ class Contract_Test_Store {
 class Contract_Test_Writer {
     public static $apply = 0; public static $recover = 0; public static $finish = 0; public static $crash = false; public static $plan_error = false; public static $apply_error = null; public static $verify_error = null; public static $recover_value = null; public static $status = 'publish'; public static $context;
     public static function reset() { self::$apply = self::$recover = self::$finish = 0; self::$crash = self::$plan_error = false; self::$apply_error = self::$verify_error = self::$recover_value = null; self::$status = 'publish'; }
-    public static function plan( $snapshot, $config, $context ) { self::$context = $context; return self::$plan_error ? new WP_Error( 'fixture_plan_failed' ) : [ 'context' => $context ]; }
+    public static function plan( $snapshot, $config, $context ) { self::$context = $context; return self::$plan_error ? new WP_Error( 'fixture_plan_failed', "The <b>native</b>
+ permalink   check failed." ) : [ 'context' => $context ]; }
     public static function result( $plan ) { return [ 'post_id' => $plan['context']['target_post_id'], 'cms_post_status' => self::$status ]; }
     public static function apply( $plan, $operation ) { ++self::$apply; if ( self::$crash ) { throw new RuntimeException( 'Process lost after commit' ); } return self::$apply_error ?? self::result( $plan ); }
     public static function recover( $plan, $operation ) { ++self::$recover; return self::$recover_value ?? self::result( $plan ); }
@@ -162,6 +163,7 @@ delivery_check( 'complete' === $result['state'] && 1 === Contract_Test_Writer::$
 [ $job, $store, $server, $worker ] = delivery_fixture(); Contract_Test_Writer::$plan_error = true;
 $result = $worker->process( $job );
 delivery_check( 'complete' === $result['state'] && 0 === Contract_Test_Writer::$apply && json_decode( $server->posts[1], true )['kind'] === 'publication_failed', 'Proven pre-write failure is reported separately from receipt.' );
+delivery_check( 'The native permalink check failed.' === ( $result['payload']['failure_message'] ?? null ) && ! array_key_exists( 'message', json_decode( $server->posts[1], true ) ), 'A pre-write failure keeps its WordPress message locally without changing the event.' );
 $failed = $result; $failed['phase'] = 'attempt_check'; $server->attempt = '00000000-0000-4000-8000-000000000099'; Contract_Test_Writer::$plan_error = false;
 $result = $worker->process( delivery_resume( $failed ) );
 delivery_check( 'complete' === $result['state'] && 1 === Contract_Test_Writer::$apply && count( $result['payload']['prior_attempts'] ) === 1, 'Operator-issued new attempt proceeds only after retained no-native-write proof.' );

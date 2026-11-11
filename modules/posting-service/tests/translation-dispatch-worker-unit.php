@@ -84,7 +84,7 @@ delivery_check( 'complete' === $done['state'] && isset( $done['payload']['events
 
 // A TranslatePress page shares the original post: the URL report must be the localized URL.
 $GLOBALS['fixture_permalink'] = 'https://en.fixture.invalid/site/article/';
-$report = new ReflectionMethod( 'Nova_Bridge_Suite_Posting_Worker', 'publication_report' ); $report->setAccessible( true );
+$report = new ReflectionMethod( 'Nova_Bridge_Suite_Posting_Worker', 'publication_report' ); if ( PHP_VERSION_ID < 80100 ) { $report->setAccessible( true ); }
 $verified = [ 'post_id' => 77, 'cms_post_status' => 'publish' ];
 $localized = $report->invoke( null, $snapshot, $verified, false, 'dictionary_translation', [ 'provider' => [ 'provider' => 'translatepress', 'language' => 'fr_FR' ] ] );
 delivery_check( is_array( $localized ) && 0 === strpos( $localized['url'], 'https://fr.fixture.invalid/site/article' ) && 'fr-FR' === $localized['language'], 'A dictionary translation reports its localized URL, not the original permalink.' );

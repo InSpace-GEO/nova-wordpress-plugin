@@ -33,7 +33,8 @@
 	function prepareStaticLayout( win, document ) {
 		if ( ! win.getComputedStyle ) { return 0; }
 		var changed = 0, excluded = 'nav,header,footer,[role="navigation"],[role="dialog"],[hidden],[aria-hidden="true"]';
-		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content' ).forEach( function ( main ) {
+		// Divi Theme Builder templates render the post inside #main-content without a main, article or .entry-content.
+		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content,#main-content,.et-l--body' ).forEach( function ( main ) {
 			if ( main.closest( excluded ) ) { return; }
 			for ( var ancestor = main; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement ) {
 				var ancestorStyle = win.getComputedStyle( ancestor );
@@ -157,9 +158,55 @@
 		}
 		return null;
 	}
+	// Breadcrumbs repeat the page heading. Exclude their lists and items only: themes sometimes leave a
+	// breadcrumb wrapper unclosed, so the browser nests the whole page inside it.
+	var outsideContent = 'nav,header,footer,form,[role="navigation"],[role="banner"],[role="contentinfo"],[hidden],[aria-hidden="true"],ol[class*="breadcrumb"],ul[class*="breadcrumb"],li[class*="breadcrumb"],span[class*="breadcrumb"],a[class*="breadcrumb"],p[id*="breadcrumb"]';
+	// Compare what a reader sees: WordPress filters may add line breaks between blocks and curl quotes and dashes.
+	function normalizeText( text ) {
+		return String( text || '' ).replace( /[\u2018\u2019\u201a\u201b\u2032]/g, "'" ).replace( /[\u201c\u201d\u201e\u201f\u2033]/g, '"' ).replace( /[\u2013\u2014]/g, '-' ).replace( /\u2026/g, '...' ).replace( /[\s\u200b]+/g, '' );
+	}
+	// The same media file in any generated size: "photo-1024x683.jpg", "photo-scaled.jpg" and "photo.jpg" match.
+	function mediaStem( value ) {
+		var path; try { path = new URL( String( value || '' ).trim(), 'https://media.invalid/' ).pathname; } catch ( error ) { return ''; }
+		var name = decodeURIComponent( path.split( '/' ).pop() || '' ).toLowerCase(), stem = name.replace( /\.(?:jpe?g|png|gif|webp|avif|svg)$/, '' );
+		if ( stem === name ) { return ''; }
+		return stem.replace( /-\d+x\d+$/, '' ).replace( /-(?:scaled|rotated)$/, '' ).replace( /-e\d{10,}$/, '' );
+	}
+	function contentRoots( document ) {
+		var roots = Array.from( document.querySelectorAll( 'main,[role="main"]' ) ).filter( function ( root ) { return ! root.closest( outsideContent ); } );
+		roots = roots.filter( function ( root ) { return ! roots.some( function ( other ) { return other !== root && other.contains( root ); } ); } );
+		return roots.length ? roots : document.body ? [ document.body ] : [];
+	}
+	// ACF values are printed by the theme: accept exactly one element showing the value, never a guess among copies.
+	function valueMatch( document, locator ) {
+		var roots = contentRoots( document ), matches = [];
+		if ( typeof locator.media === 'string' ) {
+			var stem = mediaStem( locator.media ); if ( ! stem ) { return null; }
+			roots.forEach( function ( root ) {
+				root.querySelectorAll( 'img,[style*="background-image"]' ).forEach( function ( node ) {
+					if ( node.closest( outsideContent ) || matches.includes( node ) ) { return; }
+					var sources = node.tagName === 'IMG' ? [ node.getAttribute( 'src' ) ].concat( String( node.getAttribute( 'srcset' ) || '' ).split( ',' ).map( function ( entry ) { return entry.trim().split( /\s+/ )[0]; } ) ) : [ ( /url\(\s*(['"]?)(.*?)\1\s*\)/.exec( node.getAttribute( 'style' ) || '' ) || [] )[2] ];
+					if ( sources.some( function ( source ) { return source && mediaStem( source ) === stem; } ) ) { matches.push( node ); }
+				} );
+			} );
+		} else {
+			var expected = normalizeText( locator.text ); if ( expected.length < 3 ) { return null; }
+			roots.forEach( function ( root ) {
+				root.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,li,a,button,span,strong,em,b,i,small,blockquote,figcaption,label,dt,dd,td,th,div,section,article,aside' ).forEach( function ( node ) {
+					if ( ! node.closest( outsideContent ) && ! matches.includes( node ) && normalizeText( node.textContent ) === expected ) { matches.push( node ); }
+				} );
+			} );
+			// Wrappers repeat their only child's text; keep the innermost element.
+			matches = matches.filter( function ( node ) { return ! matches.some( function ( other ) { return other !== node && node.contains( other ); } ); } );
+		}
+		// Responsive themes print hidden copies for other screen sizes; only a shown element counts.
+		var view = document.defaultView; if ( view && view.getComputedStyle ) { matches = matches.filter( function ( node ) { return visible( node, view ); } ); }
+		return matches.length === 1 ? { node: matches[0], owner: matches[0], precision: locator.precision === 'region' ? 'region' : 'field' } : null;
+	}
 	function locate( document, item, config, htmlTargets ) {
 		var locator = item && item.locator; if ( ! locator || locator.reference_id !== config.referenceId ) { return null; }
 		if ( locator.strategy === 'custom_html' ) { return htmlTargets && htmlTargets.get( locator.marker ) || null; }
+		if ( locator.strategy === 'value_match' ) { return valueMatch( document, locator ); }
 		var strategy = locator.strategy, id = String( locator.node_id || '' ), control = controlPath( locator ), owner, selector;
 		if ( strategy === 'elementor' ) {
 			if ( ! safeId.test( id ) ) { return null; }
@@ -198,10 +245,14 @@
 			return { node: owner, owner: owner, precision: 'widget' };
 		} else if ( strategy === 'core' ) {
 			selector = { title: '.entry-title', content: '.entry-content', name: '.woocommerce-products-header__title', description: '.term-description', bottom_content: '.wc-content-below-products', excerpt: '.wp-block-post-excerpt,.entry-summary,.post-excerpt', featured_image: '.wp-block-post-featured-image img,img.wp-post-image' }[ control ];
-			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
+			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); }
+			// Theme-builder templates print the post body through their own post-content module (Divi, Elementor Pro, Beaver Themer).
+			if ( ! owner && control === 'content' ) { owner = unique( document, '.et_pb_post_content' ) || unique( document, '.elementor-widget-theme-post-content' ) || unique( document, '.fl-module-fl-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
 			// Themes and builders print the title in their own markup; accept exactly one visible H1 with the same text.
+			// WordPress prints the stored title with entities decoded and quotes and dashes curled.
 			if ( ! owner && control === 'title' && item.current_value && item.current_value.trim() ) {
-				var normalize = function ( text ) { return String( text || '' ).replace( /\s+/g, ' ' ).trim(); }, expected = normalize( item.current_value ), headings = Array.from( document.querySelectorAll( 'h1' ) ).filter( function ( heading ) { return normalize( heading.textContent ) === expected && ! heading.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"],[hidden],[aria-hidden="true"]' ); } );
+				var named = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' }, decoded = String( item.current_value ).replace( /&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|(amp|quot|apos|lt|gt|nbsp));/gi, function ( entity, dec, hex, name ) { var code = dec ? parseInt( dec, 10 ) : hex ? parseInt( hex, 16 ) : 0; return name ? named[ name.toLowerCase() ] : code > 0 && code <= 0x10ffff ? String.fromCodePoint( code ) : entity; } );
+				var expected = normalizeText( decoded ), headings = expected ? Array.from( document.querySelectorAll( 'h1' ) ).filter( function ( heading ) { return normalizeText( heading.textContent ) === expected && ! heading.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"],[hidden],[aria-hidden="true"]' ); } ) : [];
 				owner = headings.length === 1 ? headings[0] : null;
 			} if ( ! owner || owner.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"]' ) ) { return null; }
 			if ( control === 'bottom_content' && ( config.referenceType !== 'term' || ! owner.closest( 'main,[role="main"],.woocommerce,.content,.site-content' ) ) ) { return null; }
