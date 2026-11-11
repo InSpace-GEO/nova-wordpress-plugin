@@ -1,5 +1,13 @@
 # Release verification
 
+## 1.2.11 candidate (local and staging WordPress)
+
+All 131 local suites passed. A new suite models ACF's post_template location rule with WordPress's own meta semantics (post 0 has no template, an existing post without one has ''): a group shown on "Default template" pages applies to the default-template example and to a new page, and named templates still choose their own group for both. The 1.2.10 code fails it.
+
+On staging, as an administrator with read-only calls, a local field group (never saved) was shown on "Default template" pages. With 1.2.10 the example page had its flexible content field, a new page had none, and capture failed with "The example and new-item ACF schemas differ", as reported on a client site. With 1.2.11 both had the field and capture succeeded. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: a live delivery creating a page with these fields.
+
 ## 1.2.10 candidate (local and staging WordPress)
 
 All 130 local suites passed. A new suite runs the shared meta permission check through WordPress's own hook API with ACF 6.8.11's Custom Fields guard modelled: ACF top-level and row keys are allowed where only that guard refuses them, the guard is restored afterwards at its priority, protected reference keys stay refused, another plugin's refusal still applies, term meta is unchanged, and nothing is added when ACF's guard is absent.
