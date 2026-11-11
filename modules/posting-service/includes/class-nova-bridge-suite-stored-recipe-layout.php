@@ -220,7 +220,11 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 $fields = array_values( self::inventory( $layout['builder'], $layout['blueprint'], $layout['resource_id'] ) );
                 $removed = Nova_Bridge_Suite_Recipe_Engine::vacant_elements( $layout['blueprint'], $fields, $vacant, $kept, $removed );
             }
-            if ( $removed ) { $blueprint = Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $removed, $adapter ); }
+            if ( $vacant && 'acf' === $layout['builder'] && method_exists( $adapter, 'vacant_rows' ) ) {
+                // Repeater and flexible-content rows play the part of elements, within ACF's row minimums.
+                $removed = $adapter::vacant_rows( $blueprint, $vacant, $kept, $removed );
+            }
+            if ( $removed ) { $blueprint = Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $removed, $adapter ); $media = Nova_Bridge_Suite_Recipe_Engine::shift_pointers( $media, $removed ); }
             $compiled = self::checked( $adapter->finalize( $blueprint, 'stored-layout:' . $seed, [ 'recipe' => [ 'blueprint' => $layout['blueprint'] ] ] ) );
             if ( ! is_array( $compiled['writer_payload'] ?? null ) ) { self::fail( 'The builder did not produce a complete native payload.' ); }
             if ( $media ) { $compiled['writer_payload']['nova_media'] = $media; }
