@@ -1,6 +1,7 @@
 <?php
 /** Companion fields are local schema bindings, never arbitrary keys supplied by a delivery. */
 defined( 'ABSPATH' ) || exit;
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 require_once __DIR__ . '/class-nova-wordpress-stored-seo.php';
 
 final class Nova_Bridge_Suite_Stored_Custom_Fields {
@@ -37,7 +38,7 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
                 }
                 $input[$name] = $binding['input'] ?? $binding['value'];
             }
-            if ( $id && ! current_user_can( 'edit_post_meta', $id, $name ) ) { return self::error( 'The publishing user cannot access the mapped field: ' . $name ); }
+            if ( $id && ! Nova_WordPress_Meta_Permission::can_edit( 'post', $id, $name ) ) { return self::error( 'The publishing user cannot access the mapped field: ' . $name ); }
             if ( $writing ) {
                 $conflict = self::sync_conflict( $name, $field, $id );
                 if ( $conflict ) { return self::error( $conflict ); }

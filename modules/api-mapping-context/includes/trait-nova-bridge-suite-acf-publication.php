@@ -1,6 +1,7 @@
 <?php
 /** Publish a captured ACF document to the item reserved by the existing delivery journal. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 
 trait Nova_Bridge_Suite_ACF_Publication {
     public function publication_support( string $type ): array {
@@ -21,7 +22,7 @@ trait Nova_Bridge_Suite_ACF_Publication {
         $schema = self::catalog( $type, $id, $blueprint['template'] ?? '' );
         if ( Nova_Bridge_Suite_Recipe_Engine::digest( $schema ) !== $blueprint['schema_hash'] ) { return self::error( 'The target item has a different ACF field schema from the saved layout.' ); }
         foreach ( $schema as $name => $field ) {
-            if ( $id && ! current_user_can( 'edit_post_meta', $id, $name ) ) { return self::error( 'The publishing user cannot edit the captured ACF field: ' . $name, 403 ); }
+            if ( $id && ! Nova_WordPress_Meta_Permission::can_edit( 'post', $id, $name ) ) { return self::error( 'The publishing user cannot edit the captured ACF field: ' . $name, 403 ); }
         }
         $bounds = self::validate_constraints( array_values( $schema ), $blueprint['document'], '/document', 0, self::conditions( self::native_schema( $blueprint, $id ) ) ); if ( is_wp_error( $bounds ) ) { return $bounds; }
         return Nova_Bridge_Suite_Content_Transport::validate_named_acf( $blueprint['document'], self::native_schema( $blueprint, $id ) );

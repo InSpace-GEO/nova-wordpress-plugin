@@ -1,5 +1,13 @@
 # Release verification
 
+## 1.2.10 candidate (local and staging WordPress)
+
+All 130 local suites passed. A new suite runs the shared meta permission check through WordPress's own hook API with ACF 6.8.11's Custom Fields guard modelled: ACF top-level and row keys are allowed where only that guard refuses them, the guard is restored afterwards at its priority, protected reference keys stay refused, another plugin's refusal still applies, term meta is unchanged, and nothing is added when ACF's guard is absent.
+
+On staging (ACF Pro 6.8.0.1), ACF 6.8.11's guard was added in memory for one process, as an administrator with read-only calls. With 1.2.9, capture and saved-field verification of a page with ACF group, repeater and flexible content both failed with "WordPress refuses the field ...", as reported on a client site running ACF Pro 6.8.11. With 1.2.10 both succeed, and the guard still refuses WordPress's own custom-field permission afterwards. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: a live delivery writing ACF fields under ACF 6.8.11.
+
 ## 1.2.9 candidate (local and staging WordPress)
 
 All 129 local suites passed. A new suite runs the refusal explanation against WordPress's own hook and meta API: a field refused without its own filter is named with "a capability filter on this site"; a field auth filter is named and attributed to the plugin folder it was loaded from; a filter outside plugins and themes is not attributed; a field a plugin marks as protected is explained as such; plugins hooked into capability filters are listed as candidates, not as the cause. The ACF recipe suite checks that the 403 message names the refused field.

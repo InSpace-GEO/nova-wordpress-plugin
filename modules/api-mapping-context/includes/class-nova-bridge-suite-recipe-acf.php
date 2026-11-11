@@ -1,6 +1,7 @@
 <?php
 /** Schema-owned nested ACF/SCF recipes. No field definitions are created here. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 require_once __DIR__ . '/trait-nova-bridge-suite-acf-publication.php';
 
 final class Nova_Bridge_Suite_Recipe_ACF {
@@ -95,7 +96,7 @@ final class Nova_Bridge_Suite_Recipe_ACF {
             else { $post = get_post( $post_id ); if ( ! $post || $post->post_type !== $post_type || ! current_user_can( 'edit_post', $post_id ) ) { return self::error( 'The custom-field example cannot be edited by this account.', 403 ); } $object_id = $post_id; }
             // ACF owns its protected _name reference keys, and WordPress denies them to every
             // role. Authorize the declared editorial field, just like Content_Transport::write_fields().
-            foreach ( array_keys( $schema ) as $name ) { if ( ! current_user_can( $taxonomy ? 'edit_term_meta' : 'edit_post_meta', $post_id, $name ) ) { return self::error( 'You cannot inspect the complete metadata for this custom-field example. ' . Nova_Bridge_Suite_Content_Transport::meta_denial( $taxonomy ? 'term' : 'post', $post_id, $name ), 403 ); } }
+            foreach ( array_keys( $schema ) as $name ) { if ( ! Nova_WordPress_Meta_Permission::can_edit( $taxonomy ? 'term' : 'post', $post_id, $name ) ) { return self::error( 'You cannot inspect the complete metadata for this custom-field example. ' . Nova_Bridge_Suite_Content_Transport::meta_denial( $taxonomy ? 'term' : 'post', $post_id, $name ), 403 ); } }
             $read = Nova_Bridge_Suite_Content_Transport::read_named_acf( $schema, $object_id );
             foreach ( $schema as $name => $field ) { if ( array_key_exists( $name, $read ) ) { $document[$name] = $fixed ? $read[$name] : self::fill_prototypes( $read[$name], $field ); } }
         }
@@ -474,7 +475,7 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         if ( ! $schema ) { return self::error( 'The saved destination no longer exposes its declared ACF schema.' ); }
         $native = $taxonomy ? Nova_Bridge_Suite_Content_Transport::acf_schema_for_screen( [ 'taxonomy' => $taxonomy, 'post_id' => $object_id ] ) : Nova_Bridge_Suite_Content_Transport::field_catalog( $post->post_type, $post_id, $template )['acf'];
         $bounds = self::validate_constraints( array_values( $schema ), $input['acf'], '/document', 0, self::conditions( $native ) ); if ( is_wp_error( $bounds ) ) { return $bounds; }
-        foreach ( array_keys( $input['acf'] ) as $name ) { if ( ! current_user_can( $taxonomy ? 'edit_term_meta' : 'edit_post_meta', $post_id, $name ) ) { return self::error( 'You cannot inspect this saved custom-field metadata. ' . Nova_Bridge_Suite_Content_Transport::meta_denial( $taxonomy ? 'term' : 'post', $post_id, $name ), 403 ); } }
+        foreach ( array_keys( $input['acf'] ) as $name ) { if ( ! Nova_WordPress_Meta_Permission::can_edit( $taxonomy ? 'term' : 'post', $post_id, $name ) ) { return self::error( 'You cannot inspect this saved custom-field metadata. ' . Nova_Bridge_Suite_Content_Transport::meta_denial( $taxonomy ? 'term' : 'post', $post_id, $name ), 403 ); } }
         $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $input['acf'], $schema ); if ( is_wp_error( $checked ) ) { return $checked; }
         return Nova_Bridge_Suite_Content_Transport::verify_named_acf( $checked, $object_id );
     }
