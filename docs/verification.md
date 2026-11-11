@@ -1,5 +1,13 @@
 # Release verification
 
+## 1.2.14 candidate (local and staging WordPress)
+
+131 of 132 local suites passed against a WordPress 7.1.4 core fixture, the same as 1.2.13 (the localized custom fields suite fails on both). The ACF publication suite now checks that an optional select left empty passes the publication probe and that an unknown choice is still refused with the value and the allowed choices named.
+
+On staging (ACF Pro 6.8.11, a text block whose heading-level select has choices h1/h2, not required and without allow null), as an administrator through the stored-layout writer's plan() and apply(): with 1.2.13 a page delivery that maps the heading level and leaves it empty stopped with "acf.content.2.h_type contains an unknown choice", as on a client site; with 1.2.14 the page was published. A dated post still published. Test items were force-deleted.
+
+Not covered: a live NOVA delivery.
+
 ## 1.2.13 candidate (local and staging WordPress)
 
 131 of 132 local suites passed against a WordPress 7.1.4 core fixture; the remaining suite (localized custom fields) fails the same way on 1.2.12. New checks cover dated post planning at the delivery slug, the stored-layout opt-in (other writers still refuse dated post routes), slug, date, host and post type mismatches, a %category% structure still being refused, and the kept failure message (tags stripped, the publication_failed event unchanged).

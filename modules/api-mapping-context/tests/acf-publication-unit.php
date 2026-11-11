@@ -55,6 +55,10 @@ $payload['meta_all']['acf']['components'][0]['columns'][0]['body'] = '<p>Deliver
 $payload['meta_all']['acf']['components'][1]['columns'][0]['body'] = '<p>Delivered continuation.</p>';
 check( $provider->publication_support( 'page' )['supported'] && ! $provider->publication_support( 'product' )['supported'], 'Normal post scope must not include commerce/system resources.' );
 check( ! is_wp_error( $provider->publication_probe( 'page', $payload, 'publish' ) ), 'Complete fixed ACF payload must pass the publication probe.' );
+$optional = $payload; $optional['meta_all']['acf']['components'][0]['theme'] = '';
+check( ! is_wp_error( $provider->publication_probe( 'page', $optional, 'publish' ) ), 'An optional select a delivery leaves empty is saved empty, as ACF allows.' );
+$unknown = $payload; $unknown['meta_all']['acf']['components'][0]['theme'] = 'blue'; $refused = $provider->publication_probe( 'page', $unknown, 'publish' );
+check( is_wp_error( $refused ) && false !== strpos( $refused->get_error_message(), 'unknown choice: "blue"' ) && false !== strpos( $refused->get_error_message(), 'Allowed: light, dark' ), 'An unknown choice is still refused and names the value and the allowed choices.' );
 $id = wp_insert_post( [ 'post_type' => 'page', 'post_title' => 'Reserved', 'post_content' => '', 'post_status' => 'draft' ], true );
 unset( $posts[11], $acf_values[11] );
 $saved = $provider->publication_apply( $id, $payload, [ 'title' => 'Delivered page', 'excerpt' => 'Summary' ] );
