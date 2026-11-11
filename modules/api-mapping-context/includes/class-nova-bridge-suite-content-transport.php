@@ -410,7 +410,15 @@ final class Nova_Bridge_Suite_Content_Transport {
 			$multiple = 'checkbox' === $type || ! empty( $field['multiple'] );
 			$choices = $multiple ? $value : [ $value ];
 			if ( ! is_array( $choices ) ) { return self::error( $path . ' requires a list of choices.' ); }
-			foreach ( $choices as $choice ) { if ( ! is_scalar( $choice ) || ( ! array_key_exists( $choice, (array) ( $field['choices'] ?? [] ) ) && ! ( '' === $choice && ! empty( $field['allow_null'] ) ) ) ) { return self::error( $path . ' contains an unknown choice.' ); } }
+			// Like ACF, an optional field may be saved empty (e.g. a mapped setting a delivery leaves blank); "allow null" only adds a visible empty option.
+			$empty_allowed = ! empty( $field['allow_null'] ) || empty( $field['required'] );
+			foreach ( $choices as $choice ) {
+				if ( ! is_scalar( $choice ) || ( ! array_key_exists( $choice, (array) ( $field['choices'] ?? [] ) ) && ! ( '' === $choice && $empty_allowed ) ) ) {
+					$known = array_slice( array_map( 'strval', array_keys( (array) ( $field['choices'] ?? [] ) ) ), 0, 20 );
+					$shown = is_scalar( $choice ) ? '"' . substr( (string) $choice, 0, 60 ) . '"' : 'a non-scalar value';
+					return self::error( $path . ' contains an unknown choice: ' . $shown . ( '' === $choice ? ' (the field is required)' : '' ) . '. Allowed: ' . ( $known ? implode( ', ', $known ) : 'none' ) . '.' );
+				}
+			}
 			return $value;
 		}
 		if ( in_array( $type, [ 'link', 'google_map' ], true ) ) {

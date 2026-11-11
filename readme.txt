@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.13
+Stable tag: 1.2.14
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.14 =
+* Fixed ACF/SCF layouts: an optional select, radio or button-group field that a delivery leaves empty (for example a heading-level setting the content does not fill) stopped the page with "... contains an unknown choice". It is now saved empty, as ACF itself allows for a field that is not required. A required field still needs one of its choices, and an unknown choice is still refused; that message now names the value and the allowed choices.
 
 = 1.2.13 =
 * Fixed posts on sites whose post permalinks contain the date (for example /%year%/%monthnum%/%day%/%postname%/): a delivery mapped to WordPress posts stopped before writing with "This native permalink structure needs an explicit certified creation adapter". The post is now created with the delivery's slug, WordPress gives it its dated link, and that link is accepted as the delivery URL and reported back. A post that already uses the slug stops the delivery instead of being duplicated. Pages, custom post types, categories and sites without dated post links are unchanged.
