@@ -172,6 +172,9 @@ final class Nova_Bridge_Suite_Content_Transport {
 	private static function acf_fields( string $post_type, int $post_id, string $template, array &$claimed = [] ): array {
 		$screen = [ 'post_type' => $post_type, 'post_id' => $post_id ];
 		if ( '' !== $template ) { $screen['page_template'] = $template; $screen['post_template'] = $template; }
+		// A new item has no stored template yet. ACF reads post 0's template as false, not '', so its
+		// "Default template" rule would not match; name the default WordPress gives a new item.
+		elseif ( 0 === $post_id ) { $screen['page_template'] = 'default'; $screen['post_template'] = 'default'; }
         return self::acf_schema_for_screen( $screen, $claimed );
     }
 

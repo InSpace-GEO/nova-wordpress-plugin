@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.2.10
+Stable tag: 1.2.11
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.2.11 =
+* Custom fields: ACF/SCF field groups shown on pages with the "Default template" now also apply to new pages. ACF reads the template of a not-yet-created item as missing rather than empty, so its default-template rule did not match, and capturing a page as an example stopped with "The example and new-item ACF schemas differ". A new item is now matched with the default template WordPress gives it; named templates are unchanged.
 
 = 1.2.10 =
 * Custom fields: works with ACF 6.8.11 and later. That release refuses WordPress's custom-field permission on every key that stores an ACF field, for every user, so WordPress's own Custom Fields box cannot bypass ACF. NOVA asked exactly that permission before reading or writing ACF fields, so capturing an ACF example failed with "WordPress refuses the field ..." and ACF values in deliveries were refused. NOVA now checks the same permission with only that ACF guard set aside, as ACF does for its own saves. Field permission filters, protected keys and other plugins' capability rules still apply.
