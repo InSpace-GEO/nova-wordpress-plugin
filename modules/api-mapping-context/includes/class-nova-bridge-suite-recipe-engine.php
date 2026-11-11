@@ -173,6 +173,38 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         }
         return $native;
     }
+    /**
+     * Keep image entries pointing at their own element after earlier siblings were removed: entries are
+     * keyed by, and carry (*_target), pointers into the native document. An entry inside a removed
+     * element is dropped.
+     */
+    public static function shift_pointers( array $entries, array $removed ): array {
+        if ( ! $entries || ! $removed ) { return $entries; }
+        $shift = static function ( string $pointer ) use ( $removed ): ?string {
+            $parts = self::parts( $pointer ); $result = $parts;
+            foreach ( $removed as $target ) {
+                $gone = self::parts( $target ); $depth = count( $gone ) - 1;
+                if ( $depth < 0 || count( $parts ) <= $depth || array_slice( $parts, 0, $depth ) !== array_slice( $gone, 0, $depth ) || ! ctype_digit( (string) $parts[ $depth ] ) ) { continue; }
+                if ( (string) $parts[ $depth ] === (string) $gone[ $depth ] ) { return null; }
+                if ( (int) $parts[ $depth ] > (int) $gone[ $depth ] ) { $result[ $depth ] = (string) ( (int) $result[ $depth ] - 1 ); }
+            }
+            return '/' . implode( '/', array_map( static function ( $part ) { return str_replace( [ '~', '/' ], [ '~0', '~1' ], (string) $part ); }, $result ) );
+        };
+        $out = [];
+        foreach ( $entries as $key => $entry ) {
+            $moved = is_string( $key ) && '' !== $key && '/' === $key[0] ? $shift( $key ) : $key;
+            if ( null === $moved ) { continue; }
+            if ( is_array( $entry ) ) {
+                foreach ( $entry as $name => $value ) {
+                    if ( is_string( $name ) && '_target' === substr( $name, -7 ) && is_string( $value ) && '' !== $value && '/' === $value[0] ) {
+                        $value = $shift( $value ); if ( null === $value ) { continue 2; } $entry[ $name ] = $value;
+                    }
+                }
+            }
+            $out[ $moved ] = $entry;
+        }
+        return $out;
+    }
     /** True when a delivered value shows nothing: no text and no embedded media. */
     public static function blank( $value ): bool {
         if ( null === $value ) { return true; }
@@ -316,7 +348,13 @@ final class Nova_Bridge_Suite_Recipe_Engine {
                 $explicit = $removed; $removed = self::vacant_elements( $recipe['blueprint'], $description['fields'] ?? [], $state['vacant'], $state['kept'] ?? [], $removed );
                 $vacated = count( array_diff( $removed, $explicit ) );
             }
+            if ( ! empty( $state['vacant'] ) && 'static' === $recipe['mode'] && 'acf' === $recipe['builder'] && method_exists( $adapter, 'vacant_rows' ) ) {
+                // Repeater and flexible-content rows play the part of elements, within ACF's row minimums.
+                $explicit = $removed; $removed = $adapter::vacant_rows( $native, $state['vacant'], $state['kept'] ?? [], $removed );
+                $vacated = count( array_diff( $removed, $explicit ) );
+            }
             $native = self::apply_omissions( $native, $removed, $adapter );
+            if ( ! empty( $state['native_media'] ) ) { $state['native_media'] = self::shift_pointers( $state['native_media'], $removed ); }
             $result = self::checked( $adapter->finalize( $native, $seed, [ 'recipe' => $recipe, 'content' => $normalized, 'regions' => $state['regions'] ] ) );
             if ( ! is_array( $result ) || ! isset( $result['native_document'], $result['writer_payload'], $result['preview_html'] ) || ! is_array( $result['writer_payload'] ) || ! is_string( $result['preview_html'] ) ) { self::fail( 'The adapter did not return a complete native document, writer payload and structure preview.' ); }
             if ( ! empty( $state['post_fields'] ) ) { $result['post_fields'] = $state['post_fields']; }

@@ -1,5 +1,20 @@
 # Release verification
 
+## 1.2.12 candidate (local and staging WordPress)
+
+All 132 local suites passed. A new suite checks the ACF row rules directly: a flexible-content row whose mapped optional fields are empty is left out; a row with any filled mapped field stays; a row left with only a style setting once its repeater rows are gone is left out, but one still showing a fixed heading stays (only its emptied rows go); a top-level field takes nothing with it; explicit omissions pass through; a field's min, a required field and a layout's min each keep the rows they need. It also checks that image entries follow their rows when earlier rows go, and compiles a captured fixed ACF layout end to end (an empty first row is removed and counted; one filled field keeps it). The WPBakery/Avada suite now checks that an image import after a removed element still points at its Image Frame; without the re-pointing that check fails, so 1.2.2 to 1.2.11 attached such an image to the wrong position.
+
+On staging (ACF Pro 6.8.0.1), one process per scenario as an administrator: a static ACF layout was captured from a lab page with a group, a 3-row repeater (sections, min 3) with a nested 2-row repeater (bullets, min 2) and a 3-row flexible content field (modules, min 3, layouts feature and proof); 43 fields mapped. Each scenario ran through the preview compiler, the delivery path (saved layout, fitted values, native payload) and the plugin's ACF writer onto a new draft page, read back through ACF, after which the draft was force-deleted. The lab field group was matched to every page in memory, and some scenarios lifted minimums in memory through ACF's load_field filter:
+
+- Real minimums, every module row and section 1's bullets left empty: nothing removed; empty values saved; ACF accepted the save.
+- Modules min 0, the proof row left empty: that row removed; the two feature rows kept their own delivered values and fixed text in order.
+- Sections and bullets min 0, section 1's bullets and all of section 2 left empty: both bullets and section 2 removed (5 rows); section 1 kept with its heading and no bullets; section 3 moved up with its own values.
+- Modules min 0 with the feature layout's min 1, both feature rows left empty: one feature row removed, the other kept empty for the layout minimum.
+
+Preview, delivery payload and saved result matched in every scenario. No test drafts remain. The site, admin and signed delivery endpoint answered as before.
+
+Not covered: images in removed ACF rows on staging (the lab has no ACF image fields; covered by the unit suites), and a live NOVA delivery.
+
 ## 1.2.11 candidate (local and staging WordPress)
 
 All 131 local suites passed. A new suite models ACF's post_template location rule with WordPress's own meta semantics (post 0 has no template, an existing post without one has ''): a group shown on "Default template" pages applies to the default-template example and to a new page, and named templates still choose their own group for both. The 1.2.10 code fails it.

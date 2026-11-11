@@ -157,6 +157,104 @@ final class Nova_Bridge_Suite_Recipe_ACF {
             $fields[] = [ 'target' => $target, 'label' => $title, 'format' => self::format( $field ), 'kind' => $type, 'writable' => $writable, 'protected' => ! $writable, 'value' => $value, 'sample' => $writable ? self::sample_value( $field, $value ) : $value, 'required' => ! empty( $field['required'] ), 'instructions' => $field['instructions'] ?? '', 'choices' => $field['choices'] ?? [], 'constraints' => self::constraints( $field ) ];
         }
     }
+    /**
+     * Repeater and flexible-content rows to leave out of a fixed layout: a row whose mapped fields were
+     * all optional and left empty, then a row left showing nothing once its own rows are gone. A row with
+     * any filled mapped field stays. ACF's row minimums (the field's min, a required field, a layout's
+     * min) are kept: a row that cannot go is published with its empty values instead.
+     *
+     * @param array $native  Blueprint (schema and document) with the delivery's values bound.
+     * @param array $vacant  Targets of optional mapped fields left empty.
+     * @param array $kept    Targets of mapped fields that still show content.
+     * @param array $removed Pointers already removed explicitly.
+     */
+    public static function vacant_rows( array $native, array $vacant, array $kept, array $removed = [] ): array {
+        $lists = []; $rows = []; $leaves = [];
+        $walk = static function ( array $fields, $values, string $path, string $owner, int $depth ) use ( &$walk, &$lists, &$rows, &$leaves ): void {
+            if ( $depth > 12 || ! is_array( $values ) ) { return; }
+            foreach ( $fields as $field ) {
+                if ( ! is_array( $field ) || ! isset( $field['name'], $field['type'] ) ) { continue; }
+                $pointer = $path . '/' . self::escape( (string) $field['name'] ); $value = $values[ $field['name'] ] ?? null;
+                if ( 'group' === $field['type'] ) { $walk( $field['sub_fields'] ?? [], $value, $pointer, $owner, $depth + 1 ); continue; }
+                if ( in_array( $field['type'], [ 'repeater', 'flexible_content' ], true ) ) {
+                    $lists[ $pointer ] = [ 'field' => $field, 'owner' => $owner, 'rows' => [] ];
+                    foreach ( is_array( $value ) ? array_values( $value ) : [] as $index => $row ) {
+                        $children = $field['sub_fields'] ?? []; $layout = '';
+                        if ( 'flexible_content' === $field['type'] ) {
+                            $layout = (string) ( $row['acf_fc_layout'] ?? '' ); $children = [];
+                            foreach ( $field['layouts'] ?? [] as $candidate ) { if ( ( $candidate['name'] ?? null ) === $layout ) { $children = $candidate['sub_fields'] ?? []; break; } }
+                        }
+                        $row_pointer = $pointer . '/' . $index; $lists[ $pointer ]['rows'][ $index ] = $layout;
+                        $rows[ $row_pointer ] = [ 'list' => $pointer, 'layout' => $layout ];
+                        $walk( $children, $row, $row_pointer, $row_pointer, $depth + 1 );
+                    }
+                    continue;
+                }
+                // Settings (choices, toggles, colours, ranges, dates) style a row; on their own they show nothing.
+                if ( ! in_array( $field['type'], [ 'select', 'radio', 'button_group', 'checkbox', 'true_false', 'color_picker', 'range', 'date_picker', 'date_time_picker', 'time_picker' ], true ) ) {
+                    $leaves[ $pointer ] = [ 'owner' => $owner, 'value' => $value ];
+                }
+            }
+        };
+        $walk( array_values( $native['schema'] ?? [] ), $native['document'] ?? [], '/document', '', 0 );
+        $inside = static function ( string $pointer, string $root ): bool { return $pointer === $root || 0 === strpos( $pointer, $root . '/' ); };
+        $gone = array_fill_keys( $removed, true );
+        $is_gone = static function ( string $pointer ) use ( &$gone, $inside ): bool { foreach ( array_keys( $gone ) as $root ) { if ( $inside( $pointer, $root ) ) { return true; } } return false; };
+        // ACF checks these bounds when the fields are saved; never remove a row one of them still needs.
+        $allowed = static function ( string $row ) use ( $rows, $lists, $is_gone ): bool {
+            $list_pointer = $rows[ $row ]['list']; $list = $lists[ $list_pointer ]; $field = $list['field']; $layout = $rows[ $row ]['layout']; $left = 0; $same = 0;
+            foreach ( $list['rows'] as $index => $name ) {
+                $pointer = $list_pointer . '/' . $index;
+                if ( $pointer === $row || $is_gone( $pointer ) ) { continue; }
+                ++$left; if ( $name === $layout ) { ++$same; }
+            }
+            if ( $left < max( (int) ( $field['min'] ?? 0 ), empty( $field['required'] ) ? 0 : 1 ) ) { return false; }
+            if ( 'flexible_content' === $field['type'] ) {
+                foreach ( $field['layouts'] ?? [] as $candidate ) { if ( ( $candidate['name'] ?? null ) === $layout && $same < (int) ( $candidate['min'] ?? 0 ) ) { return false; } }
+            }
+            return true;
+        };
+        $shows = static function ( string $row ) use ( $kept, $vacant, $leaves, $lists, $inside, $is_gone ): bool {
+            foreach ( $kept as $target ) { if ( $inside( $target, $row ) && ! $is_gone( $target ) ) { return true; } }
+            foreach ( $leaves as $pointer => $leaf ) { if ( $leaf['owner'] === $row && ! in_array( $pointer, $vacant, true ) && ! self::blank_leaf( $leaf['value'] ) ) { return true; } }
+            foreach ( $lists as $pointer => $list ) {
+                if ( $list['owner'] !== $row ) { continue; }
+                foreach ( array_keys( $list['rows'] ) as $index ) { if ( ! $is_gone( $pointer . '/' . $index ) ) { return true; } }
+            }
+            return false;
+        };
+        $order = static function ( array $pointers ): array {
+            // Deepest rows first, so an outer row is judged after its own rows; later rows before earlier ones.
+            usort( $pointers, static function ( $a, $b ) { return ( substr_count( $b, '/' ) <=> substr_count( $a, '/' ) ) ?: strnatcmp( $b, $a ); } );
+            return $pointers;
+        };
+        $candidates = [];
+        foreach ( $vacant as $target ) {
+            $best = ''; foreach ( array_keys( $rows ) as $row ) { if ( $inside( $target, $row ) && strlen( $row ) > strlen( $best ) ) { $best = $row; } }
+            if ( '' !== $best ) { $candidates[ $best ] = true; }
+        }
+        foreach ( $order( array_keys( $candidates ) ) as $row ) {
+            foreach ( $kept as $target ) { if ( $inside( $target, $row ) ) { continue 2; } }
+            if ( ! $is_gone( $row ) && $allowed( $row ) ) { $gone[ $row ] = true; }
+        }
+        for ( $round = 0; $round < 64; $round++ ) {
+            $changed = false;
+            foreach ( $order( array_keys( $rows ) ) as $row ) {
+                if ( $is_gone( $row ) ) { continue; }
+                $emptied = false; foreach ( $lists as $list ) { if ( $list['owner'] === $row && $list['rows'] ) { $emptied = true; break; } }
+                if ( ! $emptied || $shows( $row ) || ! $allowed( $row ) ) { continue; }
+                foreach ( array_keys( $gone ) as $pointer ) { if ( $inside( $pointer, $row ) ) { unset( $gone[ $pointer ] ); } }
+                $gone[ $row ] = true; $changed = true;
+            }
+            if ( ! $changed ) { break; }
+        }
+        return array_keys( $gone );
+    }
+    private static function blank_leaf( $value ): bool {
+        if ( null === $value || false === $value || 0 === $value || '0' === $value || [] === $value ) { return true; }
+        if ( is_array( $value ) ) { foreach ( $value as $child ) { if ( ! self::blank_leaf( $child ) ) { return false; } } return true; }
+        return is_string( $value ) ? Nova_Bridge_Suite_Recipe_Engine::blank( $value ) : false;
+    }
     public static function describe( array $blueprint ): array {
         $fields = []; $containers = []; self::walk( array_values( $blueprint['schema'] ?? [] ), $blueprint['document'] ?? [], '/document', '', $fields, $containers, 0, ! empty( $blueprint['fixed_layout'] ) );
         $budget = 0; $suggested = self::suggest( array_values( $blueprint['schema'] ?? [] ), $blueprint['document'] ?? [], '/document', '/acf', $budget );
