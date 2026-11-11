@@ -1,5 +1,21 @@
 # Release verification
 
+## 1.3.0 candidate (local and staging WordPress)
+
+132 of 132 local suites passed against a WordPress 7.1.4 core fixture on PHP 8.5. The plugin's delivery contract matches the ConnectorEventInput and ConnectorPublication schemas of posting-service on dev, staging and production (v0.10.0): extracted from each deployed OpenAPI file, the selected schemas are identical.
+
+On staging (WordPress 7.1.4, Elementor 4.1.4, dated post permalinks /%year%/%monthnum%/%day%/%postname%/), the candidate's own worker, writer selection and stored-layout writer made real WordPress writes with approved Elementor mappings for posts and pages. Only the NOVA posting peer was simulated in the same process: it served each delivery (adaptation.delivery v2) and kept the event bytes; the connection pointed at an .invalid host and every other outbound request was refused (none were attempted). Run once without translation plugins and once with Polylang (TranslatePress left out of that process; with both active every delivery stops with nova_translation_provider_conflict, as before):
+
+- A new post at its undated URL was published at /2026/11/11/<slug>/; publication_succeeded carried url = that dated link, url_status final, intended_url = the undated URL. The undated URL redirects (301) to it.
+- The next version delivered to that reported dated URL updated the same post (before this release: url_changed).
+- A published page with WPBakery body and Beaver Builder enabled, at the delivery's exact URL, was overwritten by the Elementor layout; the WPBakery and Beaver markers were moved to _nova_replaced_builder_meta and the public page rendered only the new content.
+- Another URL record and content item delivering to that page took it over (no new page).
+- All four publication_succeeded events validate against production's ConnectorEventInput schema (checked separately with jsonschema).
+
+Test posts, pages and their journals were removed afterwards. Two of the three Elementor post mappings on staging stop with "A saved document presentation control is no longer registered: hide_title" (unchanged writer code, a staging mapping issue); through the worker that error is reported as native_commit_reconciliation, which hides it.
+
+Not covered: a live NOVA delivery through the deployed posting-service and backend; ACF, Divi and other non-Elementor layouts overwriting another builder on staging (unit tests only).
+
 ## 1.2.14 candidate (local and staging WordPress)
 
 131 of 132 local suites passed against a WordPress 7.1.4 core fixture, the same as 1.2.13 (the localized custom fields suite fails on both). The ACF publication suite now checks that an optional select left empty passes the publication probe and that an unknown choice is still refused with the value and the allowed choices named.
