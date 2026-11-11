@@ -489,7 +489,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
         // The code alone hides which WordPress check failed (e.g. nova_layout_writer_native wraps ~40 of them).
         // Keep the WordPress message locally so the delivery list can show it; the event schema stays unchanged.
         $extra = [ 'native_absence_proof' => $proof, 'failure_code' => $code ];
-        $message = trim( preg_replace( '/\s+/u', ' ', wp_strip_all_tags( $message ) ) );
+        $message = trim( (string) preg_replace( '/\s+/u', ' ', strip_tags( $message ) ) );
         if ( '' !== $message ) { $extra['failure_message'] = function_exists( 'mb_substr' ) ? mb_substr( $message, 0, 500 ) : substr( $message, 0, 500 ); }
         return $this->queue_event( $job, $snapshot, 'publication_failed', [ 'reason' => $code ], 'complete', $extra );
     }

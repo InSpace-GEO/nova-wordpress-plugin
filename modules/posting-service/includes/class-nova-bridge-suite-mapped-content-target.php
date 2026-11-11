@@ -104,7 +104,7 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         return 1 === preg_match( '#^' . preg_quote( $base, '#' ) . $pattern . '$#D', $native['path'] );
     }
     /** Derive native routing from the site's registered permalink structure only. */
-    public static function creation( string $resource, string $url, ?string $language = null, ?array $provider_context = null ) {
+    public static function creation( string $resource, string $url, ?string $language = null, ?array $provider_context = null, bool $dated_posts = false ) {
         $language_home = $provider_context['home'] ?? null;
         $wanted = self::owned_url( $url, $language_home ); if ( is_wp_error( $wanted ) ) { return $wanted; }
         if ( isset( wp_parse_url( $wanted['identity'] )['query'] ) ) { return self::error( 'create_route', 'Creation requires a native pretty permalink without query parameters.' ); }
@@ -115,9 +115,9 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         $token = $term ? '%' . $name . '%' : ( 'page' === $name ? '%pagename%' : '%postname%' );
         if ( $term || ! in_array( $name, [ 'post', 'page' ], true ) ) { $structure = $wp_rewrite->get_extra_permastruct( $name ); if ( ! $term ) { $token = '%' . $name . '%'; } }
         else { $structure = 'page' === $name ? $wp_rewrite->get_page_permastruct() : get_option( 'permalink_structure', '' ); }
-        // A dated post structure is planned at the undated slug URL NOVA delivers; same_native_url() later
-        // accepts the dated permalink WordPress gives that post.
-        $dated = ! $term && 'post' === $name && null !== self::dated_post_structure();
+        // Writers that verify with same_native_url() opt in: a dated post structure is planned at the undated
+        // slug URL NOVA delivers, and the dated permalink WordPress gives that post is accepted afterwards.
+        $dated = $dated_posts && ! $term && 'post' === $name && null !== self::dated_post_structure();
         if ( $dated ) { $structure = '/%postname%/'; }
         if ( ! is_string( $structure ) || substr_count( $structure, $token ) !== 1 || preg_match( '/%[a-zA-Z0-9_]+%/', str_replace( $token, '', $structure ) ) ) { return self::error( 'create_route', 'This native permalink structure needs an explicit certified creation adapter.' ); }
         if ( isset( $provider_context['code'] ) && 'wpml' === $provider_context['provider'] && ! in_array( $name, [ 'post', 'page' ], true ) ) {

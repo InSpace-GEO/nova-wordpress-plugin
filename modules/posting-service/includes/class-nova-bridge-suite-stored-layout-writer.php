@@ -288,12 +288,12 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             if ( isset( $plan['target']['native_language'] ) ) { $url = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::draft_url( $url, $plan['target'] ) ); }
         }
         $actual = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ) );
-        if ( ! Nova_Bridge_Suite_Mapped_Content_Target::same_native_url( $actual['identity'], $plan['target']['target_url'], 'post_type:' . $plan['post_type'] ) ) { self::fail( 'permalink', 'The saved page URL differs from the delivery URL. Its ID was retained; no duplicate will be created.' ); }
+        if ( $actual['identity'] !== $plan['target']['target_url'] && ! Nova_Bridge_Suite_Mapped_Content_Target::same_native_url( $actual['identity'], $plan['target']['target_url'], 'post_type:' . $plan['post_type'] ) ) { self::fail( 'permalink', 'The saved page URL differs from the delivery URL. Its ID was retained; no duplicate will be created.' ); }
     }
     private static function result( array $record ): array {
         $id = (int) $record['post_id']; $url = in_array( $record['plan']['target']['native_language']['provider'] ?? '', [ 'wpml', 'polylang' ], true ) ? $record['plan']['target']['target_url'] : get_permalink( $id );
         // A dated post lives at /<date>/<slug>/, not at the undated delivery URL; report where it really is.
-        if ( 'post' === ( $record['plan']['post_type'] ?? '' ) && null !== Nova_Bridge_Suite_Mapped_Content_Target::dated_post_structure() ) {
+        if ( 'post' === ( $record['plan']['post_type'] ?? '' ) && preg_match( '/%(year|monthnum|day|hour|minute|second)%/', (string) get_option( 'permalink_structure', '' ) ) && null !== Nova_Bridge_Suite_Mapped_Content_Target::dated_post_structure() ) {
             $native = Nova_Bridge_Suite_Mapped_Content_Target::native_url( 'post_type:post', 'post', $id ); if ( is_string( $native ) ) { $url = $native; }
         }
         return [ 'state' => 'complete', 'operation_id' => $record['plan']['operation_id'], 'post_id' => $id, 'cms_post_status' => get_post_status( $id ), 'url' => $url, 'native_digest' => $record['native_digest'] ];
