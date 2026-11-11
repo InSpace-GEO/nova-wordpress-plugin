@@ -221,7 +221,14 @@ final class Nova_Bridge_Suite_Posting_Delivery {
         if ( is_wp_error( $jobs ) ) { return $jobs; }
         $discovery = self::SCHEMA_VERSION === (int) get_option( self::SCHEMA_OPTION, 0 ) ? $store->discovery_state( $connection['site_id'] ?? '' ) : [];
         $public_state = is_wp_error( $discovery ) ? [ 'last_error' => 'discovery_storage' ] : array_intersect_key( $discovery, array_flip( [ 'cycle_started', 'last_completed', 'next_attempt', 'failures', 'last_error', 'suspended', 'auth_status' ] ) );
-        foreach ( $jobs as &$job ) { $job['recovery_action'] = self::recovery_action( (string) ( $job['state'] ?? '' ) ); }
+        foreach ( $jobs as &$job ) {
+            $job['recovery_action'] = self::recovery_action( (string) ( $job['state'] ?? '' ) );
+            // Journal creation is first receipt on this installation, not the last retry/update.
+            $received = (int) ( $job['created_at'] ?? 0 );
+            $job['received_at'] = $received > 0 ? gmdate( 'c', $received ) : '';
+            $job['received_at_label'] = $received > 0 ? wp_date( 'Y-m-d H:i:s T', $received ) : '';
+            if ( ! is_string( $job['intended_url'] ?? null ) || 'null' === $job['intended_url'] ) { $job['intended_url'] = ''; }
+        }
         unset( $job );
         return self::response( [ 'enabled' => ! empty( $connection['enabled'] ), 'paused' => ! empty( $connection['paused'] ), 'next_scheduled' => null, 'jobs' => $jobs, 'discovery' => $public_state, 'last_run' => get_option( self::LAST_RUN_OPTION, null ) ] );
     }

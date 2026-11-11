@@ -231,7 +231,7 @@ $carrier_cases = [
     [ '[vc_row][vc_column][/vc_column][/vc_row]', [ '_breakdance_data' => 'stored native data' ], [ 'wpbakery', 'breakdance' ] ],
     [ '<!-- wp:paragraph --><p>Content</p><!-- /wp:paragraph -->', [], [ 'gutenberg' ] ],
 ];
-foreach ( $carrier_cases as $case ) { $GLOBALS['recipe_posts'][9000] = (object) [ 'ID' => 9000, 'post_type' => 'page', 'post_content' => $case[0] ]; $GLOBALS['recipe_meta'][9000] = $case[1]; recipe_assert( $case[2] === Nova_Bridge_Suite_Recipe_Builders::detect_reference( 9000 ), 'Detection preserves stored native authority and ambiguity without provider availability guesses' ); }
+foreach ( $carrier_cases as $case ) { $GLOBALS['recipe_posts'][9000] = (object) [ 'ID' => 9000, 'post_type' => 'page', 'post_content' => $case[0] ]; $GLOBALS['recipe_meta'][9000] = $case[1]; recipe_assert( $case[2] === Nova_Bridge_Suite_Recipe_Builders::native_carriers( $GLOBALS['recipe_posts'][9000] ), 'Carrier inspection preserves stored native authority and ambiguity without provider availability guesses' ); }
 $GLOBALS['recipe_posts'][9000]->post_type = 'post';
 $GLOBALS['recipe_posts'][9000]->post_content = '';
 $GLOBALS['recipe_meta'][9000] = [ '_cornerstone_data' => '[{"_type":"text","text_content":"Article"}]' ];

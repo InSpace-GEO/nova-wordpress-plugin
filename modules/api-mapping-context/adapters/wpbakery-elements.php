@@ -13,7 +13,7 @@ final class Nova_Mapping_WPBakery_Elements {
     private const DESIGN_GROUP = '/design|style|styling|animation|responsive|advanced|css|typograph|colou?r|effect|extra|hover|spacing|mask|shape|divider|position/i';
     /** URL text parameters (themes often register links as plain text fields). */
     private const URL_NAME = '/(?:^|_)(?:url|href|link)$/';
-    private const EDITORIAL_NAME = '/^(?:text|title|sub_?title|heading|sub_?heading|button_?text|btn_text|link_text|label|caption|alt|alt_text|description|desc|name|quote|author|author_name|job|question|answer|tagline|highlight_text|price|cta_text|tab_title|text_[a-z0-9_]+|title_[a-z0-9_]+|heading_[a-z0-9_]+)$/';
+    private const EDITORIAL_NAME = '/^(?:text|title|sub_?title|heading|sub_?heading|button_?text|btn_text|link_text|label|aria_label_text|screen_reader_text|caption|alt|alt_text|description|desc|name|quote|author|author_name|job|question|answer|tagline|highlight_text|price|cta_text|tab_title|text_[a-z0-9_]+|title_[a-z0-9_]+|heading_[a-z0-9_]+)$/';
     private const PRESENTATION_NAME = '/(?:colou?r|size|width|height|margin|padding|font|class|^id$|_id$|^el_|css|animation|delay|speed|offset|opacity|radius|icon|align|style|border|shadow|z_index|duration|spacing|columns?|gap|ratio|position_|_position$|target|rel$)/';
     private const IMAGE_NAME = '/^(?:image|images?_?url|image_id|img|img_id|img_url|bg_image|background_image|photo|picture|thumbnail|image_src|media|logo|icon_image)$/';
     private const NEVER_BODY = [ 'vc_raw_html', 'vc_raw_js', 'vc_wp_text' ];
@@ -81,7 +81,7 @@ final class Nova_Mapping_WPBakery_Elements {
             }
         }
         // Elements whose definition omits the content parameter still keep visible inner text.
-        if ( ! $content_seen && empty( $definition['is_container'] ) && empty( $definition['as_parent'] ) && ! in_array( $tag, self::NEVER_BODY, true ) ) {
+        if ( ! $content_seen && ( ( empty( $definition['is_container'] ) && empty( $definition['as_parent'] ) ) || in_array( $tag, [ 'toggle', 'tab' ], true ) ) && ! in_array( $tag, self::NEVER_BODY, true ) ) {
             $body = self::body( $node, 'html', 'Content' ); if ( $body ) { $fields[] = $body; }
         }
         return $fields;
@@ -135,9 +135,9 @@ final class Nova_Mapping_WPBakery_Elements {
     }
 
     private static function kind( string $tag, string $name ): string {
-        if ( preg_match( '/button|btn|link_text|cta/', $name ) || preg_match( '/btn|button|cta/', $tag ) && in_array( $name, [ 'text', 'title' ], true ) ) { return 'button_text'; }
-        if ( preg_match( '/heading|title/', $name ) || preg_match( '/heading/', $tag ) && 'text' === $name ) { return 'heading'; }
-        if ( 'alt' === $name || 'alt_text' === $name ) { return 'image_alt'; }
+        if ( preg_match( '/button|btn|link_text|cta/', $name ) || preg_match( '/(?:^|_)(?:btn|button|cta)(?:_|$)/', $tag ) && in_array( $name, [ 'text', 'title' ], true ) ) { return 'button_text'; }
+        if ( preg_match( '/heading|title/', $name ) || preg_match( '/heading|title/', $tag ) && 'text' === $name ) { return 'heading'; }
+        if ( in_array( $name, [ 'alt', 'alt_text', 'screen_reader_text' ], true ) ) { return 'image_alt'; }
         return 'text';
     }
 }

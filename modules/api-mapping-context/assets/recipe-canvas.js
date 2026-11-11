@@ -34,7 +34,7 @@
 		if ( ! win.getComputedStyle ) { return 0; }
 		var changed = 0, excluded = 'nav,header,footer,[role="navigation"],[role="dialog"],[hidden],[aria-hidden="true"]';
 		// Divi Theme Builder templates render the post inside #main-content without a main, article or .entry-content.
-		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content,#main-content,.et-l--body' ).forEach( function ( main ) {
+		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content,#main-content,.et-l--body,#ajax-content-wrap .container-wrap .main-content,#page-header-wrap' ).forEach( function ( main ) {
 			if ( main.closest( excluded ) ) { return; }
 			for ( var ancestor = main; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement ) {
 				var ancestorStyle = win.getComputedStyle( ancestor );
@@ -48,6 +48,17 @@
 				document.documentElement.style.setProperty( 'overflow-y', 'auto', 'important' ); document.body.style.setProperty( 'overflow-y', 'auto', 'important' ); changed++;
 			}
 			changed += hydrateLazyMedia( main, document, excluded );
+            // Nectar Slider's loader never completes without theme scripts. Keep one real
+            // slide visible in this read-only canvas; do not flatten or rewrite shared slides.
+            main.querySelectorAll( '.nectar-slider-wrap' ).forEach( function ( slider ) {
+                if ( slider.closest( excluded + ',#footer-outer,#header-outer' ) || slider.getAttribute( 'data-nova-static-slider' ) === '1' ) { return; }
+                var container = unique( slider, '.swiper-container' ), track = container && unique( container, '.swiper-wrapper' );
+                var slides = track && Array.from( track.children ).filter( function ( node ) { return node.classList.contains( 'swiper-slide' ) && ! node.classList.contains( 'swiper-slide-duplicate' ); } );
+                if ( ! slides || ! slides.length ) { return; }
+                slider.setAttribute( 'data-nova-static-slider', '1' ); slides[0].setAttribute( 'data-nova-static-slide', '1' );
+                slider.setAttribute( 'aria-label', 'Static Nectar Slider preview: first slide' );
+                container.style.setProperty( 'height', Math.max( 200, Math.min( 1200, Number( container.getAttribute( 'data-height' ) ) || 400 ) ) + 'px', 'important' ); changed++;
+            } );
 			// Builders and themes hide entrance-animated content until their scripts run; those scripts are disabled here.
 			main.querySelectorAll( reveal ).forEach( function ( item ) {
 				// Only carousels inside the content count; themes also put words like "slider" in body classes.
@@ -178,13 +189,13 @@
 		return roots.length ? roots : document.body ? [ document.body ] : [];
 	}
 	// ACF values are printed by the theme: accept exactly one element showing the value, never a guess among copies.
-	function valueMatch( document, locator ) {
-		var roots = contentRoots( document ), matches = [];
+	function valueMatch( document, locator, excluded ) {
+		var roots = contentRoots( document ), matches = []; excluded = excluded || function ( node ) { return node.closest( outsideContent ); };
 		if ( typeof locator.media === 'string' ) {
 			var stem = mediaStem( locator.media ); if ( ! stem ) { return null; }
 			roots.forEach( function ( root ) {
 				root.querySelectorAll( 'img,[style*="background-image"]' ).forEach( function ( node ) {
-					if ( node.closest( outsideContent ) || matches.includes( node ) ) { return; }
+					if ( excluded( node ) || matches.includes( node ) ) { return; }
 					var sources = node.tagName === 'IMG' ? [ node.getAttribute( 'src' ) ].concat( String( node.getAttribute( 'srcset' ) || '' ).split( ',' ).map( function ( entry ) { return entry.trim().split( /\s+/ )[0]; } ) ) : [ ( /url\(\s*(['"]?)(.*?)\1\s*\)/.exec( node.getAttribute( 'style' ) || '' ) || [] )[2] ];
 					if ( sources.some( function ( source ) { return source && mediaStem( source ) === stem; } ) ) { matches.push( node ); }
 				} );
@@ -193,27 +204,67 @@
 			var expected = normalizeText( locator.text ); if ( expected.length < 3 ) { return null; }
 			roots.forEach( function ( root ) {
 				root.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,li,a,button,span,strong,em,b,i,small,blockquote,figcaption,label,dt,dd,td,th,div,section,article,aside' ).forEach( function ( node ) {
-					if ( ! node.closest( outsideContent ) && ! matches.includes( node ) && normalizeText( node.textContent ) === expected ) { matches.push( node ); }
+					if ( ! matches.includes( node ) && normalizeText( node.textContent ) === expected ) { matches.push( node ); }
 				} );
 			} );
-			// Wrappers repeat their only child's text; keep the innermost element.
+			// Remove wrappers before excluding content: an outer div must not inherit a related card's text.
 			matches = matches.filter( function ( node ) { return ! matches.some( function ( other ) { return other !== node && node.contains( other ); } ); } );
+			matches = matches.filter( function ( node ) { return ! excluded( node ); } );
 		}
 		// Responsive themes print hidden copies for other screen sizes; only a shown element counts.
 		var view = document.defaultView; if ( view && view.getComputedStyle ) { matches = matches.filter( function ( node ) { return visible( node, view ); } ); }
 		return matches.length === 1 ? { node: matches[0], owner: matches[0], precision: locator.precision === 'region' ? 'region' : 'field' } : null;
+	}
+	// The singular post may use a template's ID, while related cards repeat the same excerpt/image.
+	// Keep article headers eligible, but never bind a post field to navigation, a sidebar or a post loop.
+	var nativeOutsideContent = outsideContent.replace( 'header,', '' ) + ',aside,.site-header,.wp-block-query,.wp-block-post-template,.elementor-widget-posts,.elementor-widget-loop-grid,.elementor-loop-container,.fl-module-post-grid,.fl-module-post-carousel,.fl-module-post-slider,.fl-post-grid-post,.pp-content-post,.pp-content-grid,.et_pb_posts,.related-posts,.related-articles,.yarpp-related,.rp4wp-related-posts';
+	function nativeExcluded( node ) {
+		if ( node.closest( nativeOutsideContent ) ) { return true; }
+		var header = node.closest( 'header' ); return !! header && ! header.closest( 'main,[role="main"],article' );
+	}
+	function nativeMediaKey( value, base ) {
+		try { var url = new URL( value, base ); return [ 'https:', 'http:' ].includes( url.protocol ) && ! url.username && ! url.password ? url.origin + url.pathname.replace( /-\d+x\d+(?=\.[^/.]+$)/, '' ).replace( /-(?:scaled|rotated)(?=\.[^/.]+$)/, '' ) : ''; } catch ( error ) { return ''; }
+	}
+	function nativeFeatured( document, locator ) {
+		var key = locator.media ? nativeMediaKey( locator.media, document.baseURI ) : '', attachment = Number.isSafeInteger( locator.attachment_id ) && locator.attachment_id > 0 ? locator.attachment_id : 0, matches = [];
+		if ( ! key && ! attachment ) { return null; }
+		contentRoots( document ).forEach( function ( root ) {
+			root.querySelectorAll( 'img,[style*="background-image"]' ).forEach( function ( node ) {
+				if ( nativeExcluded( node ) || matches.includes( node ) ) { return; }
+				var image = node.tagName === 'IMG', ids = image ? String( node.getAttribute( 'class' ) || '' ).match( /\bwp-image-[0-9]+\b/g ) || [] : [];
+				// A conflicting native attachment class is stronger evidence than a coincidentally equal URL.
+				if ( attachment && ids.length && ! ids.includes( 'wp-image-' + attachment ) ) { return; }
+				var sources = image ? [ node.getAttribute( 'src' ) ].concat( lazySources.map( function ( name ) { return node.getAttribute( name ); } ) ) : [ ( /url\(\s*(['"]?)(.*?)\1\s*\)/.exec( node.getAttribute( 'style' ) || '' ) || [] )[2] ];
+				if ( image ) { [ 'srcset' ].concat( lazySourceSets ).forEach( function ( name ) { sources = sources.concat( String( node.getAttribute( name ) || '' ).split( ',' ).map( function ( entry ) { return entry.trim().split( /\s+/ )[0]; } ) ); } ); }
+				if ( ( attachment && ids.includes( 'wp-image-' + attachment ) ) || ( key && sources.some( function ( source ) { return source && nativeMediaKey( source, document.baseURI ) === key; } ) ) ) { matches.push( node ); }
+			} );
+		} );
+		var view = document.defaultView; if ( view && view.getComputedStyle ) { matches = matches.filter( function ( node ) { return visible( node, view ); } ); }
+		return matches.length === 1 ? { node: matches[0], owner: matches[0], precision: 'field' } : null;
 	}
 	function locate( document, item, config, htmlTargets ) {
 		var locator = item && item.locator; if ( ! locator || locator.reference_id !== config.referenceId ) { return null; }
 		if ( locator.strategy === 'custom_html' ) { return htmlTargets && htmlTargets.get( locator.marker ) || null; }
 		if ( locator.strategy === 'value_match' ) { return valueMatch( document, locator ); }
 		var strategy = locator.strategy, id = String( locator.node_id || '' ), control = controlPath( locator ), owner, selector;
-		if ( strategy === 'elementor' ) {
+		if ( strategy === 'salient_header' ) {
+            owner = unique( document, '#page-header-bg' ) || unique( document, '#page-header-wrap' );
+            if ( ! owner || owner.closest( 'nav,footer,[role="navigation"],[role="contentinfo"]' ) ) { return null; }
+            selector = { title: 'h1', subtitle: '.subheader', image: '.page-header-bg-image' }[ locator.control ];
+            var headerNode = selector ? unique( owner, selector ) : null;
+            return headerNode ? { node: headerNode, owner: owner, precision: 'field' } : null;
+        } else if ( strategy === 'elementor' ) {
 			if ( ! safeId.test( id ) ) { return null; }
 			var scope = unique( document, '[data-elementor-id="' + config.referenceId + '"]' ); if ( ! scope ) { return null; }
 			owner = unique( scope, '[data-id="' + id + '"]' ); if ( ! owner ) { return null; }
 			selector = { 'heading:title': '.elementor-heading-title', 'text-editor:editor': '.elementor-widget-container', 'button:text': '.elementor-button-text', 'image:caption': '.widget-image-caption', 'image:image.url': '.elementor-widget-container img', 'image:image.alt': '.elementor-widget-container img', 'google_maps:address': '.nrc-map-placeholder' }[ locator.element_type + ':' + control ];
-		} else if ( strategy === 'cornerstone' ) {
+        } else if ( strategy === 'betheme' ) {
+            if ( ! safeId.test( id ) ) { return null; }
+            owner = unique( document, '.mcb-' + ( [ 'section', 'wrap' ].includes( locator.node_kind ) ? locator.node_kind : 'item' ) + '-' + id );
+            if ( ! owner || owner.closest( 'header,footer,nav,.mfn-queryloop-item-wrapper' ) ) { return null; }
+            if ( locator.kind === 'image_url' ) { selector = 'img'; }
+            else { var matching = Array.from( owner.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,a,span,div' ) ).filter( function ( node ) { return locator.text && normalizeText( node.textContent ) === normalizeText( locator.text ); } ); matching = matching.filter( function ( node ) { return ! matching.some( function ( other ) { return other !== node && node.contains( other ); } ); } ); if ( matching.length === 1 ) { return { node: matching[0], owner: owner, precision: 'field' }; } }
+        } else if ( strategy === 'cornerstone' ) {
 			// Cornerstone renders the document ID and the native element number together.
 			if ( config.referenceType !== 'post' || ! /^[1-9][0-9]*$/.test( id ) ) { return null; }
 			var prefix = '.e' + config.referenceId + '-';
@@ -244,7 +295,9 @@
 			if ( part ) { var parts = owner.matches( part ) ? [ owner ] : Array.from( owner.querySelectorAll( part ) ).filter( function ( candidate ) { return ! candidate.closest( '[data-nova-preview-node]' ) || candidate.closest( '[data-nova-preview-node]' ) === owner; } ); if ( parts.length === 1 ) { return { node: parts[0], owner: owner, precision: 'field' }; } }
 			return { node: owner, owner: owner, precision: 'widget' };
 		} else if ( strategy === 'core' ) {
-			selector = { title: '.entry-title', content: '.entry-content', name: '.woocommerce-products-header__title', description: '.term-description', bottom_content: '.wc-content-below-products', excerpt: '.wp-block-post-excerpt,.entry-summary,.post-excerpt', featured_image: '.wp-block-post-featured-image img,img.wp-post-image' }[ control ];
+			if ( control === 'excerpt' ) { return config.referenceType === 'post' ? valueMatch( document, { text: locator.text, precision: 'region' }, nativeExcluded ) : null; }
+			if ( control === 'featured_image' ) { return config.referenceType === 'post' ? nativeFeatured( document, locator ) : null; }
+			selector = { title: '.entry-title', content: '.entry-content', name: '.woocommerce-products-header__title', description: '.term-description', bottom_content: '.wc-content-below-products' }[ control ];
 			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); }
 			// Theme-builder templates print the post body through their own post-content module (Divi, Elementor Pro, Beaver Themer).
 			if ( ! owner && control === 'content' ) { owner = unique( document, '.et_pb_post_content' ) || unique( document, '.elementor-widget-theme-post-content' ) || unique( document, '.fl-module-fl-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
@@ -326,7 +379,8 @@
 		document.addEventListener( 'auxclick', function ( event ) { event.preventDefault(); event.stopImmediatePropagation(); }, true );
 		document.addEventListener( 'keydown', function ( event ) { if ( event.target && event.target.closest && event.target.closest( 'form,input,select,textarea,[contenteditable]' ) ) { event.preventDefault(); event.stopImmediatePropagation(); } }, true );
 		function init() {
-			ready = true; var style = document.createElement( 'style' ); style.textContent = '::highlight(nova-preview-selection){background:#ead4ff;color:#28103b}.nrc-omitted{opacity:.35!important;outline:2px dashed #b42318!important;outline-offset:2px}' + consent.split( ',' ).map( function ( selector ) { return 'html.nrc-hide-consent ' + selector; } ).join( ',' ) + '{display:none!important;visibility:hidden!important;pointer-events:none!important}html.nrc-consent-present,html.nrc-consent-present body{overflow:auto!important}.nrc-target{cursor:crosshair!important}.nrc-target:hover{outline:2px dashed #8511D9!important;outline-offset:3px}.nrc-assigned{outline:2px solid #2E9E50!important;outline-offset:3px}.nrc-protected{outline-style:dotted!important}.nrc-selected{outline:3px solid #8511D9!important;outline-offset:4px}.nrc-map-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:#f0ebf7;border:1px solid #d9c4ee;border-radius:8px;color:#242424;text-align:center;cursor:crosshair}.nrc-map-placeholder strong{font-size:20px}.nrc-map-placeholder p{margin:8px 0;font-size:14px}'; document.head.appendChild( style ); hideConsent(); prepareMedia( document, config, fields );
+			ready = true; var salientStyle = document.createElement( 'style' ); salientStyle.textContent = '[data-nova-static-slider] .nectar-slider-loading{display:none!important}[data-nova-static-slider],[data-nova-static-slider] .swiper-container,[data-nova-static-slider] .swiper-wrapper{position:relative!important;width:100%!important;transform:none!important;opacity:1!important;visibility:visible!important}[data-nova-static-slider] .swiper-wrapper{height:100%!important}[data-nova-static-slider] .swiper-wrapper>.swiper-slide:not([data-nova-static-slide]){display:none!important}[data-nova-static-slide]{position:relative!important;width:100%!important;height:100%!important;opacity:1!important;visibility:visible!important;transform:none!important}[data-nova-static-slide] .content,[data-nova-static-slide] .content>*{opacity:1!important;visibility:visible!important;transform:none!important}'; document.head.appendChild( salientStyle );
+            var style = document.createElement( 'style' ); style.textContent = '::highlight(nova-preview-selection){background:#ead4ff;color:#28103b}.nrc-omitted{opacity:.35!important;outline:2px dashed #b42318!important;outline-offset:2px}' + consent.split( ',' ).map( function ( selector ) { return 'html.nrc-hide-consent ' + selector; } ).join( ',' ) + '{display:none!important;visibility:hidden!important;pointer-events:none!important}html.nrc-consent-present,html.nrc-consent-present body{overflow:auto!important}.nrc-target{cursor:crosshair!important}.nrc-target:hover{outline:2px dashed #8511D9!important;outline-offset:3px}.nrc-assigned{outline:2px solid #2E9E50!important;outline-offset:3px}.nrc-protected{outline-style:dotted!important}.nrc-selected{outline:3px solid #8511D9!important;outline-offset:4px}.nrc-map-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:#f0ebf7;border:1px solid #d9c4ee;border-radius:8px;color:#242424;text-align:center;cursor:crosshair}.nrc-map-placeholder strong{font-size:20px}.nrc-map-placeholder p{margin:8px 0;font-size:14px}'; document.head.appendChild( style ); hideConsent(); prepareMedia( document, config, fields );
 			send( 'ready', { limitations: [ 'Site scripts, forms, embedded frames and network requests are disabled in this canvas. It shows the rendered initial state; dynamic components can differ from the live page.' ], viewport: { width: win.innerWidth, height: win.innerHeight } } );
 			if ( win.MutationObserver ) { new win.MutationObserver( function ( changes ) { var significant = changes.some( function ( change ) { if ( change.type !== 'attributes' || change.attributeName !== 'class' ) { return true; } var strip = function ( classes ) { return String( classes || '' ).split( /\s+/ ).filter( function ( name ) { return name && ! name.startsWith( 'nrc-' ); } ).sort().join( ' ' ); }; return strip( change.oldValue ) !== strip( change.target.getAttribute( 'class' ) ); } ); if ( significant ) { schedule(); } } ).observe( document.body, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: [ 'class', 'id', 'style', 'hidden', 'aria-hidden', 'src' ] } ); }
 			if ( win.ResizeObserver ) { new win.ResizeObserver( schedule ).observe( document.body ); }

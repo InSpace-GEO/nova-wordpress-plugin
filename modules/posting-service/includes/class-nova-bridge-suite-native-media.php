@@ -39,6 +39,8 @@ final class Nova_Bridge_Suite_Native_Media {
             if ( 'featured' === ( $entry['kind'] ?? '' ) ) {
                 if ( $featured || '/native_post/featured_image' !== $target ) { return self::error( 'A recipe can bind its native featured image only once.' ); }
                 $featured = true;
+            } elseif ( 'salient_header' === ( $entry['kind'] ?? '' ) && 'wpbakery' === $builder ) {
+                if ( '/meta/_nectar_header_bg' !== $target || $target !== ( $entry['id_target'] ?? null ) || ! is_string( $payload['meta']['_nectar_header_bg'] ?? null ) ) { return self::error( 'The Salient header image target is invalid.' ); }
             } elseif ( 'elementor' === ( $entry['kind'] ?? '' ) && 'elementor' === $builder ) {
                 $url_target = $entry['url_target'] ?? ''; $id_target = $entry['id_target'] ?? '';
                 if ( ! is_string( $url_target ) || ! is_string( $id_target ) || $target !== $url_target || ! str_ends_with( $url_target, '/url' ) || substr( $url_target, 0, -4 ) . '/id' !== $id_target || isset( $targets[$url_target] ) ) { return self::error( 'The paired native image targets are invalid.' ); }
@@ -54,6 +56,12 @@ final class Nova_Bridge_Suite_Native_Media {
                 $field = $acf_fields[$target] ?? [];
                 if ( $target !== ( $entry['id_target'] ?? null ) || empty( $field['writable'] ) || ( $field['native_media']['id_target'] ?? null ) !== $target || isset( $targets[$target] ) ) { return self::error( 'Only a captured ACF image field can receive an imported image.' ); }
                 $targets[$target] = true;
+            } elseif ( 'betheme' === $builder && $builder === ( $entry['kind'] ?? '' ) ) {
+                $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( $builder );
+                $description = $adapter->describe( [ 'document' => $payload['betheme_document'] ?? [] ] );
+                if ( is_wp_error( $description ) ) { return $description; }
+                $fields = array_column( $description['fields'], null, 'target' ); $field = $fields[$target] ?? [];
+                if ( $target !== ( $entry['id_target'] ?? null ) || empty( $field['writable'] ) || ( $field['native_media']['id_target'] ?? null ) !== $target ) { return self::error( 'Only a captured BeBuilder image control can receive an imported image.' ); }
             } elseif ( 'cornerstone' === $builder && $builder === ( $entry['kind'] ?? '' ) ) {
                 if ( null === $cornerstone_fields ) {
                     require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-recipe-builders.php';
@@ -113,6 +121,12 @@ final class Nova_Bridge_Suite_Native_Media {
                     $document = [ 'document' => $result['payload']['meta_all']['acf'] ];
                     Nova_Bridge_Suite_Recipe_Engine::put( $document, $entry['id_target'], $id );
                     $result['payload']['meta_all']['acf'] = $document['document'];
+                }
+                elseif ( 'salient_header' === $entry['kind'] ) { $result['payload']['meta']['_nectar_header_bg'] = $id ? $url : ''; }
+                elseif ( 'betheme' === $entry['kind'] ) {
+                    $document = [ 'document' => $result['payload']['betheme_document'] ];
+                    Nova_Bridge_Suite_Recipe_Betheme::put( $document, $entry['id_target'], $id ? $url : '' );
+                    $result['payload']['betheme_document'] = $document['document'];
                 }
                 elseif ( 'cornerstone' === $entry['kind'] ) {
                     $document = [ 'document' => $result['payload']['cornerstone_document'] ];

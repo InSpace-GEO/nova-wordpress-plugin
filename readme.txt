@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.3.1 =
+* Add BeTheme / BeBuilder layout mapping, native writing and preview support.
+* Improve Salient / WPBakery headers, images, styles and shared-content checks.
+* Fix excerpt and featured-image previews and improve mixed-builder detection.
+* Show delivery timestamps, intended URLs and clearer WordPress error details.
 
 = 1.3.0 =
 * Publishing status: when a delivery is published, NOVA now receives the URL WordPress actually gave the page or post, read from WordPress itself, with its status (final once published, provisional for drafts, pending and scheduled posts). NOVA can then show and track the real address, for example a dated post link (/2026/11/11/my-post/) instead of the planned /blog/my-post/, and localized WPML, Polylang, TranslatePress and Weglot URLs. The report is optional: if WordPress cannot give a usable absolute URL, or only a query such as ?p=123 identifies the page, it is left out and success is reported as before. Requires the matching posting-service release, which is deployed.

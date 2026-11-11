@@ -1,5 +1,14 @@
 # Release verification
 
+## 1.3.1
+
+- All 139 local suites passed with the WordPress 6.9 fixture. Coverage includes native layout writes, media, builder detection, preview locators, delivery recovery and receipt timestamps.
+- Staging checks with BeTheme 29.0.5 verified capture, native writes, media imports, regenerated styles and delivery after deleting the example.
+- Staging checks with Salient 18.4.4, Salient Core 3.1.11, WPBakery 9.0.1 and Nectar Slider 1.7.9 verified native headers/body content, styles, media and shared references. An interrupted write recovered the same page without duplication; manual changes remained protected.
+- Browser checks verified excerpt/featured-image selection, native theme highlights, static slider rendering and delivery-log columns. A real database check verified receipt timestamps, intended URLs and underlying error details. Disposable staging records were removed.
+
+Verification used synthetic deliveries and rendered-markup replays, not a live external NOVA delivery. Shared sections and slider slides remain linked dependencies. Beaver Themer markup was replayed; its plugin was not installed on staging. Other theme/plugin versions were not covered by these staging checks.
+
 ## 1.3.0 candidate (local and staging WordPress)
 
 132 of 132 local suites passed against a WordPress 7.1.4 core fixture on PHP 8.5. The plugin's delivery contract matches the ConnectorEventInput and ConnectorPublication schemas of posting-service on dev, staging and production (v0.10.0): extracted from each deployed OpenAPI file, the selected schemas are identical.
@@ -227,7 +236,7 @@ All 102 local suites passed, including coverage for conflicting attachment group
 
 ## 1.0.7 staging candidate
 
-The isolated `inspace-seo.com` lab ran WordPress 7.1.2, Themeco X 10.8.12 and Cornerstone 7.9.7. We saved a fixed layout from a native Page and another from a native Post through the mapping endpoints, then deleted both example items. With fitted test deliveries, NOVA created each target and updated it a second time. HTTP requests found the expected heading, formatted body, button text and destination, and newly imported image. Both updates retained the target’s original WordPress ID and URL. Cornerstone’s own document reader returned the new mapped values, and the saved presentation settings survived. We also checked that a publishing user without Cornerstone’s Posts permission could not publish that destination.
+The isolated WordPress staging lab ran WordPress 7.1.2, Themeco X 10.8.12 and Cornerstone 7.9.7. We saved a fixed layout from a native Page and another from a native Post through the mapping endpoints, then deleted both example items. With fitted test deliveries, NOVA created each target and updated it a second time. HTTP requests found the expected heading, formatted body, button text and destination, and newly imported image. Both updates retained the target’s original WordPress ID and URL. Cornerstone’s own document reader returned the new mapped values, and the saved presentation settings survived. We also checked that a publishing user without Cornerstone’s Posts permission could not publish that destination.
 
 The signed preview returned HTML for each reference. In Chrome, clicking the heading, body or button in the captured staging markup selected the correct mapping field. With a simulated WPML domain-per-language configuration, authenticated preview requests for a German page and post rendered those items on the staging admin origin. A separate check used WPML’s native query parser. The test did not use a live second language domain or the client’s child theme. The WordPress writer received synthetic fitted deliveries; no external posting service or LLM was called.
 
@@ -237,7 +246,7 @@ All 102 local suites passed. The installable ZIP contains 152 NOVA runtime files
 
 All 100 local suites passed, including 104 layout editor workflows. Tests cover revision conflicts, saving and retrying sync on step 3, explicit default replacement, and resuming a mapping when its example is selected again. The wizard no longer creates sample drafts. A browser with an interrupted draft request from an older build can still look up that specific draft. Field tests cover excluding core footnotes from new choices, retaining legacy bindings, and offering a separate ACF field labelled Footnotes. The theme tests covered 25 Astra 4.11.7 and 10 Kadence 1.2.16 design settings, opt-in editorial metadata, and previously saved empty or partial selections.
 
-We installed the ZIP on inspace-seo.com and verified all 149 runtime files. Chrome loaded the site's editor assets and exercised a 38-setting example against isolated responses. It used the combined reference picker with a mouse and keyboard, checked the manual ID fallback, and confirmed that step 3 sends users back to step 2 through the top navigation. It selected and deselected settings without replacing the preview iframe, reselected the example, then saved the field binding and the 36 settings left selected. Exactly one request verified the settings on save. The saved layout offered sync without a sample draft section or draft title. Nine PHP regression suites passed for the same server code on the staging host with in-memory fixtures, including the field catalog, save and sync handlers. The browser and server tests did not change any staging mapping or remote default.
+We installed the ZIP on WordPress staging and verified all 149 runtime files. Chrome loaded the site's editor assets and exercised a 38-setting example against isolated responses. It used the combined reference picker with a mouse and keyboard, checked the manual ID fallback, and confirmed that step 3 sends users back to step 2 through the top navigation. It selected and deselected settings without replacing the preview iframe, reselected the example, then saved the field binding and the 36 settings left selected. Exactly one request verified the settings on save. The saved layout offered sync without a sample draft section or draft title. Nine PHP regression suites passed for the same server code on the staging host with in-memory fixtures, including the field catalog, save and sync handlers. The browser and server tests did not change any staging mapping or remote default.
 
 Staging ZIP SHA-256 is `88e844ca5012d105fa158690089fcf989a7b3a27fc10ff27549a604c11b68cca`.
 
