@@ -53,4 +53,17 @@ $options['permalink_structure'] = '/%postname%/';
 $delivery_url = Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( 'https://site.example/test-article/', 'nl-NL' );
 $post = good( Target::creation( 'post_type:post', $delivery_url, 'nl-NL' ), 'Create a native Post from a bare-host delivery on a www installation.' );
 check( $post['target_url'] === 'https://www.site.example/test-article' && $post['parent'] === 0, 'Native Post routing uses the canonical permalink and retains the supplied path.' );
+// Dated post permalinks: NOVA delivers the undated slug URL; WordPress serves the post at /<date>/<slug>/.
+$options['permalink_structure'] = '/%year%/%monthnum%/%day%/%postname%/';
+$dated = good( Target::creation( 'post_type:post', 'https://www.site.example/dated-article/', 'nl-NL' ), 'Plan a post at its slug under a dated post permalink structure.' );
+check( $dated['slug'] === 'dated-article' && $dated['parent'] === 0 && $dated['target_url'] === 'https://www.site.example/dated-article', 'A dated post keeps the undated delivery URL as its identity.' );
+bad( Target::creation( 'post_type:post', 'https://www.site.example/2026/11/11/dated-article/', 'nl-NL' ), 'create_route' );
+check( Target::same_native_url( 'https://www.site.example/2026/11/11/dated-article', 'https://www.site.example/dated-article', 'post_type:post' ), 'The dated permalink is the delivery URL of that post.' );
+check( ! Target::same_native_url( 'https://www.site.example/2026/11/11/other-article', 'https://www.site.example/dated-article', 'post_type:post' ), 'A renamed slug is not the delivery URL.' );
+check( ! Target::same_native_url( 'https://www.site.example/2026/11/dated-article', 'https://www.site.example/dated-article', 'post_type:post' ), 'The date must fill the whole configured structure.' );
+check( ! Target::same_native_url( 'https://www.site.example/2026/11/11/dated-article', 'https://www.site.example/dated-article', 'post_type:page' ), 'Pages still need their exact URL.' );
+check( ! Target::same_native_url( 'https://other.example/2026/11/11/dated-article', 'https://www.site.example/dated-article', 'post_type:post' ), 'Another host is never the delivery URL.' );
+$options['permalink_structure'] = '/%category%/%postname%/';
+check( null === Target::dated_post_structure(), 'Only post-date tags qualify as a dated structure.' );
+bad( Target::creation( 'post_type:post', 'https://www.site.example/dated-article/', 'nl-NL' ), 'create_route' );
 echo "PASS $checks mapped URL ownership and routing checks.\n";
