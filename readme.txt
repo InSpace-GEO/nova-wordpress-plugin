@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.3.2
+Stable tag: 1.3.3
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.3.3 =
+* After a wake, keep processing deliveries in batches of three until none are due, instead of stopping after the first batch.
+* Run retries at their due time, with one scheduled follow-up as a safety net when a batch cannot start the next one.
+* Record a wake that arrives while a batch is running instead of refusing it; wakes during a connection switch are still refused.
+* Show the next scheduled batch in the delivery status.
 
 = 1.3.2 =
 * Fix Beaver Builder detection when WordPress retains a block-based editor copy.

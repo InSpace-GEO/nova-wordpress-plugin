@@ -10,6 +10,8 @@ final class Nova_Bridge_Suite_Posting_Connection {
     // Separate from the delivery lock: deliveries never block layout editing, only switching does.
     private const AUTHORING_LOCK = 'connection-authoring';
     private const AUTHORING_WAIT = 15;
+    // Held for a whole connection save. A wake recorded beside a running batch takes it too, so it never interleaves with a switch.
+    private const SWITCH_LOCK = 'connection-switch';
 
     public static function saving(): bool { return self::$saving; }
 
@@ -108,7 +110,18 @@ final class Nova_Bridge_Suite_Posting_Connection {
 
     public static function save( array $input ) {
         // Wait for an in-flight layout change; never switch underneath it.
-        return self::authoring( static function () use ( $input ) { return self::save_guarded( $input ); }, self::AUTHORING_WAIT );
+        return self::authoring( static function () use ( $input ) { return self::switching( static function () use ( $input ) { return self::save_guarded( $input ); }, self::AUTHORING_WAIT ); }, self::AUTHORING_WAIT );
+    }
+
+    public static function switching( callable $callback, int $wait = 0 ) {
+        $store = new Nova_Bridge_Suite_Posting_Jobs();
+        if ( is_wp_error( $store->lock( self::SWITCH_LOCK, $wait ) ) ) {
+            return new WP_Error( 'nova_posting_connection_busy', 'A delivery or connection save is running. Please try again shortly.', [ 'status' => 409 ] );
+        }
+        try {
+            self::clear_cache();
+            return $callback();
+        } finally { $store->unlock( self::SWITCH_LOCK ); }
     }
 
     private static function save_guarded( array $input ) {
