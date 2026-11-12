@@ -458,8 +458,26 @@
                 if ( localeInfo && [ 'translatepress', 'weglot' ].includes( localeInfo.provider ) ) {
                     inspector.append( help( 'Existing translations of this content are managed by ' + ( localeInfo.provider === 'weglot' ? 'Weglot' : 'TranslatePress' ) + ' when the localized page is rendered.' ) );
                 } else if ( localeInfo && [ 'polylang', 'wpml' ].includes( localeInfo.provider ) ) {
-                    var locales = localeInfo.fields && localeInfo.fields[ nativeField.target ] || [];
+                    var referenceFields = localeInfo.reference_fields || localeInfo.fields || {}, locales = referenceFields[ nativeField.target ] || [];
                     inspector.append( help( locales.length ? ( localeInfo.saved ? 'Saved localized values: ' : 'Localized values will be saved for: ' ) + locales.join( ', ' ) + '. Other locales use the captured reference value.' : 'No matching localized value is saved for this field. It uses the captured reference value. Saving refreshes values from linked locale references.' ) );
+                    if ( controller.state.mode === 'static' ) {
+                        var normalizedLocale = function ( value ) { return String( value || '' ).toLowerCase().replace( /_/g, '-' ); };
+                        ( localeInfo.catalog || [] ).forEach( function ( entry ) {
+                            if ( normalizedLocale( entry.locale ) === normalizedLocale( localeInfo.source_locale ) || locales.some( function ( locale ) { return normalizedLocale( locale ) === normalizedLocale( entry.locale ); } ) ) { return; }
+                            var localeKey = Object.keys( owner.locale_values || {} ).find( function ( locale ) { return normalizedLocale( locale ) === normalizedLocale( entry.locale ) || normalizedLocale( locale ) === normalizedLocale( entry.code ); } ) || entry.locale.replace( /_/g, '-' );
+                            var manual = owner.locale_values && owner.locale_values[localeKey] || {};
+                            inspector.append( field( 'Manual value · ' + entry.locale, input( manual[nativeField.target] || '', function ( value ) {
+                                controller.edit( function () {
+                                    owner.locale_values = owner.locale_values || {};
+                                    owner.locale_values[localeKey] = owner.locale_values[localeKey] || {};
+                                    if ( value.trim() ) { owner.locale_values[localeKey][nativeField.target] = value; }
+                                    else { delete owner.locale_values[localeKey][nativeField.target]; }
+                                    if ( ! Object.keys( owner.locale_values[localeKey] ).length ) { delete owner.locale_values[localeKey]; }
+                                    if ( ! Object.keys( owner.locale_values ).length ) { delete owner.locale_values; }
+                                }, false );
+                            }, nativeField.format === 'html' ), 'Optional fallback for this locale. Leave empty to use the reference value. A linked reference value takes precedence when one becomes available.' ) );
+                        } );
+                    }
                     ( localeInfo.unavailable || [] ).forEach( function ( entry ) { inspector.append( help( entry.locale + ': ' + entry.reason ) ); } );
                 }
             }

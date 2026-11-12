@@ -64,6 +64,26 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   await saved.controller.capture(42);
   await saved.controller.save();
   assert.deepEqual(saved.controller.state.design.locale_preservation, status);
+  const manual = await visualMounted({request: async (path, payload, current) => {
+   if (path !== '/design') return;
+   current.locale_preservation = {provider: 'polylang', source_locale: 'nl_NL', saved: false,
+    catalog: [{code: 'nl', locale: 'nl_NL'}, {code: 'it', locale: 'it_IT'}, {code: 'de', locale: 'de_DE'}],
+    fields: {'/document/0/settings/title': ['de_DE']}, reference_fields: {'/document/0/settings/title': ['de_DE']}, unavailable: []};
+   return current;
+  }});
+  manual.controller.selectMode('static');
+  manual.controller.next();
+  await manual.controller.capture(42);
+  nativeControl(manual.host, 'Page heading').events.click();
+  manual.flushFrames();
+  const translation = controlFor(manual, 'Manual value · it_IT');
+  translation.value = 'Titolo manuale';
+  translation.events.input();
+  assert.equal(manual.controller.state.recipe.locale_values['it-IT']['/document/0/settings/title'], 'Titolo manuale');
+  assert(!manual.host.textContent.includes('Manual value · de_DE'));
+  assert(!manual.host.textContent.includes('Manual value · nl_NL'));
+  await manual.controller.save();
+  assert.equal(manual.calls.find(call => call.path === '/save').payload.recipe.locale_values['it-IT']['/document/0/settings/title'], 'Titolo manuale');
  });
  await test('ambiguous active builders open the provider chooser and explicit retry captures the chosen page',async()=>{
   const calls=[],choices=clone(catalog);choices.builders.push({id:'beaver',label:'Beaver Builder',available:true,capture:true,modes:['static','mixed','rules']});

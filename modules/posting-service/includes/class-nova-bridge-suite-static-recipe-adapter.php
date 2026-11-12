@@ -13,6 +13,40 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     private static function key( string $kind, string $identity ): string { return Nova_WordPress_Environment::key( self::PREFIX . $kind . '_' . hash( 'sha256', $identity ) ); }
     private static function frozen( array $record ): array { return array_intersect_key( $record, array_flip( [ 'id', 'name', 'page_type', 'definition', 'mapping', 'revision' ] ) ); }
 
+    /** Last confirmed editor result for this local revision and connection; no remote read. */
+    public static function saved_status( array $connection, string $recipe_id, int $revision ): ?array {
+        if ( empty( $connection['enabled'] ) || Nova_WordPress_Environment::identity( $connection ) !== Nova_WordPress_Environment::identity() ) { return null; }
+        $status = get_option( self::key( 'status', $connection['site_id'] . ':' . $recipe_id ), null );
+        return is_array( $status ) && ( $status['recipe_revision'] ?? null ) === $revision ? $status : null;
+    }
+
+    /** Reconcile older category approvals when saving a connection, without publishing or changing defaults. */
+    public static function confirm_status( array $connection, string $recipe_id, int $revision, $client = null ): array {
+        $unknown = [ 'status' => 'unknown', 'recipe_revision' => $revision ];
+        if ( empty( $connection['enabled'] ) || Nova_WordPress_Environment::identity( $connection ) !== Nova_WordPress_Environment::identity() ) { return $unknown; }
+        $record = Nova_Bridge_Suite_Layout_Recipes::delivery_record( $recipe_id, $revision );
+        if ( is_wp_error( $record ) || is_wp_error( self::project_record( $record ) ) ) { return [ 'status' => 'unsupported', 'recipe_revision' => $revision ]; }
+        $client = $client ?: new Nova_Bridge_Suite_Posting_Client( $connection );
+        $defaults = self::editor_defaults( $client->site_request( 'GET', '/template-defaults' ) );
+        if ( is_wp_error( $defaults ) ) { return $unknown; }
+        $id = $defaults['category'] ?? null;
+        $status = [ 'status' => 'pending', 'recipe_revision' => $revision ];
+        if ( null !== $id ) {
+            $remote = self::editor_remote( $client->site_request( 'GET', '/templates/' . $id ), $id );
+            if ( is_wp_error( $remote ) ) { return $unknown; }
+            $profile = get_option( self::key( 'profile', $client->site_id() . ':' . $id . ':' . $remote['revision'] ), null );
+            $unsigned = is_array( $profile ) ? $profile : []; unset( $unsigned['profile_digest'] );
+            if ( is_array( $profile ) && ( $profile['mode'] ?? '' ) === self::MODE && ( $profile['site_id'] ?? '' ) === $client->site_id()
+                && ( $profile['origin'] ?? '' ) === rtrim( home_url( '/' ), '/' ) && hash_equals( self::digest( $unsigned ), (string) ( $profile['profile_digest'] ?? '' ) )
+                && self::digest( $profile['record'] ?? [] ) === self::digest( $record ) && self::digest( $profile['template'] ?? [] ) === self::digest( self::frozen( $remote ) ) ) {
+                $status = self::editor_summary( $record, $remote );
+            }
+        }
+        $key = self::key( 'status', $client->site_id() . ':' . $recipe_id );
+        update_option( $key, $status, false );
+        return get_option( $key, null ) === $status ? $status : $unknown;
+    }
+
     /** Serialize editor saves and retries. A lost PUT acknowledgement must be reconciled first. */
     public static function sync_editor( array $connection, callable $load, bool $saving = false, $client = null, $locks = null ) {
         if ( ! current_user_can( 'manage_options' ) || empty( $connection['enabled'] ) ) { return self::error( 'permission', 'Sign in as an administrator and complete the NOVA connection details before synchronizing.' ); }
@@ -29,7 +63,11 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
             try { $result = self::sync_editor_record( $client, $key, $saved, $pending ); }
             catch ( Throwable $error ) { $result = self::error( 'sync_interrupted', 'The synchronization could not be confirmed. Use Sync saved revision to reconcile it.' ); }
             $saved['posting_sync'] = is_wp_error( $result ) ? [ 'status' => 'failed', 'code' => $result->get_error_code(), 'message' => $result->get_error_message() ] : $result;
-            $saved['local_only'] = is_wp_error( $result );
+            $status_key = self::key( 'status', $client->site_id() . ':' . $saved['id'] );
+            $saved['posting_sync']['recipe_revision'] = $saved['revision'];
+            update_option( $status_key, $saved['posting_sync'], false );
+            if ( get_option( $status_key, null ) !== $saved['posting_sync'] ) { $saved['posting_sync'] = [ 'status' => 'failed', 'code' => 'nova_static_status_storage', 'message' => 'The synchronization result could not be retained. Save this mapping on the Layouts page to retry.' ]; }
+            $saved['local_only'] = 'synced' !== ( $saved['posting_sync']['status'] ?? '' );
             return $saved;
         } finally { $locks->unlock( $lock ); }
     }

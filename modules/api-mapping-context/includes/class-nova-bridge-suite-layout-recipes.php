@@ -486,7 +486,9 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( 'taxonomy:product_cat' === $resource['id'] && isset( $body['posting_page_type'] ) && 'category' !== $body['posting_page_type'] ) { return self::error( 'posting_page_type', 'WooCommerce product categories use the NOVA Category page type.' ); }
         if ( array_key_exists( 'posting_page_types', $body ) && ( ! Nova_Bridge_Suite_Layout_Page_Types::valid( $body['posting_page_types'] ) || ( 'taxonomy:product_cat' === $resource['id'] && $body['posting_page_types'] !== [ 'category' ] ) ) ) { return self::error( 'posting_page_types', 'Select at least one NOVA content type. WooCommerce categories accept Category only.' ); }
         $source = class_exists( 'Nova_Bridge_Suite_Recipe_Visual' ) ? Nova_Bridge_Suite_Recipe_Visual::validate_source( $body, $recipe, $resource ) : null; if ( is_wp_error( $source ) ) { return $source; }
-        $locale_snapshot = Nova_Bridge_Suite_Layout_Locales::retained( Nova_Bridge_Suite_Layout_Locales::capture( $resource, $recipe['builder'], $recipe['blueprint'], (int) ( $source['reference_id'] ?? 0 ) ), $recipe );
+        try {
+            $locale_snapshot = Nova_Bridge_Suite_Layout_Locales::retained( Nova_Bridge_Suite_Layout_Locales::with_manual( Nova_Bridge_Suite_Layout_Locales::capture( $resource, $recipe['builder'], $recipe['blueprint'], (int) ( $source['reference_id'] ?? 0 ) ), $recipe ), $recipe );
+        } catch ( InvalidArgumentException $error ) { return self::error( 'locale_values', $error->getMessage() ); }
         if ( ! empty( $recipe['posting_fields'] ) ) {
             if ( 'static' !== $recipe['mode'] || empty( $resource['post_type'] ) || 'acf' === $recipe['builder'] ) { return self::error( 'posting_fields', 'Use fixed editorial custom fields on a native post layout.' ); }
             $registered = Nova_Bridge_Suite_Layout_Custom_Fields::verify_registration( $recipe, $resource['post_type'], (int) ( $source['reference_id'] ?? 0 ) );

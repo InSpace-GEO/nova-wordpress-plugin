@@ -1,6 +1,7 @@
 <?php
 /** A TranslatePress or Weglot translation shares a native post with the original. */
 defined( 'ABSPATH' ) || exit;
+require_once __DIR__ . '/class-nova-bridge-suite-publication-policy.php';
 require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
 require_once __DIR__ . '/class-nova-wordpress-weglot.php';
@@ -142,6 +143,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
     }
 
     public static function policy( array $content, array $configuration ) {
+        if ( Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ?? null ) ) { return Nova_Bridge_Suite_Publication_Policy::unsupported(); }
         $target = self::target( $content, $configuration );
         if ( is_wp_error( $target ) ) { return $target; }
         if ( 'draft' === ( $configuration['local']['routing']['publication'] ?? '' ) ) { return self::error( 'status', 'A translated view of a published source cannot be saved as a separate draft.' ); }
@@ -152,6 +154,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
     private static function digest( $value ): string { return hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $value ) ); }
 
     public static function plan( array $content, array $configuration, array $context ) {
+        if ( Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ?? null ) ) { return Nova_Bridge_Suite_Publication_Policy::unsupported(); }
         $target = self::target( $content, $configuration );
         if ( is_wp_error( $target ) ) { return $target; }
         if ( $target['post_id'] !== ( $context['target_post_id'] ?? null ) || 'publish' !== ( $context['desired_status'] ?? '' ) ||

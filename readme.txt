@@ -14,6 +14,9 @@ Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge
 = 1.4.5 =
 * Save localized values for preserved fields from linked Polylang and WPML reference pages and select them for the delivery locale.
 * Show saved locale availability and reference fallbacks in the mapping editor. TranslatePress and Weglot retain their provider-managed translations.
+* Allow a manual locale value for a preserved field when no linked localized reference supplies one.
+* Offer to synchronize pending local mappings after saving the NOVA connection, with independent connection and mapping results.
+* Keep application demo URL deliveries in draft, including matching parent paths. Hold test destinations that have no independent draft state.
 * Refresh the updated Beaver page's generated CSS and JavaScript, including draft and preview assets.
 
 = 1.4.4 =

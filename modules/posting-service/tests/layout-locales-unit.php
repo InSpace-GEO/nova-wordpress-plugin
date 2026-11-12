@@ -63,4 +63,23 @@ $snapshot = Nova_Bridge_Suite_Layout_Locales::capture( [ 'id' => 'post_type:page
 check( count( $snapshot['variants'] ) === 1, 'Capture uses the explicitly linked locale reference.' );
 check( $snapshot['variants'][0]['values'][$source_fields['Bewaarde titel']['target']]['value'] === 'Titolo conservato', 'Stable native control identity survives reordered localized modules.' );
 check( ! isset( $snapshot['variants'][0]['values'][$source_fields['<p>Identical value</p>']['target']] ), 'Identical values are not duplicated in locale snapshots.' );
+$snapshot['catalog'][] = [ 'code' => 'fr', 'locale' => 'fr_FR' ];
+$manual_recipe = [ 'builder' => 'beaver', 'mode' => 'static', 'blueprint' => $source['blueprint'], 'bindings' => [], 'regions' => [], 'locale_values' => [
+    'it_IT' => [ $source_fields['Bewaarde titel']['target'] => 'Manual should yield to the reference', $source_fields['<p>Identical value</p>']['target'] => '<p>Manual should yield to identical reference text</p>' ],
+    'fr_FR' => [ $source_fields['Bewaarde titel']['target'] => 'Titre manuel' ],
+] ];
+$manual_snapshot = Nova_Bridge_Suite_Layout_Locales::with_manual( $snapshot, $manual_recipe );
+check( $manual_snapshot['variants'][0]['values'][$source_fields['Bewaarde titel']['target']]['value'] === 'Titolo conservato', 'Manual fallbacks yield to existing localized reference values.' );
+check( ! isset( $manual_snapshot['variants'][0]['values'][$source_fields['<p>Identical value</p>']['target']] ), 'An identical native localized value also takes precedence over a manual fallback.' );
+check( $manual_snapshot['variants'][1]['reference_id'] === 0 && $manual_snapshot['variants'][1]['values'][$source_fields['Bewaarde titel']['target']]['value'] === 'Titre manuel', 'A configured locale without a matching reference accepts a manual fallback.' );
+$manual_record = html_record( $source['blueprint'], [], [] );
+$manual_record['builder'] = $manual_record['recipe']['builder'] = 'beaver';
+$manual_record['recipe']['locale_values'] = $manual_recipe['locale_values'];
+$manual_record['locale_preservation'] = $manual_snapshot;
+$manual_draft = ok( Nova_Bridge_Suite_Stored_Layout::from_recipe( $manual_record ) );
+$manual_compiled = ok( Nova_Bridge_Suite_Stored_Layout::compile( $manual_draft, [ Nova_Bridge_Suite_Writing_Adapter::field_id( '/title' ) => 'Delivered title' ], 'manual-locale', 'fr-FR' ) );
+check( str_contains( wp_json_encode( $manual_compiled['writer_payload'] ), 'Titre manuel' ), 'Publishing uses the saved manual value for its exact locale.' );
+$unknown = $manual_recipe; $unknown['locale_values'] = [ 'zz_ZZ' => [ $source_fields['Bewaarde titel']['target'] => 'Unknown' ] ];
+try { Nova_Bridge_Suite_Layout_Locales::with_manual( $snapshot, $unknown ); check( false, 'Unknown locale should fail' ); }
+catch ( InvalidArgumentException $error ) { check( true, 'Manual values cannot create unconfigured locales.' ); }
 echo 'Locale preservation checks: ' . ( $checks - $locale_start ) . " passed.\n";
