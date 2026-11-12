@@ -2,6 +2,7 @@
 require_once __DIR__ . '/class-nova-bridge-suite-layout-locales.php';
 require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
 require_once __DIR__ . '/class-nova-wordpress-layout-seo.php';
+require_once __DIR__ . '/class-nova-wordpress-atomic-option.php';
 /** Local versioned templates, sealed native blueprints and draft translation. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
@@ -40,22 +41,28 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         return self::error( 'destination', 'Choose an available content destination.', 404 );
     }
     private static function state() {
-        $missing = new stdClass(); $state = get_option( Nova_WordPress_Environment::key( self::OPTION ), $missing ); if ( $state === $missing ) { return [ 'format' => 'nova-layout-recipes-store/v1', 'profiles' => [], 'defaults' => [] ]; }
+        $missing = new stdClass();
+        $state = get_option( Nova_WordPress_Environment::key( self::OPTION ), $missing );
+        return self::layout_state( $state, $state === $missing );
+    }
+    private static function layout_state( $state, bool $missing ) {
+        if ( $missing ) { return [ 'format' => 'nova-layout-recipes-store/v1', 'profiles' => [], 'defaults' => [] ]; }
         return is_array( $state ) && ( $state['format'] ?? '' ) === 'nova-layout-recipes-store/v1' && is_array( $state['profiles'] ?? null ) && is_array( $state['defaults'] ?? null ) ? $state : self::error( 'storage', 'The template history needs reconciliation; no history was overwritten.', 409 );
     }
     private static function mutate( string $option, callable $callback ) {
-        global $wpdb; if ( ! isset( $wpdb->options ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->options ) ) { return self::error( 'storage', 'Atomic template storage is unavailable.', 503 ); }
+        if ( ! Nova_WordPress_Atomic_Option::available() ) { return self::error( 'storage', 'Atomic template storage is unavailable.', 503 ); }
+        $is_layout_store = Nova_WordPress_Environment::key( self::OPTION ) === $option;
         for ( $attempt = 0; $attempt < 4; ++$attempt ) {
-            wp_cache_delete( $option, 'options' ); wp_cache_delete( 'alloptions', 'options' ); wp_cache_delete( 'notoptions', 'options' );
-            $missing = new stdClass(); $before = get_option( $option, $missing );
-            $state = Nova_WordPress_Environment::key( self::OPTION ) === $option ? self::state() : ( $before === $missing ? [] : $before ); if ( is_wp_error( $state ) || ! is_array( $state ) ) { return is_wp_error( $state ) ? $state : self::error( 'storage', 'The local draft journal is invalid.', 409 ); }
+            $stored = Nova_WordPress_Atomic_Option::read( $option );
+            if ( false === $stored ) { return self::error( 'storage', 'The template database read failed.', 500 ); }
+            $state = $is_layout_store ? self::layout_state( $stored['value'] ?? null, null === $stored ) : ( null === $stored ? [] : $stored['value'] );
+            if ( is_wp_error( $state ) || ! is_array( $state ) ) { return is_wp_error( $state ) ? $state : self::error( 'storage', 'The local draft journal is invalid.', 409 ); }
             $change = $callback( $state ); if ( is_wp_error( $change ) ) { return $change; }
             $raw = maybe_serialize( $change['state'] ); if ( strlen( $raw ) > 33554432 ) { return self::error( 'history', 'The retained template history reached its limit. No saved revision was removed.', 409 ); }
             if ( $change['state'] === $state ) { return $change['result']; }
-            $updated = $before === $missing ? add_option( $option, $change['state'], '', false ) : $wpdb->query( $wpdb->prepare( 'UPDATE `' . $wpdb->options . '` SET option_value=%s WHERE option_name=%s AND BINARY option_value=BINARY %s', $raw, $option, maybe_serialize( $before ) ) );
-            wp_cache_delete( $option, 'options' ); wp_cache_delete( 'alloptions', 'options' ); wp_cache_delete( 'notoptions', 'options' );
-            if ( false === $updated && $before !== $missing ) { return self::error( 'storage', 'The template database write failed.', 500 ); }
-            if ( $updated ) { return $change['result']; }
+            $updated = Nova_WordPress_Atomic_Option::write( $option, $stored['fingerprint'] ?? null, $raw );
+            if ( false === $updated ) { return self::error( 'storage', 'The template database write failed.', 500 ); }
+            if ( 1 === $updated ) { return $change['result']; }
         }
         return self::error( 'conflict', 'Another administrator changed these templates. Reload before saving.', 409 );
     }

@@ -2,6 +2,7 @@
 /** Local mapping drafts. No publishing, remote synchronization or activation. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
+require_once __DIR__ . '/class-nova-wordpress-atomic-option.php';
 
 final class Nova_Bridge_Suite_Mapping_Drafts {
 
@@ -163,27 +164,17 @@ final class Nova_Bridge_Suite_Mapping_Drafts {
         return Nova_WordPress_Environment::key( self::OPTION_PREFIX . hash( 'sha256', $reference['entity']['reference_type'] . ':' . $reference['entity']['reference_id'] ) );
     }
 
-    /** Read the database directly; a cached option cannot be the basis of compare-and-swap. */
     private static function stored( string $name ): array {
-        global $wpdb;
-        $raw = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name ) );
-        if ( null === $raw && ! empty( $wpdb->last_error ) ) { return [ 'error' => self::error( 'storage_unavailable', 'Local draft storage is temporarily unavailable. No changes were saved.', 500 ) ]; }
-        $value = null === $raw ? null : maybe_unserialize( $raw );
-        return [ 'raw' => $raw, 'draft' => is_array( $value ) ? $value : null ];
+        $stored = Nova_WordPress_Atomic_Option::read( $name );
+        if ( false === $stored ) { return [ 'error' => self::error( 'storage_unavailable', 'Local draft storage is temporarily unavailable. No changes were saved.', 500 ) ]; }
+        $value = $stored['value'] ?? null;
+        return [ 'fingerprint' => $stored['fingerprint'] ?? null, 'draft' => is_array( $value ) ? $value : null ];
     }
 
-    private static function store( string $name, $previous, array $draft ) {
-        global $wpdb;
-        $value = maybe_serialize( $draft );
-        if ( null === $previous ) {
-            $changed = $wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')", $name, $value ) );
-        } else {
-            $changed = $wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s, autoload = 'no' WHERE option_name = %s AND BINARY option_value = BINARY %s", $value, $name, $previous ) );
-        }
+    private static function store( string $name, ?string $fingerprint, array $draft ) {
+        $changed = Nova_WordPress_Atomic_Option::write( $name, $fingerprint, maybe_serialize( $draft ), true );
         if ( false === $changed ) { return self::error( 'storage_unavailable', 'Local draft storage is temporarily unavailable. No changes were saved.', 500 ); }
         if ( 1 !== $changed ) { return self::error( 'conflict', 'This draft changed elsewhere. Reload and reconcile your changes; nothing was overwritten.', 409 ); }
-        wp_cache_delete( $name, 'options' );
-        wp_cache_delete( 'notoptions', 'options' );
         return true;
     }
 
@@ -236,7 +227,7 @@ final class Nova_Bridge_Suite_Mapping_Drafts {
         $name = self::option_name( $reference ); $stored = self::stored( $name );
         if ( isset( $stored['error'] ) ) { return $stored['error']; }
         $previous = $stored['draft'];
-        if ( ( $previous['revision'] ?? '' ) !== $input['expected_revision'] || ( null !== $stored['raw'] && null === $previous ) ) { return self::error( 'conflict', 'This draft changed elsewhere. Reload and reconcile your changes; nothing was overwritten.', 409 ); }
+        if ( ( $previous['revision'] ?? '' ) !== $input['expected_revision'] || ( null !== $stored['fingerprint'] && null === $previous ) ) { return self::error( 'conflict', 'This draft changed elsewhere. Reload and reconcile your changes; nothing was overwritten.', 409 ); }
         if ( $previous && $previous['signature'] !== $reference['signature'] && true !== ( $input['confirm_reference_change'] ?? false ) ) { return self::error( 'reference_changed', 'The saved draft belongs to an earlier layout. Review all targets and confirm the reference change before saving.', 409 ); }
         if ( ! in_array( $input['catalog_mode'] ?? null, [ 'destination', 'preview', 'nova' ], true ) || ! is_array( $input['template'] ?? null ) || ! self::text( $input['template']['id'] ?? null, 200, false ) || ! self::text( $input['template']['revision'] ?? null, 200, false ) ) { return self::error( 'template', 'Choose an exact template and catalog mode.' ); }
         if ( 'destination' === $input['catalog_mode'] && ( 'local-destination' !== $input['template']['id'] || '1' !== $input['template']['revision'] ) ) { return self::error( 'template', 'Destination preparation uses the local description template.' ); }
@@ -269,7 +260,7 @@ final class Nova_Bridge_Suite_Mapping_Drafts {
             $draft['stored_layout'] = $layout;
             if ( strlen( (string) wp_json_encode( $draft ) ) > 524288 ) { return self::error( 'size', 'The stored layout and mapping exceed the 512 KiB creation limit. No changes were saved.' ); }
         }
-        $saved = self::store( $name, $stored['raw'], $draft );
+        $saved = self::store( $name, $stored['fingerprint'], $draft );
         if ( is_wp_error( $saved ) ) { return $saved; }
         return self::draft_response( $draft, $reference, $catalog );
     }

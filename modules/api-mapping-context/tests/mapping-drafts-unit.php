@@ -25,19 +25,34 @@ class Draft_Test_Request {
 }
 class Draft_Test_DB {
     public $options = 'test_options'; public $rows = []; public $before_query; public $fail = false; public $read_fail = false; public $last_error = ''; public $queries = [];
+    public $charset = 'utf8mb4';
     public function prepare( $sql, ...$args ) { return [ $sql, $args ]; }
-    public function get_var( $prepared ) { $this->last_error = $this->read_fail ? 'test database unavailable' : ''; return $this->read_fail ? null : ( $this->rows[ $prepared[1][0] ]['value'] ?? null ); }
+    public function suppress_errors( $suppress ) { return false; }
+    public function get_col_charset( $table, $column ) { return $this->charset; }
+    public function get_var( $prepared ) {
+        if ( str_starts_with( $prepared[0], 'SELECT SHA1' ) ) {
+            return sha1( str_replace( '🚀', '?', hex2bin( $prepared[1][0] ) ) );
+        }
+        return isset( $this->rows[ $prepared[1][0] ] ) ? '1' : null;
+    }
+    public function get_row( $prepared ) {
+        $this->last_error = $this->read_fail ? 'test database unavailable' : '';
+        $row = $this->rows[ $prepared[1][0] ] ?? null;
+        if ( $this->read_fail || null === $row ) { return null; }
+        return (object) [ 'option_value' => $row['value'], 'fingerprint' => hash( 'sha256', $row['stored_bytes'] ?? $row['value'] ) ];
+    }
     public function query( $prepared ) {
         $this->queries[] = $prepared;
         if ( $this->before_query ) { $callback = $this->before_query; $this->before_query = null; $callback( $this, $prepared ); }
         if ( $this->fail ) { return false; }
         list( $sql, $args ) = $prepared;
-        if ( 0 === strpos( $sql, 'INSERT IGNORE' ) ) {
-            if ( isset( $this->rows[ $args[0] ] ) ) { return 0; }
+        if ( 0 === strpos( $sql, 'INSERT' ) ) {
+            if ( isset( $this->rows[ $args[0] ] ) ) { return false; }
             $this->rows[ $args[0] ] = [ 'value' => $args[1], 'autoload' => 'no' ]; return 1;
         }
-        if ( 0 === strpos( $sql, 'UPDATE' ) && false !== strpos( $sql, 'BINARY option_value = BINARY' ) ) {
-            if ( ( $this->rows[ $args[1] ]['value'] ?? null ) !== $args[2] ) { return 0; }
+        if ( 0 === strpos( $sql, 'UPDATE' ) && false !== strpos( $sql, 'CAST(option_value AS BINARY)' ) ) {
+            $row = $this->rows[ $args[1] ] ?? null;
+            if ( null === $row || hash( 'sha256', $row['stored_bytes'] ?? $row['value'] ) !== $args[2] ) { return 0; }
             $this->rows[ $args[1] ] = [ 'value' => $args[0], 'autoload' => 'no' ]; return 1;
         }
         throw new RuntimeException( 'Unexpected database mutation.' );
@@ -116,9 +131,22 @@ $assert( false !== strpos( implode( ' ', $draft['warnings'] ), 'Unmapped NOVA fi
 $assert( $get()->data['draft']['revision'] === $revision && null === $get( 2 )->data['draft'], 'Draft retrieval is isolated by concrete reference, not shared structural layout.' );
 $assert( current( $wpdb->rows )['autoload'] === 'no', 'Draft options are not autoloaded.' );
 $error( $save( $input ), 'conflict', 409 );
+$option = array_key_first( $wpdb->rows );
+$encoded_draft = $draft;
+$encoded_draft['guidance'] = 'Keep the “FAQ”.';
+$wpdb->rows[$option]['value'] = serialize( $encoded_draft );
+$wpdb->rows[$option]['stored_bytes'] = str_replace( [ '“', '”' ], [ "\x93", "\x94" ], $wpdb->rows[$option]['value'] );
+$wpdb->charset = 'latin1';
 $edited = $input; $edited['expected_revision'] = $revision; $edited['guidance'] = 'New instructions';
 $second = $save( $edited );
-$assert( $second instanceof Draft_Test_Response && $second->data['draft']['revision'] !== $revision, 'Matching revision updates atomically and returns a new token.' );
+$assert( $second instanceof Draft_Test_Response && $second->data['draft']['revision'] !== $revision, 'Matching revision updates atomically even when the connection converts the stored option bytes.' );
+$unsupported = $edited;
+$unsupported['expected_revision'] = $second->data['draft']['revision'];
+$unsupported['guidance'] = 'A legacy column cannot store 🚀.';
+$before_unsupported = $wpdb->rows[$option];
+$error( $save( $unsupported ), 'storage_unavailable', 500 );
+$assert( $wpdb->rows[$option] === $before_unsupported, 'The legacy column must never silently damage the saved draft.' );
+$wpdb->charset = 'utf8mb4';
 $error( $save( $edited ), 'conflict', 409 );
 $edited['expected_revision'] = $second->data['draft']['revision'];
 $wpdb->before_query = static function ( $db, $prepared ) { $name = $prepared[1][1]; $winner = unserialize( $db->rows[ $name ]['value'] ); $winner['revision'] = 'concurrent-winner'; $winner['guidance'] = 'Other editor wins'; $db->rows[ $name ]['value'] = serialize( $winner ); };
