@@ -62,4 +62,8 @@ unset( $GLOBALS['recipe_denied'] );
 $GLOBALS['beaver_update_error'] = true;
 recipe_assert( $adapter->publication_apply( 901, $payload, [] )->get_error_code() === 'native_save_failed', 'Native write errors propagate to the recovery journal' );
 recipe_assert( ! Nova_Bridge_Suite_Recipe_Builders::adapter( 'divi4' )->publication_support( 'page' )['supported'], 'Other unsupported builders retain their existing boundary' );
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-bridge-suite-stored-layout-provider.php';
+$scope = Nova_Bridge_Suite_Stored_Layout_Provider::snapshot_scope( 'beaver', $payload );
+recipe_assert( $scope === [ 'meta' => [ '_fl_builder_data_settings' => null ] ], 'Beaver snapshot scope retains metadata names without another full native document' );
+recipe_assert( $adapter->publication_snapshot( 901, $scope ) === $adapter->publication_snapshot( 901, $payload ), 'Compact and historical Beaver scopes read the same native state' );
 echo 'Beaver publishing checks: ' . ( $assertions - $before_checks ) . " passed.\n";

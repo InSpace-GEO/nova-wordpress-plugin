@@ -119,8 +119,12 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             $recipe = $record['recipe'] ?? []; $builder = $record['builder'] ?? $recipe['builder'] ?? '';
             $resource = $record['resource_id'] ?? ''; $type = self::post_type( $resource );
             if ( $builder !== ( $recipe['builder'] ?? '' ) || ( $recipe['mode'] ?? 'static' ) !== 'static' || ! is_array( $recipe['blueprint'] ?? null ) || ! is_array( $recipe['bindings'] ?? null ) || ! empty( $recipe['regions'] ) ) { self::fail( 'Automatic posting needs a complete saved layout with fixed scalar fields.' ); }
-            $inventory = self::inventory( $builder, $recipe['blueprint'], $resource );
             $adapter = self::checked( Nova_Bridge_Suite_Recipe_Engine::adapter( $builder ) );
+            // Project older saved Beaver captures compactly without changing their stored revision.
+            if ( 'beaver' === $builder && $adapter instanceof Nova_Bridge_Suite_Recipe_Native_Adapter ) {
+                $recipe['blueprint'] = $adapter->compact_blueprint( $recipe['blueprint'] );
+            }
+            $inventory = self::inventory( $builder, $recipe['blueprint'], $resource );
             $draft = [ 'schema_version' => 1, 'revision' => (string) ( $record['id'] ?? '' ) . ':' . (string) ( $record['revision'] ?? '' ), 'reference_type' => 'post', 'reference_id' => 0, 'signature' => Nova_Bridge_Suite_Recipe_Engine::digest( $recipe['blueprint'] ), 'catalog_mode' => 'destination', 'template' => [ 'id' => 'local-destination', 'revision' => '1' ], 'profile_page_type' => $record['posting_page_type'] ?? ( 'post' === $type ? 'informative' : 'service' ), 'label' => $record['label'] ?? 'Saved content layout', 'guidance_mode' => empty( $recipe['instructions'] ) ? 'clear' : 'set', 'guidance' => $recipe['instructions'] ?? '', 'routing' => [ 'operation' => 'create', 'publication' => 'publish', 'post_type' => $type, 'locale' => '' ], 'fields' => [], 'target_descriptors' => [], 'repeat_slots' => [], 'destination_groups' => [] ];
             $draft['fields']['/title'] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => true, 'instructions' => '', 'description' => [ 'label' => 'Content title', 'purpose' => 'The native content title matching the supplied heading.', 'value_type' => 'text', 'constraints' => [] ] ];
             $draft['target_descriptors']['/title'] = [ 'path' => '/title' ];

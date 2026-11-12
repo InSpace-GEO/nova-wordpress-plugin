@@ -81,7 +81,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Provider {
     }
     /** Retain exactly the provider's readback scope with the owned native association. */
     public static function snapshot_scope( string $builder, array $payload ): array {
-        $scope = 'elementor' === $builder ? [] : ( in_array( $builder, [ 'core', 'gutenberg' ], true ) ? [ 'meta' => array_fill_keys( array_keys( $payload['meta'] ?? [] ), null ) ] : $payload );
+        $scope = 'elementor' === $builder ? [] : ( in_array( $builder, [ 'core', 'gutenberg', 'beaver' ], true ) ? [ 'meta' => array_fill_keys( array_keys( $payload['meta'] ?? [] ), null ) ] : $payload );
         if ( Nova_Bridge_Suite_Native_Media::has_featured( $payload ) ) { $scope['nova_featured'] = true; }
         return $scope;
     }
