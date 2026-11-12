@@ -305,7 +305,12 @@ recipe_assert( Nova_Bridge_Suite_Recipe_Builders::adapter( $active_divi )->metad
 recipe_assert( ! Nova_Bridge_Suite_Recipe_Builders::adapter( $inactive_divi )->metadata()['available'], 'Inactive Divi major cannot author a draft' );
 define( '__BREAKDANCE_VERSION', '2.8.0' );
 recipe_assert( '2.8.0' === $breakdance->metadata()['version'] && $breakdance->metadata()['available'], 'Recognizes the version constant published by Breakdance 2.8.0' );
-if ( ! class_exists( 'FLBuilderModel' ) ) { class FLBuilderModel {} }
+if ( ! class_exists( 'FLBuilderModel' ) ) {
+    class FLBuilderModel {
+        public static $cleared_posts = [];
+        public static function delete_all_asset_cache( $post_id = false ) { self::$cleared_posts[] = $post_id; }
+    }
+}
 foreach ( [ 'wpbakery', 'avada', $active_divi, 'beaver', 'breakdance' ] as $provider ) {
     $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( $provider );
     $snapshot = recipe_ok( $adapter->starter( 'static' ), "$provider blueprint" );
