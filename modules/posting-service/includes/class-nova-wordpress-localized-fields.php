@@ -161,7 +161,8 @@ final class Nova_WordPress_Localized_Fields {
                             $omit = $excluded || in_array( $type, [ 'header', 'footer', 'loop-item' ], true ) ||
                                 ( $content && is_string( $element_id ) && (int) $element_id !== $this->id );
                             $area = in_array( $tag, [ 'MAIN', 'ARTICLE' ], true ) || 'main' === $tags->get_attribute( 'role' ) ||
-                                $content || in_array( $type, [ 'single', 'single-post', 'single-page' ], true ) || 'post-' . $this->id === $tags->get_attribute( 'id' );
+                                $content || in_array( $type, [ 'single', 'single-post', 'single-page' ], true ) ||
+                                ( 'term' === $this->meta_type && 'product-archive' === $type ) || 'post-' . $this->id === $tags->get_attribute( 'id' );
                             $regions[$tag][] = [ (int) $area, (int) $omit ]; $scope += (int) $area; $skipped += (int) $omit;
                         }
                     }
