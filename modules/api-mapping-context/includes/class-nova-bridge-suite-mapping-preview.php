@@ -89,6 +89,7 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		if ( self::$canvas ) {
 			if ( 'post' === $type ) {
 				add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 );
+				add_filter( 'fl_builder_render_module_html_content', [ __CLASS__, 'mark_beaver_html' ], PHP_INT_MAX, 4 );
 				add_filter( 'the_content', [ __CLASS__, 'mark_shortcodes' ], 9 );
 				require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
 				add_filter( 'do_shortcode_tag', [ 'Nova_Bridge_Suite_Shortcode_Preview', 'tag_output' ], PHP_INT_MAX, 3 );
@@ -113,6 +114,11 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] || ! str_contains( $content, '<!-- wp:html' ) ) { return $content; }
 		require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
 		return serialize_blocks( Nova_Mapping_Gutenberg_HTML::preview_blocks( parse_blocks( $content ) ) );
+	}
+	public static function mark_beaver_html( string $content, string $type, $settings, $module ): string {
+		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }
+		require_once dirname( __DIR__ ) . '/adapters/beaver-html.php';
+		return Nova_Mapping_Beaver_HTML::preview( $content, $type, $settings, $module );
 	}
 	public static function mark_shortcodes( string $content ): string {
 		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }

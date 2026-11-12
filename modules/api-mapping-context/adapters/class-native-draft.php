@@ -53,7 +53,7 @@ final class Nova_Native_Layout_Draft {
                 break;
             case 'beaver':
                 if ( empty( $layout['nodes'] ) || ! is_array( $layout['nodes'] ) ) { return new WP_Error( 'nova_draft_layout', 'The compiled Beaver document is missing.' ); }
-                $nodes = nova_mapping_bb_normalize_incoming_nodes( $layout['nodes'] );
+                $nodes = nova_mapping_bb_normalize_incoming_nodes( $layout['nodes'], $layout['array_paths'] ?? [] );
                 $post['post_content'] = nova_mapping_bb_tree_to_fallback_html( nova_mapping_bb_flat_to_tree( $nodes ) );
                 $meta['_fl_builder_enabled'] = true;
                 break;

@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.2
+Stable tag: 1.4.3
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.3 =
+* Map individual text, link and image fields inside Beaver Builder HTML modules while preserving their surrounding markup.
+* Highlight those fields in the mapping preview.
+* Support complete Beaver creation mappings up to 1 MiB and update plans up to 1.5 MiB within the existing journal storage limit.
+* Preserve native typography arrays when saving Beaver layouts.
 
 = 1.4.2 =
 * Avoid duplicating Beaver Builder node settings in captured layouts.

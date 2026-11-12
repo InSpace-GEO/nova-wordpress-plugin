@@ -258,6 +258,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 break;
             case 'beaver':
                 require_once $adapters . 'beaver-document.php';
+                require_once $adapters . 'beaver-html.php';
                 break;
             case 'breakdance':
                 require_once $adapters . 'breakdance-document.php';
@@ -307,7 +308,8 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 }
             } elseif ( 'beaver' === $this->builder ) {
                 if ( ! function_exists( 'nova_mapping_bb_get_layout_nodes' ) || ! get_post_meta( $post_id, '_fl_builder_enabled', true ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'The selected item does not contain an active Beaver layout.' ); }
-                $blueprint['document'] = self::arrays( nova_mapping_bb_compact_tree( nova_mapping_bb_flat_to_tree( nova_mapping_bb_get_layout_nodes( $post_id ) ) ) );
+                $blueprint['document'] = self::arrays( nova_mapping_bb_compact_tree( nova_mapping_bb_capture_arrays( nova_mapping_bb_flat_to_tree( nova_mapping_bb_get_layout_nodes( $post_id ) ) ) ) );
+                if ( $discover_custom_html ) { $blueprint['document'] = Nova_Mapping_Beaver_HTML::capture( $blueprint['document'] ); }
             } elseif ( 'breakdance' === $this->builder ) {
                 if ( ! class_exists( 'Nova_Mapping_Breakdance_Document' ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'provider', 'Breakdance is unavailable.' ); }
                 $wrapper = Nova_Mapping_Breakdance_Document::decode_breakdance_tree( Nova_Mapping_Breakdance_Document::get_raw_breakdance_data( $post_id ) );
@@ -673,6 +675,15 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             } elseif ( 'beaver' === $this->builder ) {
                 $settings = $node['settings'] ?? [];
                 if ( 'module' === ( $node['type'] ?? '' ) && is_array( $settings ) ) {
+                    if ( 'html' === ( $settings['type'] ?? '' ) && isset( $node['nova_html_slots'] ) ) {
+                        $this->helpers();
+                        $connected = ! empty( $settings['connections']['html'] );
+                        foreach ( Nova_Mapping_Beaver_HTML::fields( $node, $path, $node_protected || $connected ) as $field ) {
+                            $field['context'] = $node_context;
+                            $field['reason'] = $connected ? 'This Beaver field has an active field connection. Edit or map its source instead.' : ( $node_protected ? 'The owning native region is protected.' : '' );
+                            $result['fields'][] = $field + $this->provenance( $node, $path, $field['target'] );
+                        }
+                    }
                     foreach ( [ 'heading', 'text', 'label', 'link', 'caption', 'alt' ] as $key ) { if ( isset( $settings[ $key ] ) && is_string( $settings[ $key ] ) ) { $add( $path . '/settings/' . $key, 'text' === $key ? 'html' : ( 'link' === $key ? 'url' : 'text' ), $key ); } }
                     if ( 'photo' === ( $settings['type'] ?? '' ) && 'url' === ( $settings['photo_source'] ?? '' ) && isset( $settings['photo_url'] ) && is_string( $settings['photo_url'] ) ) { $add( $path . '/settings/photo_url', 'url', 'image_url' ); }
                     if ( in_array( $settings['type'] ?? '', [ 'accordion', 'tabs' ], true ) && is_array( $settings['items'] ?? null ) ) { $this->walk_inventory( $settings['items'], $path . '/settings/items', $result, $node_protected, $node_context . ' > FAQ items', [ 'node' => $node, 'path' => $path ] ); }
@@ -883,7 +894,11 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             else { $payload['native_document'] = $document; }
         } elseif ( 'beaver' === $this->builder ) {
             if ( ! function_exists( 'nova_mapping_bb_tree_to_flat' ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'provider', 'The Beaver layout reader is unavailable.' ); }
+            try { $document = Nova_Mapping_Beaver_HTML::render( $document ); }
+            catch ( InvalidArgumentException $error ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'custom_html', $error->getMessage() ); }
             $tree = $this->beaver_objects( $document, $seed ); $document = self::arrays( nova_mapping_bb_tree_to_flat( $tree, false ) ); $payload['layout'] = [ 'nodes' => $document ];
+            $array_paths = nova_mapping_bb_compiled_array_paths( $tree );
+            if ( $array_paths ) { $payload['layout']['array_paths'] = $array_paths; }
         } else {
             if ( ! class_exists( 'Nova_Mapping_Breakdance_Document' ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'provider', 'The Breakdance layout reader is unavailable.' ); }
             $next_id = 1; $root = $this->breakdance_ids( $document[0], $next_id ); $envelope = $blueprint['envelope'] ?? [];

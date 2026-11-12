@@ -90,6 +90,11 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             if ( 'gutenberg' === $recipe['builder'] ) {
                 $expected['document'] = Nova_Mapping_Gutenberg_HTML::source_blocks( $expected['document'] );
             }
+            if ( 'beaver' === $recipe['builder'] && ! is_wp_error( $current ) ) {
+                require_once dirname( __DIR__ ) . '/adapters/beaver-html.php';
+                $expected['document'] = Nova_Mapping_Beaver_HTML::source_nodes( $expected['document'] );
+                $current['blueprint']['document'] = Nova_Mapping_Beaver_HTML::source_nodes( $current['blueprint']['document'] );
+            }
             if ( 'flatsome' === $recipe['builder'] && class_exists( 'Nova_Bridge_Suite_Recipe_Flatsome' ) ) {
                 $expected = Nova_Bridge_Suite_Recipe_Flatsome::linked_blueprint( $expected );
             }
@@ -159,6 +164,10 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 || ( 'unbound' === $locator['strategy'] && str_ends_with( $field['target'], '/innerHTML' ) ) ) ) {
                 require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
                 $locator = Nova_Mapping_Gutenberg_HTML::preview_locator( $design['blueprint'], $field ) ?? $locator;
+            }
+            if ( 'beaver' === $builder && str_contains( $field['target'], '/nova_html_slots/' ) ) {
+                require_once dirname( __DIR__ ) . '/adapters/beaver-html.php';
+                $locator = Nova_Mapping_Beaver_HTML::locator( $design['blueprint'], $field ) ?? $locator;
             }
             $field['locator'] = $locator; $fields[] = $field;
             $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator', 'current_value', 'node_target' ] ) );
