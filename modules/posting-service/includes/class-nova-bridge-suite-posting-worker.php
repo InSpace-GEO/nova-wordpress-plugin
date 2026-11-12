@@ -410,7 +410,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                     }
                 }
                 if ( $this->default_dispatch ) { $this->writer = self::WRITERS[$writer_name]; }
-                if ( Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && in_array( $writer_name, [ 'static_recipe_v1', 'dictionary_translation' ], true ) ) {
+                if ( Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && 'dictionary_translation' === $writer_name ) {
                     $error = Nova_Bridge_Suite_Publication_Policy::unsupported();
                     return $this->native_failure( $job, $snapshot, $error->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $error->get_error_message() );
                 }
@@ -421,7 +421,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 }
                 if ( is_wp_error( $selected ) && 'nova_translation_source_pending' === $selected->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
                 if ( is_wp_error( $selected ) ) { return $this->native_failure( $job, $snapshot, $selected->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $selected->get_error_message() ); }
-                if ( Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) ) { $selected['routing']['publication'] = 'draft'; }
+                if ( ! $static_term && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) ) { $selected['routing']['publication'] = 'draft'; }
                 $reference = $selected['reference'] ?? []; $routing = $selected['routing'] ?? [];
                 $operation = $routing['operation'] ?? null; $target = $reference['reference_id'] ?? 0;
                 $source_free = ( $local_rules || $static_term || $stored_layout || $owned_cpt ) && 'create' === $operation && 0 === $target;
@@ -442,10 +442,10 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( is_wp_error( $job ) ) { return $job; }
             }
             if ( ! in_array( $job['phase'], [ 'planned', 'applying', 'committed' ], true ) ) { return $this->block( $job, 'journal_phase_invalid' ); }
-            if ( Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && ( $job['payload']['plan']['desired_status'] ?? $job['payload']['plan']['context']['desired_status'] ?? '' ) !== 'draft' ) {
+            $static_term = ( $job['payload']['native_writer'] ?? '' ) === 'static_recipe_v1';
+            if ( ! $static_term && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && ( $job['payload']['plan']['desired_status'] ?? $job['payload']['plan']['context']['desired_status'] ?? '' ) !== 'draft' ) {
                 return $this->block( $job, 'test_delivery_requires_draft_plan' );
             }
-            $static_term = ( $job['payload']['native_writer'] ?? '' ) === 'static_recipe_v1';
             $native_id_key = $static_term ? 'term_id' : 'post_id';
             $target_lock = $static_term ? 'term-url:' . $job['site_id'] . ':' . hash( 'sha256', $job['payload']['plan']['target']['target_url'] ) : ( ( $job['payload']['native_writer'] ?? '' ) === 'local_rules'
                 ? 'rule-url:' . $job['site_id'] . ':' . $snapshot['url_id']

@@ -166,13 +166,19 @@ $wire['content'] = $snapshot['destination_values'];
 $worker_update = deliver_category( $wire, $connection );
 ensure( $worker_update['target_id'] === $id, 'Worker selected a different category.' );
 $wire['id'] = wp_generate_uuid4(); $wire['url_id'] = '99';
-$wire['url'] = home_url( '/shop/nova-test-' . strtolower( wp_generate_password( 8, false ) ) . '/' );
+$parent_slug = 'nova-test-' . strtolower( wp_generate_password( 8, false ) );
+$parent = ensure( wp_insert_term( 'NOVA test parent', 'product_cat', [ 'slug' => $parent_slug ] ) );
+$wire['url'] = trailingslashit( get_term_link( $parent['term_id'], 'product_cat' ) ) . 'lorem-ipsum-demo-category/';
 $created = deliver_category( $wire, $connection, true );
 $new_id = $created['target_id'];
 ensure( $new_id !== $id && get_field( 'seo_text', 'product_cat_' . $new_id, false ) !== '', 'Created category lost ACF content.' );
 ensure( get_term_meta( $new_id, '_seopress_titles_title', true ) === 'New Omega 3 SEO Title', 'Created category lost SEO title.' );
 ensure( ! metadata_exists( 'term', $new_id, 'protected_copy' ) && ! metadata_exists( 'term', $new_id, '_nova_weglot_languages' ), 'New category copied protected example values.' );
 echo "Public delivery worker update, creation and lost-receipt recovery passed.\n";
+$wire['id'] = wp_generate_uuid4();
+$test_update = deliver_category( $wire, $connection );
+ensure( $test_update['target_id'] === $new_id && $test_update['payload']['context']['desired_status'] === 'publish', 'Category test URL update failed to publish.' );
+echo "Category demo URL creation, update and retry published successfully.\n";
 
 // Another administrator changing a selected value after planning must win.
 $context['operation_id'] = wp_generate_uuid4();

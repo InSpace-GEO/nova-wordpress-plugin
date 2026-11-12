@@ -26,8 +26,6 @@ foreach ( [ '/normal/', '/lorem-ipsum-demo-service-copy/', '/lorem-ipsum-demo-se
     check( ! Nova_Bridge_Suite_Publication_Policy::test_url( 'https://fixture.test' . $path ), 'Ordinary paths retain their publication policy.' );
 }
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-translation-writer.php';
-require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-static-term-writer.php';
 $test_content = [ 'url' => '/lorem-ipsum-demo-category/' ];
 check( Nova_Bridge_Suite_Translation_Writer::policy( $test_content, [] )->get_error_code() === 'nova_test_delivery_draft_unavailable', 'Shared translated test views are held before publication.' );
-check( Nova_Bridge_Suite_Static_Term_Writer::plan( $test_content, [], [] )->get_error_code() === 'nova_test_delivery_draft_unavailable', 'Test categories are held before public term creation.' );
 echo 'Application test draft checks: ' . ( $checks - $before_checks ) . " passed.\n";
