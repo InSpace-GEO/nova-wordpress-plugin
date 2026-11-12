@@ -438,6 +438,11 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( is_wp_error( $plan ) && 'nova_translation_source_pending' === $plan->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
                 if ( is_wp_error( $plan ) ) { return $this->native_failure( $job, $snapshot, $plan->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $plan->get_error_message() ); }
                 if ( ! is_array( $plan ) ) { return $this->block( $job, 'plan_invalid' ); }
+                if ( 'dictionary_translation' === $writer_name ) {
+                    $owns = Nova_Bridge_Suite_Posting_Url_Scope::owns( $this->connection, $plan['target']['target_url'], $snapshot['language'] );
+                    if ( is_wp_error( $owns ) ) { return $this->block( $job, $owns->get_error_code() ); }
+                    if ( ! $owns ) { return $this->native_failure( $job, $snapshot, 'nova_translation_url_scope', [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], 'The resolved localized URL is outside this installation\'s publishing scope.' ); }
+                }
                 $job = $this->save_payload( $job, [ 'plan' => $plan ], 'planned', [ 'target_id' => $target ] );
                 if ( is_wp_error( $job ) ) { return $job; }
             }
