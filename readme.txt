@@ -14,6 +14,7 @@ Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge
 = 1.4.2 =
 * Avoid duplicating Beaver Builder node settings in captured layouts.
 * Compact older saved Beaver layouts when synchronizing, preserving their design and existing saved revisions.
+* Avoid repeating full Beaver layouts in update recovery records.
 
 = 1.4.1 =
 * Enable publishing and synchronizing captured Beaver Builder layouts as creation defaults.
