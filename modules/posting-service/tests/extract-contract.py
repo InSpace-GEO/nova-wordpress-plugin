@@ -9,11 +9,20 @@ import pathlib
 import sys
 import yaml
 
-COMMIT = "1bd3fb94e6360a8dc9c5247917bcd12a2aac8271"
-SHA256 = "80432e985cab8d142d381560aef41e9635c63a696bc293d2a8f10a305813db98"
+COMMIT = "966808db3cc3b63782db97d2d4bb218d91da5ceb"
+SHA256 = "1135b9b5f78b5abeceff807cf479864186db4b96bc653c0375b67e29823017bf"
 raw = pathlib.Path(sys.argv[1]).read_bytes().replace(b"\r\n", b"\n")
 assert hashlib.sha256(raw).hexdigest() == SHA256, "Review and pin the new API release first"
-all_schemas = yaml.safe_load(raw)["components"]["schemas"]
+class Loader(yaml.SafeLoader):
+    """YAML 1.2 lets an anchor be redefined (the OpenAPI bundler reuses names); an alias
+    refers to the latest definition. PyYAML refuses that, so forget the earlier one."""
+    def compose_node(self, parent, index):
+        event = self.peek_event()
+        if not isinstance(event, yaml.events.AliasEvent) and getattr(event, "anchor", None) is not None:
+            self.anchors.pop(event.anchor, None)
+        return super().compose_node(parent, index)
+
+all_schemas = yaml.load(raw, Loader=Loader)["components"]["schemas"]
 selected = {}
 
 def visit(name):

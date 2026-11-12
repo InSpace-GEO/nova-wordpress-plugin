@@ -39,6 +39,7 @@ function get_post_meta( $id, $key = '', $single = true ) {
     return $single ? ( $GLOBALS['meta'][$id][$key] ?? '' ) : ( metadata_exists( 'post', $id, $key ) ? [ $GLOBALS['meta'][$id][$key] ] : [] );
 }
 function metadata_exists( $type, $id, $key ) { return array_key_exists( $key, $GLOBALS['meta'][$id] ?? [] ); }
+function delete_post_meta( $id, $key ) { unset( $GLOBALS['meta'][$id][$key] ); return true; }
 function update_post_meta( $id, $key, $v ) { if ( $key === ( $GLOBALS['drop_meta'] ?? null ) ) { return false; } $v = wp_unslash( $v ); $GLOBALS['meta'][$id][$key] = is_scalar( $v ) || null === $v ? (string) $v : $v; if ( $key === ( $GLOBALS['crash_meta'] ?? null ) ) { $GLOBALS['crash_meta'] = null; throw new RuntimeException( 'Lost completed metadata save response' ); } return true; }
 function get_page_template_slug( $id ) { $template = get_post_meta( $id, '_wp_page_template', true ); return $template === 'default' ? '' : $template; }
 function get_permalink( $id ) { $p = get_post( $id ); return 'https://fixture.test/' . ( $p->post_type === 'portfolio' ? 'library/' : '' ) . $p->post_name . '/'; }
@@ -70,6 +71,7 @@ require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layo
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-writer.php';
 class WP_REST_Posts_Controller {}
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-content-transport.php';
+require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-recipe-builders.php';
 function get_registered_meta_keys( $kind, $type = '' ) { return []; }
 function is_protected_meta( $name, $kind ) { return '_' === $name[0]; }
 function acf_get_field_groups( $screen ) { return ( $screen['page_template'] ?? '' ) === 'templates/full.php' ? [ [ 'key'=>'group_intro' ] ] : []; }
@@ -136,8 +138,11 @@ check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 
 reset_native(); $p = new WP_Post(); $p->ID = 30; $p->post_type = 'post'; $p->post_name = 'article'; $p->post_status = 'publish'; $p->post_author = 8; $p->post_content = '<p>Original</p>'; $posts[30] = $p;
 $plan = planned( 'core' ); ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) ) );
 check( $plan['target_post_id'] === 30 && $inserts === 0 && $posts[30]->post_author === 8 && $posts[30]->post_name === 'article', 'An existing native Post keeps its ID, author and URL while adopting the saved layout.' );
-reset_native(); $posts[30] = $p; $meta[30]['_elementor_edit_mode'] = 'builder'; [ $content, $config ] = fixture( 'core' );
-check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $config, [ 'operation_id' => op( 1 ) ] ) ) && $saves === 0, 'A content-field provider cannot report success while another builder still owns rendering.' );
+reset_native(); $p->post_content = '<p>Original</p>'; $posts[30] = $p; $meta[30]['_elementor_edit_mode'] = 'builder'; $meta[30]['_et_pb_use_builder'] = 'on'; [ $content, $config ] = fixture( 'core' );
+$plan = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $config, [ 'operation_id' => op( 1 ) ] ) ); $saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) ) );
+$replaced = $meta[30][ Nova_Bridge_Suite_Recipe_Builders::REPLACED_META ] ?? [];
+check( $saved['post_id'] === 30 && $inserts === 0 && ! isset( $meta[30]['_elementor_edit_mode'], $meta[30]['_et_pb_use_builder'] ) && [ 'builder' ] === ( $replaced['_elementor_edit_mode'] ?? null ) && [ 'on' ] === ( $replaced['_et_pb_use_builder'] ?? null ), 'A page another builder rendered is overwritten, and the other builder markers are kept aside so the new layout renders.' );
+$count = $saves; ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) ) ); ok( Nova_Bridge_Suite_Stored_Layout_Writer::recover( $plan, op( 1 ) ) ); check( $saves === $count, 'Replaying the takeover verifies without saving again.' );
 reset_native(); $denied = [ 'create_post' ]; check( ! Nova_Bridge_Suite_Stored_Layout_Provider::support( 'core', 'post' )['supported'], 'Native creation capabilities are enforced independently of destination names.' );
 $denied = []; $editor_unavailable = true; check( ! Nova_Bridge_Suite_Stored_Layout_Provider::support( 'gutenberg', 'portfolio' )['supported'], 'A registered destination without content support gives an explicit unavailable reason.' );
 $editor_unavailable = false;
@@ -148,7 +153,10 @@ foreach ( [ 'divi4', 'divi5' ] as $native_builder ) {
 foreach ( [ 'core', 'gutenberg' ] as $fallback ) {
     reset_native(); $p->post_content = '<!-- wp:divi/placeholder /-->'; $posts[30] = $p;
     [ $content, $config ] = fixture( $fallback );
-    check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $config, [ 'operation_id' => op( 1 ) ] ) ) && $saves === 0, 'A Divi 5 target must not be overwritten by ' . $fallback );
+    $meta[30]['_et_pb_use_divi_5'] = 'on';
+    $saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $config, [ 'operation_id' => op( 1 ) ] ) ), op( 1 ) ) );
+    check( $saved['post_id'] === 30 && $saves === 1 && false === strpos( $posts[30]->post_content, 'wp:divi/' ) && ! isset( $meta[30]['_et_pb_use_divi_5'] ), 'A Divi 5 page at the exact URL is overwritten by ' . $fallback . ' and Divi no longer renders it.' );
+    $p->post_content = '<!-- wp:divi/placeholder /-->';
     $field = 'gutenberg' === $fallback ? 'native_document' : 'content';
     check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Provider::probe( $fallback, 'post', [ $field => $p->post_content ], 'draft' ) ), 'A stale Divi 5 payload cannot be published as ' . $fallback );
 }

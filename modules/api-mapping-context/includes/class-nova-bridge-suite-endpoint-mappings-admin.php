@@ -2,6 +2,8 @@
 /** All-destination onboarding and read-only live document inspection. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
+
 final class Nova_Bridge_Suite_Endpoint_Mappings_Admin {
     private static $bootstrapped = false;
 
@@ -22,6 +24,7 @@ final class Nova_Bridge_Suite_Endpoint_Mappings_Admin {
         wp_localize_script( 'nova-endpoint-mappings', 'NovaEndpointMappings', [
             'url' => esc_url_raw( rest_url( 'nova-bridge/v1/mapping' ) ),
             'nonce' => wp_create_nonce( 'wp_rest' ),
+            'environment' => Nova_WordPress_Environment::identity(),
             'layoutsUrl' => admin_url( 'options-general.php?page=nova-settings&tab=layouts' ),
             'recipesUrl' => admin_url( 'options-general.php?page=nova-settings&tab=layout-recipes' ),
         ] );

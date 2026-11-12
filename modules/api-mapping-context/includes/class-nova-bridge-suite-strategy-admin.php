@@ -2,6 +2,8 @@
 /** Strategy-scoped mapping interface. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
+
 final class Nova_Bridge_Suite_Strategy_Admin {
 	public static function bootstrap(): void {
 		add_filter( 'nova_bridge_suite_settings_tabs', [ __CLASS__, 'tab' ], 100 );
@@ -24,6 +26,7 @@ final class Nova_Bridge_Suite_Strategy_Admin {
 			'url' => esc_url_raw( rest_url( 'nova-bridge/v1/strategy' ) ),
 			'mappingUrl' => esc_url_raw( rest_url( 'nova-bridge/v1/mapping' ) ),
 			'nonce' => wp_create_nonce( 'wp_rest' ),
+            'environment' => Nova_WordPress_Environment::identity(),
 			'postingIntegration' => class_exists( 'Nova_Bridge_Suite_Mapping_Sync' ),
 			'postingUrl' => esc_url_raw( rest_url( 'nova-bridge/v1/posting' ) ),
 			'endpointSettingsUrl' => admin_url( 'options-general.php?page=nova-settings&tab=api-mapping-context' ),

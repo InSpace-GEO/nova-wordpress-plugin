@@ -15,11 +15,11 @@
 	function recipePostingSummary( resource ) {
 		var recipe = resource.recipe_default, type = recipe && recipe.posting_page_type;
 		if ( ! recipe || ! [ 'service', 'informative', 'category' ].includes( type ) ) { return []; }
-		var label = type === 'service' ? 'Service' : type === 'informative' ? 'Informative' : 'Category', sync = recipe.posting_sync;
+		var types = recipe.posting_page_types || [ type ], label = types.map( function ( value ) { return value === 'service' ? 'Service' : value === 'informative' ? 'Informative' : 'Category'; } ).join( ', ' ), sync = recipe.posting_sync;
 		var scoped = sync && typeof sync.route_prefix === 'string' && sync.route_prefix.startsWith( '/' ) && sync.route_prefix.length > 1;
-		var confirmed = sync && sync.status === 'synced' && sync.verified === true && ( sync.default_selected === true || scoped ) && sync.recipe_revision === recipe.revision && sync.page_type === type && Number.isSafeInteger( sync.template_revision ) && sync.template_revision > 0 && typeof sync.template_id === 'string' && !! sync.template_id;
-		var result = [ ( confirmed && scoped ? 'URL route ' + sync.route_prefix + ' for NOVA page type: ' : 'Default for NOVA page type: ' ) + label + ' → ' + resource.label + '.' ];
-		if ( confirmed ) { result.push( scoped ? 'Posting-service URL route confirmed when saved or synchronized.' : 'Posting-service default confirmed when saved or synchronized.' ); }
+		var confirmed = sync && sync.status === 'synced' && sync.verified === true && ( sync.default_selected === true || scoped ) && sync.recipe_revision === recipe.revision && sync.page_type === type && same( sync.page_types || [ sync.page_type ], types ) && Number.isSafeInteger( sync.template_revision ) && sync.template_revision > 0 && typeof sync.template_id === 'string' && !! sync.template_id;
+		var result = [ ( types.length > 1 ? 'NOVA content types: ' : confirmed && scoped ? 'URL route ' + sync.route_prefix + ' for NOVA page type: ' : 'Default for NOVA page type: ' ) + label + ' → ' + resource.label + '.' ];
+		if ( confirmed ) { result.push( types.length > 1 ? 'Posting-service routing confirmed for all selected content types when saved or synchronized.' : scoped ? 'Posting-service URL route confirmed when saved or synchronized.' : 'Posting-service default confirmed when saved or synchronized.' ); }
 		else if ( sync && sync.status === 'failed' && sync.recipe_revision === recipe.revision && sync.page_type === type ) { result.push( 'Saved locally · posting-service default not confirmed. ' + ( typeof sync.message === 'string' ? sync.message : 'Open the layout to retry synchronization.' ) ); }
 		else { result.push( resource.id === 'taxonomy:product_cat' && ! sync ? 'Saved locally · last posting-service confirmation is unavailable.' : 'Saved locally · posting-service default not confirmed.' ); if ( recipe.posting_support && recipe.posting_support.supported === false && recipe.posting_support.reason ) { result.push( recipe.posting_support.reason ); } }
 		return result;
@@ -90,8 +90,8 @@
 		return result;
 	}
 	function safePreview( value, origin ) { try { var url = new URL( value, origin ); return [ 'http:', 'https:' ].includes( url.protocol ) && url.origin === new URL( origin ).origin ? url.href : ''; } catch ( error ) { return ''; } }
-	async function request( base, suffix, nonce, body ) {
-		var options = { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-WP-Nonce': nonce } };
+	async function request( base, suffix, nonce, environment, body ) {
+		var options = { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-WP-Nonce': nonce, 'X-Nova-Environment': environment || '' } };
 		if ( body !== undefined ) { options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify( body ); }
 		var response = await fetch( base + suffix, options ), value;
 		try { value = await response.json(); } catch ( error ) { throw new Error( 'WordPress returned an unreadable response. Your input is kept.' ); }
@@ -116,7 +116,7 @@
 		function previewCurrent() { try { return !! state.preview && state.previewKey === JSON.stringify( sourcePayload( state ) ); } catch ( error ) { return false; } }
 		async function loadCatalog( initial ) {
 			var turn = ++catalogEpoch;
-			try { var response = await request( base, '/endpoints', config.nonce ), values = catalog( response ); if ( disposed || turn !== catalogEpoch ) { return; } state.resources = values; state.receiveOnly = response.receive_only === true; }
+			try { var response = await request( base, '/endpoints', config.nonce, config.environment ), values = catalog( response ); if ( disposed || turn !== catalogEpoch ) { return; } state.resources = values; state.receiveOnly = response.receive_only === true; }
 			catch ( error ) { if ( ! disposed && turn === catalogEpoch ) { note( error.message, true ); } }
 			finally { if ( ! disposed && turn === catalogEpoch ) { state.loading = false; render(); } }
 		}
@@ -126,7 +126,7 @@
 			var turn = ++epoch; Object.assign( state, { resourceId: resourceId, mode: mode, step: 1, busy: mode === 'creation', reference: referenceKey( referenceType( chosen ), 0 ), source: null, preview: null, previewKey: '', selected: [], selectionInitialized: false, needsSourceRefresh: false, descriptions: {}, label: chosen.label + ' default', instructions: '', revision: 0, dirty: false, done: false, notice: '', error: false, inspectPath: '', descriptionPath: '' } ); render();
 			if ( mode !== 'creation' ) { return; }
 			try {
-				var saved = await request( base, '/creation?resource_id=' + encodeURIComponent( resourceId ), config.nonce );
+				var saved = await request( base, '/creation?resource_id=' + encodeURIComponent( resourceId ), config.nonce, config.environment );
 				if ( disposed || turn !== epoch ) { return; }
 				if ( saved.resource_id !== resourceId || ! Number.isInteger( saved.revision ) || saved.revision < 0 || saved.revision > 0 && ( ! saved.mapping || ! Array.isArray( saved.selected_fields ) ) ) { throw new Error( 'The saved default could not be verified. Reload before making changes.' ); }
 				state.revision = saved.revision;
@@ -139,7 +139,7 @@
 			try { reference = parseReference( state.reference ); if ( inspect && reference.reference_id === 0 ) { throw new Error( 'Choose an existing item to inspect.' ); } } catch ( error ) { note( error.message, true ); render(); return; }
 			var turn = ++epoch; state.busy = true; render();
 			try {
-				var reply = readResult( await request( base, '/existing?resource_id=' + encodeURIComponent( chosen.id ) + '&reference_type=' + reference.reference_type + '&reference_id=' + reference.reference_id, config.nonce ), chosen.id, reference );
+				var reply = readResult( await request( base, '/existing?resource_id=' + encodeURIComponent( chosen.id ) + '&reference_type=' + reference.reference_type + '&reference_id=' + reference.reference_id, config.nonce, config.environment ), chosen.id, reference );
 				if ( disposed || turn !== epoch ) { return; } state.source = reply; state.inspectPath = Object.keys( reply.mapping.fields )[0] || '';
 				if ( ! inspect ) { if ( ! state.selectionInitialized ) { state.selected = defaultSelection( reply.mapping ); state.selectionInitialized = true; } state.preview = null; state.previewKey = ''; state.needsSourceRefresh = false; state.step = 2; changed(); }
 				note( inspect ? 'Filled mapping read from this existing item. No mapping or content was saved.' : 'Reference loaded. Select which content slots should be empty in the new-content default.' );
@@ -151,7 +151,7 @@
 			if ( state.busy ) { return; } var submitted;
 			try { submitted = sourcePayload( state ); } catch ( error ) { note( error.message, true ); render(); return; }
 			var turn = ++epoch; state.busy = true; render();
-			try { var reply = previewResult( await request( base, '/creation/preview', config.nonce, submitted ), submitted, state.source.mapping ); if ( disposed || turn !== epoch ) { return; } if ( JSON.stringify( sourcePayload( state ) ) === JSON.stringify( submitted ) ) { state.preview = reply; state.previewKey = JSON.stringify( submitted ); note( 'Blank preview ready. Selected content is empty in the native structure too.' ); } }
+			try { var reply = previewResult( await request( base, '/creation/preview', config.nonce, config.environment, submitted ), submitted, state.source.mapping ); if ( disposed || turn !== epoch ) { return; } if ( JSON.stringify( sourcePayload( state ) ) === JSON.stringify( submitted ) ) { state.preview = reply; state.previewKey = JSON.stringify( submitted ); note( 'Blank preview ready. Selected content is empty in the native structure too.' ); } }
 			catch ( error ) { if ( ! disposed && turn === epoch ) { note( error.message, true ); state.needsSourceRefresh = /source_changed|needs_refresh/.test( error.code || '' ); state.preview = null; state.previewKey = ''; } }
 			finally { if ( ! disposed && turn === epoch ) { state.busy = false; render(); } }
 		}
@@ -160,7 +160,7 @@
 			var submitted; try { submitted = savePayload( state ); } catch ( error ) { note( error.message, true ); render(); return; }
 			var turn = ++epoch; state.busy = true; render();
 			try {
-				var saved = savedResult( await request( base, '/creation', config.nonce, submitted ), submitted ); if ( disposed || turn !== epoch ) { return; }
+				var saved = savedResult( await request( base, '/creation', config.nonce, config.environment, submitted ), submitted ); if ( disposed || turn !== epoch ) { return; }
 				var unchanged = same( savePayload( state ), submitted ); state.revision = saved.revision; state.dirty = ! unchanged; state.done = unchanged;
 				note( unchanged ? 'Default saved locally for ' + resource().label + '. Its source content was not changed.' : 'The earlier default was saved. Your newer choices remain unsaved.' );
 				await loadCatalog( false );

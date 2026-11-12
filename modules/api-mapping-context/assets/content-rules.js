@@ -74,7 +74,7 @@
         return value;
     }
     async function request( config, path, payload ) {
-        var response = await root.fetch( config.url + path, { method: payload === undefined ? 'GET' : 'POST', credentials: 'same-origin', headers: { 'X-WP-Nonce': config.nonce, 'Content-Type': 'application/json' }, body: payload === undefined ? undefined : JSON.stringify( payload ) } );
+        var response = await root.fetch( config.url + path, { method: payload === undefined ? 'GET' : 'POST', credentials: 'same-origin', headers: { 'X-WP-Nonce': config.nonce, 'X-Nova-Environment': config.environment || '', 'Content-Type': 'application/json' }, body: payload === undefined ? undefined : JSON.stringify( payload ) } );
         var result = await response.json();
         if ( ! response.ok ) { var error = new Error( result.message || 'The request could not be completed.' ); error.status = response.status; throw error; }
         return result;

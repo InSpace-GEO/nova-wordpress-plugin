@@ -5,19 +5,22 @@ function home_url( $path = '/' ) { return 'https://site.example' . $path; }
 function wp_parse_url( $url ) { return parse_url( $url ); }
 function url_to_postid( $url ) { return 'https://site.example/original/' === $url ? 11 : ( 'https://site.example/article/' === $url ? 12 : 0 ); }
 function add_query_arg( $args, $url ) { return $url . ( strpos( $url, '?' ) === false ? '?' : '&' ) . http_build_query( $args ); }
+if ( ! function_exists( 'get_post_thumbnail_id' ) ) { function get_post_thumbnail_id( $id ) { return $GLOBALS['visual_thumbnails'][$id] ?? 0; } }
+if ( ! function_exists( 'wp_get_attachment_url' ) ) { function wp_get_attachment_url( $id ) { return 'https://site.example/media/' . $id . '.png'; } }
 class Nova_Bridge_Suite_Mapping_Preview { public static function url( $source ) { return $source['url'] . '?authenticated-preview=1'; } }
 require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-recipe-visual.php';
 $visual_checks = 0;
 function visual_ok( $condition, $message ) { global $visual_checks; ++$visual_checks; if ( ! $condition ) { throw new RuntimeException( $message ); } }
 function visual_result( $response ) { if ( is_wp_error( $response ) ) { throw new RuntimeException( $response->get_error_message() ); } return $response->get_data(); }
 $administrator = true; $nonce_valid = true; $denied_caps = []; $posts[11]->post_type = 'page'; $posts[11]->post_content = '<p>Original source.</p>'; $posts[11]->post_title = 'Original example';
+$posts[11]->post_excerpt = '<p>The example&#039;s own summary.</p>'; $visual_thumbnails[11] = 3537;
 $resource = Nova_Bridge_Suite_Document_Mapping::resources()[0];
 $source_before = serialize( $posts[11] ); $settings_before = serialize( $options ); $writes_before = $writes;
 $design = visual_result( Nova_Bridge_Suite_Layout_Recipes::design( new RecipeRequest( [], [ 'resource_id'=>'post_type:page','builder'=>'auto','reference_id'=>11,'mode'=>'static','manual_selection'=>true ] ) ) );
 visual_ok( $design['builder'] === 'core', 'Auto capture identifies the real provider.' );
 $body_fields = array_values( array_filter( $design['fields'], static function ( $field ) { return empty( $field['native_media'] ); } ) );
 $media_fields = array_values( array_filter( $design['fields'], static function ( $field ) { return ! empty( $field['native_media'] ); } ) );
-visual_ok( count( $body_fields ) === 2 && count( $design['preview_fields'] ) === count( $design['fields'] ), 'Captured Core inventory keeps the real title/body fields and complete preview inventory.' );
+visual_ok( count( $body_fields ) === 3 && count( $design['preview_fields'] ) === count( $design['fields'] ), 'Captured Core inventory keeps title/body, adds the native excerpt and keeps the complete preview inventory.' );
 visual_ok( count( $media_fields ) === 1 && $media_fields[0]['target'] === '/native_post/featured_image' && false === $media_fields[0]['required'], 'Thumbnail-capable native destinations expose an optional Featured image alongside their real body fields.' );
 visual_ok( $design['recipe_preset']['bindings'] === [] && $design['recipe_preset']['regions'] === [], 'A manual capture keeps content fixed until explicitly selected.' );
 visual_ok( $design['sample'] instanceof stdClass, 'Empty manual sample exports as a JSON object, never an array.' );
@@ -28,6 +31,15 @@ visual_ok( '1' === ( $canvas_query['ao_noptimize'] ?? null ) && isset( $canvas_q
     && ! str_contains( $design['source_reference']['url'], 'ao_noptimize' ), 'Only the signed canvas URL requests the unoptimized document; public source URLs are unchanged.' );
 visual_ok( $design['preview_fields'][0]['locator']['reference_id'] === 11 && $design['preview_fields'][0]['field_id'] === $design['fields'][0]['field_id'], 'Canvas IDs belong to the captured native inventory.' );
 visual_ok( $design['fields'][0]['current_value'] === 'Original example', 'Current native values are shown independently of mapping selection.' );
+$native_preview = array_column( $design['preview_fields'], null, 'target' );
+visual_ok( isset( $native_preview['/native_post/excerpt'] ) && ! isset( $native_preview['/native_post/title'] ), 'Core exposes an independent excerpt without duplicating its document title.' );
+visual_ok( $native_preview['/native_post/excerpt']['locator']['text'] === "The example's own summary." && $native_preview['/native_post/excerpt']['current_value'] === $posts[11]->post_excerpt, 'Excerpt preview receives decoded visible text and retains the actual stored value.' );
+visual_ok( $native_preview['/native_post/featured_image']['locator']['media'] === wp_get_attachment_url( 3537 ) && $native_preview['/native_post/featured_image']['locator']['attachment_id'] === 3537 && $native_preview['/native_post/featured_image']['current_value'] === wp_get_attachment_url( 3537 ), 'Featured preview receives the validated example attachment identity and URL.' );
+$excerpt_recipe = $design['recipe_preset']; $excerpt_recipe['bindings'][] = [ 'target' => '/native_post/excerpt', 'source' => '/summary', 'format' => 'text', 'required' => false, 'label' => 'Excerpt' ];
+$excerpt_plan = Nova_Bridge_Suite_Recipe_Engine::compile( $excerpt_recipe, [ 'summary' => 'A new mapped summary.' ], 'core-excerpt' );
+visual_ok( ! is_wp_error( $excerpt_plan ) && $excerpt_plan['post_fields']['excerpt'] === 'A new mapped summary.' && $excerpt_plan['writer_payload']['content'] === $posts[11]->post_content, 'A mapped core excerpt compiles as its post column and leaves the body unchanged.' );
+$without_excerpt = Nova_Bridge_Suite_Recipe_Engine::compile( $excerpt_recipe, [], 'core-excerpt-omitted' );
+visual_ok( ! is_wp_error( $without_excerpt ) && ! isset( $without_excerpt['post_fields']['excerpt'] ), 'Missing optional excerpt content does not copy the example summary.' );
 visual_ok( serialize($posts[11]) === $source_before && serialize($options) === $settings_before && $writes === $writes_before, 'Capture has no page/settings/backend writes.' );
 $url_design = visual_result( Nova_Bridge_Suite_Layout_Recipes::design( new RecipeRequest( [], [ 'resource_id'=>'post_type:page','builder'=>'auto','reference_id'=>0,'reference_url'=>'https://site.example/original/','mode'=>'static','manual_selection'=>true ] ) ) );
 visual_ok( $url_design['source_reference']['reference_id'] === 11, 'Local URL resolves to the exact source ID.' );

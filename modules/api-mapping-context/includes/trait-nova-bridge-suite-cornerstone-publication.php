@@ -77,10 +77,6 @@ trait Nova_Bridge_Suite_Cornerstone_Publication {
         if ( ! $post || ! current_user_can( 'edit_post', $id ) || ! self::available() ) {
             throw new RuntimeException( 'The retained Cornerstone item is not editable.' );
         }
-        if ( is_callable( [ 'Nova_Bridge_Suite_Recipe_Builders', 'native_carriers' ] )
-            && array_diff( Nova_Bridge_Suite_Recipe_Builders::native_carriers( $post ), [ 'cornerstone', 'gutenberg' ] ) ) {
-            throw new RuntimeException( 'The existing item uses a different native builder.' );
-        }
         $document = self::native_document( $id );
         if ( ! $document->isAllowed() ) { throw new RuntimeException( 'Cornerstone does not allow the publishing user to edit this document.' ); }
         return $document;

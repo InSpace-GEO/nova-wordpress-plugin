@@ -1,6 +1,7 @@
 <?php
 /** Durable, private delivery journal. Unfinished work is never removed by retention. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 
 class Nova_Bridge_Suite_Posting_Jobs {
     public const PROTOCOL = 'nova.delivery-snapshot/v1';
@@ -60,7 +61,7 @@ class Nova_Bridge_Suite_Posting_Jobs {
         foreach ( [ 'protocol', 'identity_conflict' ] as $column ) {
             if ( $this->db->get_var( $this->db->prepare( "SHOW COLUMNS FROM {$this->table} LIKE %s", $column ) ) !== $column ) { return false; }
         }
-        return true;
+        return ! class_exists( 'Nova_Bridge_Suite_Posting_Connection' ) || Nova_Bridge_Suite_Posting_Connection::install_archive( $this->db );
     }
 
     /** Prevent changing installation scope/origin while any accepted work still needs recovery. */
@@ -96,6 +97,11 @@ class Nova_Bridge_Suite_Posting_Jobs {
         $valid = Nova_Bridge_Suite_Posting_Discovery::validate_item( $item );
         if ( is_wp_error( $valid ) ) { return $valid; }
         if ( ! Nova_Bridge_Suite_Posting_Discovery::valid_site( $site_id ) ) { return $this->error( 'discovery_site' ); }
+        if ( class_exists( 'Nova_Bridge_Suite_Posting_Connection' ) ) {
+            $archived = Nova_Bridge_Suite_Posting_Connection::archived( $this->db, $site_id, $item['id'] );
+            if ( is_wp_error( $archived ) ) { return $archived; }
+            if ( $archived ) { return [ 'state' => 'complete', 'phase' => 'superseded', 'payload' => [ 'retired' => [ 'reason' => 'environment_switch' ] ] ]; }
+        }
         if ( null !== $checkpoint && ! Nova_Bridge_Suite_Posting_Protocol::decimal_id( $checkpoint ) ) { return $this->error( 'discovery_checkpoint' ); }
         $identity = hash( 'sha256', self::PROTOCOL . ':' . $site_id . ':' . $item['id'] );
         // Serialize admission so the finite limit also holds for distinct concurrent events.
@@ -271,6 +277,16 @@ class Nova_Bridge_Suite_Posting_Jobs {
     }
 
     /** Every durable transition must still own its unexpired lease. */
+    /** Claimable work for the follow-up decision: how many are due now and when the next one becomes due. */
+    public function pending_work( string $site_id, bool $paused = false ) {
+        $now = time();
+        $phase_filter = $paused ? " AND phase IN ('applying','committed','event_pending')" : '';
+        $row = $this->db->get_row( $this->db->prepare( "SELECT COUNT(*) AS pending, SUM(CASE WHEN next_attempt <= %d AND lease_until < %d THEN 1 ELSE 0 END) AS due, MIN(GREATEST(next_attempt, lease_until + 1)) AS next_due FROM {$this->table} WHERE site_id = %s AND protocol=%s AND identity_conflict=0 AND state IN ('ready','running'){$phase_filter}", $now, $now, $site_id, self::PROTOCOL ), ARRAY_A );
+        if ( ! empty( $this->db->last_error ) || ! is_array( $row ) ) { return $this->error(); }
+        $pending = (int) ( $row['pending'] ?? 0 );
+        return [ 'pending' => $pending, 'due' => (int) ( $row['due'] ?? 0 ), 'next_due' => $pending ? (int) $row['next_due'] : null ];
+    }
+
     public function save( array $job, array $changes ) {
         $owned = $this->lock( 'admission' );
         if ( is_wp_error( $owned ) ) { return $owned; }
@@ -320,15 +336,20 @@ class Nova_Bridge_Suite_Posting_Jobs {
     }
 
     /** Connection-scoped native lock also serializes target writes across different content jobs. */
-    public function lock( string $identity ) {
-        $name = 'nova:' . substr( hash( 'sha256', $this->table . ':' . $identity ), 0, 58 );
-        $result = $this->db->get_var( $this->db->prepare( 'SELECT GET_LOCK(%s, 0)', $name ) );
+    public function lock( string $identity, int $wait = 0 ) {
+        $name = $this->lock_name( $identity );
+        $query = $wait > 0 ? $this->db->prepare( 'SELECT GET_LOCK(%s, %d)', $name, min( 30, $wait ) ) : $this->db->prepare( 'SELECT GET_LOCK(%s, 0)', $name );
+        $result = $this->db->get_var( $query );
         return '1' === (string) $result ? true : $this->error( 'target_busy' );
     }
 
     public function unlock( string $identity ): void {
-        $name = 'nova:' . substr( hash( 'sha256', $this->table . ':' . $identity ), 0, 58 );
+        $name = $this->lock_name( $identity );
         $this->db->get_var( $this->db->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
+    }
+
+    private function lock_name( string $identity ): string {
+        return Nova_Bridge_Suite_Native_Lock::name( $this->db, 'nova:', $this->table . ':' . $identity, 58 );
     }
 
     public function uncertain_target( array $job ) {
@@ -372,7 +393,7 @@ class Nova_Bridge_Suite_Posting_Jobs {
     }
 
     public function summaries( string $site_id ) {
-        $rows = $this->db->get_results( $this->db->prepare( "SELECT id,content_id,version,protocol,state,phase,target_id,attempts,next_attempt,last_error,created_at,updated_at FROM {$this->table} WHERE site_id=%s ORDER BY CASE WHEN state='blocked' THEN 0 WHEN state<>'complete' THEN 1 ELSE 2 END,CASE WHEN state<>'complete' THEN id END ASC,id DESC LIMIT 100", $site_id ), ARRAY_A );
+        $rows = $this->db->get_results( $this->db->prepare( "SELECT id,content_id,version,protocol,state,phase,target_id,attempts,next_attempt,last_error,COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.native_error_detail')),''),JSON_UNQUOTE(JSON_EXTRACT(payload,'$.failure_message'))) AS last_error_detail,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.content.url')) AS intended_url,created_at,updated_at FROM {$this->table} WHERE site_id=%s ORDER BY CASE WHEN state='blocked' THEN 0 WHEN state<>'complete' THEN 1 ELSE 2 END,CASE WHEN state<>'complete' THEN id END ASC,id DESC LIMIT 100", $site_id ), ARRAY_A );
         return is_array( $rows ) && empty( $this->db->last_error ) ? $rows : $this->error();
     }
 

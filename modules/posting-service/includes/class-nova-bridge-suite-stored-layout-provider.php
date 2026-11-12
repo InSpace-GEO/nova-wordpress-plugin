@@ -85,13 +85,6 @@ final class Nova_Bridge_Suite_Stored_Layout_Provider {
         if ( Nova_Bridge_Suite_Native_Media::has_featured( $payload ) ) { $scope['nova_featured'] = true; }
         return $scope;
     }
-    private static function content_target( $post ) {
-        if ( is_callable( [ 'Nova_Bridge_Suite_Recipe_Builders', 'native_carriers' ] ) ) {
-            $carriers = Nova_Bridge_Suite_Recipe_Builders::native_carriers( $post );
-            if ( array_diff( $carriers, [ 'gutenberg' ] ) ) { return self::error( 'The existing item uses another native builder. Choose its matching saved layout before replacing its content.' ); }
-        }
-        return true;
-    }
     public static function snapshot( string $builder, int $id, array $payload ) {
         if ( 'elementor' === $builder ) {
             $raw = get_post_meta( $id, '_elementor_data', true ); $data = '' === $raw ? [] : ( is_array( $raw ) ? $raw : json_decode( (string) $raw, true ) );
@@ -100,7 +93,6 @@ final class Nova_Bridge_Suite_Stored_Layout_Provider {
         }
         if ( in_array( $builder, [ 'core', 'gutenberg' ], true ) ) {
             $post = get_post( $id ); if ( ! $post ) { return self::error( 'The native item no longer exists.' ); }
-            $checked = self::content_target( $post ); if ( is_wp_error( $checked ) ) { return $checked; }
             $meta = [];
             foreach ( $payload['meta'] ?? [] as $key => $unused ) { $meta[$key] = [ 'exists' => metadata_exists( 'post', $id, $key ), 'value' => get_post_meta( $id, $key, true ) ]; }
             return [ 'content' => (string) $post->post_content, 'template' => get_page_template_slug( $id ), 'meta' => $meta ];
@@ -119,7 +111,6 @@ final class Nova_Bridge_Suite_Stored_Layout_Provider {
             $result = ( new \NOVA_Mapping_Elementor\Elementor_Service() )->update_page( $id, $body ); if ( is_wp_error( $result ) ) { return $result; }
         } elseif ( in_array( $builder, [ 'core', 'gutenberg' ], true ) ) {
             $native = self::content_payload( $builder, $payload ); if ( is_wp_error( $native ) ) { return $native; }
-            $checked = self::content_target( $post ); if ( is_wp_error( $checked ) ) { return $checked; }
             // Core handles both complete HTML and serialized block documents. Never call a create-only bridge route.
             $data = [ 'ID' => $id, 'post_content' => $native['content'], 'post_title' => $post_fields['title'], 'post_excerpt' => $post_fields['excerpt'] ?? '' ];
             $result = wp_update_post( wp_slash( $data ), true ); if ( is_wp_error( $result ) ) { return $result; }

@@ -1,6 +1,8 @@
 <?php
 /** Companion fields are local schema bindings, never arbitrary keys supplied by a delivery. */
 defined( 'ABSPATH' ) || exit;
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
+require_once __DIR__ . '/class-nova-wordpress-stored-seo.php';
 
 final class Nova_Bridge_Suite_Stored_Custom_Fields {
     private static function error( string $message ): WP_Error {
@@ -19,6 +21,7 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
         $input = [];
         foreach ( $fields as $name => $binding ) {
             $provider = $binding['provider'] ?? '';
+            if ( 'seo' === $provider ) { $checked = Nova_WordPress_Stored_SEO::check( $name, $binding, $id ); if ( is_wp_error( $checked ) ) { return $checked; } continue; }
             if ( ! in_array( $provider, [ 'acf', 'meta' ], true ) || ! is_string( $binding['value'] ?? null ) || ! isset( $catalog[$provider][$name] ) || is_protected_meta( $name, 'post' ) ) {
                 return self::error( 'A mapped custom field is no longer available on the target post type: ' . $name );
             }
@@ -35,7 +38,7 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
                 }
                 $input[$name] = $binding['input'] ?? $binding['value'];
             }
-            if ( $id && ! current_user_can( 'edit_post_meta', $id, $name ) ) { return self::error( 'The publishing user cannot access the mapped field: ' . $name ); }
+            if ( $id && ! Nova_WordPress_Meta_Permission::can_edit( 'post', $id, $name ) ) { return self::error( 'The publishing user cannot access the mapped field: ' . $name ); }
             if ( $writing ) {
                 $conflict = self::sync_conflict( $name, $field, $id );
                 if ( $conflict ) { return self::error( $conflict ); }
@@ -80,6 +83,7 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
         $payload = Nova_Bridge_Suite_Content_Transport::validate_payload( $input, $type, $id, $template );
         if ( is_wp_error( $payload ) ) { return $payload; }
         foreach ( $fields as $name => &$binding ) {
+            if ( 'seo' === $binding['provider'] ) { $binding['value'] = sanitize_text_field( $binding['value'] ); continue; }
             if ( 'acf' === $binding['provider'] ) {
                 $binding['value'] = $payload['acf'][$name]['value'];
             } else {
@@ -98,6 +102,9 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
     public static function snapshot( int $id, array $fields, bool $require_reference = false ) {
         $state = [];
         foreach ( $fields as $name => $binding ) {
+            if ( 'seo' === $binding['provider'] ) {
+                $state[$name] = Nova_WordPress_Stored_SEO::read( $id, $name, $binding ); if ( is_wp_error( $state[$name] ) ) { return $state[$name]; } continue;
+            }
             $values = get_post_meta( $id, $name, false );
             $refs = get_post_meta( $id, '_' . $name, false );
             if ( ! is_array( $values ) || count( $values ) > 1 || ( $values && ! is_string( $values[0] ) ) || ! is_array( $refs ) ) {
@@ -136,7 +143,7 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
         if ( is_wp_error( $input ) ) { return $input; }
         $payload = Nova_Bridge_Suite_Content_Transport::validate_payload( $input, $type, $id, $template );
         if ( is_wp_error( $payload ) ) { return $payload; }
-        $pending = [ 'acf' => [], 'meta' => [] ];
+        $pending = [ 'acf' => [], 'meta' => [] ]; $seo_pending = [];
         foreach ( $fields as $name => $binding ) {
             $provider = $binding['provider'];
             $expected = [ 'value' => $binding['value'], 'reference' => 'acf' === $provider ? $binding['key'] : null ];
@@ -145,8 +152,10 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
             $value_only = 'acf' === $provider && ( $before[$name] ?? null ) === [ 'value' => null, 'reference' => null ] &&
                 $current[$name] === [ 'value' => $expected['value'], 'reference' => null ];
             if ( ! $write || ( $current[$name] !== ( $before[$name] ?? null ) && ! $value_only ) ) { return self::error( 'The mapped custom field changed or was not saved: ' . $name ); }
-            $pending[$provider][$name] = $payload[$provider][$name];
+            if ( 'seo' === $provider ) { $seo_pending[$name] = $binding; }
+            else { $pending[$provider][$name] = $payload[$provider][$name]; }
         }
+        foreach ( $seo_pending as $name => $binding ) { $saved = Nova_WordPress_Stored_SEO::write( $id, $name, $binding ); if ( is_wp_error( $saved ) ) { return $saved; } }
         if ( ! $pending['acf'] && ! $pending['meta'] ) { return true; }
         $saved = Nova_Bridge_Suite_Content_Transport::write_fields( get_post( $id ), $pending, true );
         return is_wp_error( $saved ) ? $saved : self::finish( $plan, $id, $before, false );

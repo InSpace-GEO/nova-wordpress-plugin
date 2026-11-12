@@ -27,7 +27,7 @@ $locks = new Stored_Sync_Lock();
 $native_template = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 $source_recipe = [
     'id' => '77777777-7777-4777-8777-777777777777', 'revision' => 1, 'resource_id' => 'post_type:page',
-    'builder' => 'elementor', 'mode' => 'static', 'posting_page_type' => 'service', 'label' => 'Location page',
+    'builder' => 'elementor', 'mode' => 'static', 'posting_page_type' => 'service', 'posting_page_types' => [ 'service', 'category' ], 'label' => 'Location page',
     'sample' => [ 'never' => 'private authoring sample' ], 'created_by' => 42, 'source_receipt' => 'private source receipt',
     'recipe' => [ 'builder' => 'elementor', 'mode' => 'static', 'instructions' => 'Use the service heading.', 'regions' => [],
         'blueprint' => [ 'document' => [ [ 'id' => 'abc1234', 'elType' => 'widget', 'widgetType' => 'heading',
@@ -37,11 +37,12 @@ $source_recipe = [
 ];
 $client = new QueueClient( $connection );
 $source_recipe['recipe']['blueprint']['document'][] = [ 'id' => 'abc1235', 'elType' => 'widget', 'widgetType' => 'image', 'settings' => [ 'image' => [ 'id' => 41, 'url' => wp_get_attachment_url( 41 ) ] ], 'elements' => [] ];
-$initial = [ 'revision' => 1, 'defaults' => [] ]; $selected = [ 'revision' => 2, 'defaults' => [ 'service' => $native_template ] ];
+$initial = [ 'revision' => 1, 'defaults' => [] ]; $selected = [ 'revision' => 2, 'defaults' => [ 'service' => $native_template, 'category' => $native_template ] ];
 $frozen_versions = [];
 for ( $revision = 1; $revision <= 2; ++$revision ) {
     $source_recipe['revision'] = $revision;
     $source_recipe['recipe']['blueprint']['document'][0]['settings']['title_color'] = 1 === $revision ? '#123abc' : '#ff00ff';
+    if ( 2 === $revision ) { $source_recipe['recipe']['seo_fields'] = [ '/@nova/seo/yoast/title' => [ 'provider' => 'yoast', 'field' => 'title', 'required' => false ] ]; }
     Nova_Bridge_Suite_Layout_Recipes::$history[$source_recipe['id']][$revision] = $source_recipe;
     Nova_Bridge_Suite_Layout_Recipes::$record = $source_recipe;
     $projected = stored_ok( Nova_Bridge_Suite_Writing_Adapter::template_input( stored_ok( Nova_Bridge_Suite_Stored_Layout::from_recipe( $source_recipe ) ) ) );
@@ -91,7 +92,8 @@ check( 'stored_layout_v3' === stored_ok( Nova_Bridge_Suite_Posting_Worker::confi
 check( Nova_Bridge_Suite_Mapping_Sync::destination_enabled( $connection['site_id'] ), 'An import alone enables V3 discovery on its own installation.' );
 $target_profile = static fn( $v ) => stored_ok( Nova_Bridge_Suite_Mapping_Sync::configuration_for_snapshot( [ 'site_id' => $connection['site_id'], 'configuration' => $frozen_versions[$v] ], $connection['site_id'] ) );
 $color = static fn( $profile ) => $profile['local']['stored_layout']['blueprint']['document'][0]['settings']['title_color'];
-check( $color( $target_profile( 1 ) ) === '#123abc' && $color( $target_profile( 2 ) ) === '#ff00ff', 'Old queued deliveries keep v1 after importing a newer native design with identical public fields.' );
+check( $color( $target_profile( 1 ) ) === '#123abc' && $color( $target_profile( 2 ) ) === '#ff00ff', 'Old queued deliveries keep v1 after importing a newer native design.' );
+check( empty( $target_profile( 1 )['local']['seo_fields'] ) && isset( $target_profile( 2 )['local']['stored_layout']['bindings']['/@nova/seo/yoast/title'] ), 'Import retains the new SEO destination without adding it to queued older revisions.' );
 check( 2 === stored_ok( $receive( $copied ) )['unchanged'], 'A repeated file is idempotent.' );
 Nova_Bridge_Suite_Stored_Layout_Writer::$failure = new WP_Error( 'forbidden_actor', 'The account lost its native access.' );
 check( 'forbidden_actor' === $receive( $copied )->get_error_code(), 'An identical file performs local approval again before reporting an unchanged import.' );

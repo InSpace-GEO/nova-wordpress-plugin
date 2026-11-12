@@ -78,16 +78,22 @@ final class Nova_Bridge_Suite_Recipe_Engine {
     public static function validate( array $recipe ) {
         return self::guard( static function () use ( $recipe ) {
             self::json( $recipe );
-            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
+            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields', 'seo_fields', 'omissions' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
             if ( array_key_exists( 'posting_fields', $recipe ) ) {
                 if ( 'static' !== $recipe['mode'] || 'acf' === $recipe['builder'] ) { self::fail( 'Use a fixed native post layout to map editorial custom fields during delivery.' ); }
                 Nova_Bridge_Suite_Layout_Custom_Fields::selections( $recipe );
+            }
+            if ( array_key_exists( 'seo_fields', $recipe ) ) {
+                require_once __DIR__ . '/class-nova-wordpress-layout-seo.php';
+                if ( 'static' !== $recipe['mode'] ) { self::fail( 'SEO metadata uses a fixed content layout.' ); }
+                Nova_WordPress_Layout_SEO::selections( $recipe );
             }
             self::metadata( $recipe ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
             $checked = self::checked( $adapter->validate_blueprint( $recipe['blueprint'] ) );
             if ( ! is_array( $checked ) || self::digest( $checked ) !== self::digest( $recipe['blueprint'] ) ) { self::fail( 'Native validation must not flatten or silently replace the sealed blueprint.' ); }
             $count = 0; self::validate_scope( $recipe['blueprint'], $recipe['bindings'] ?? [], $recipe['regions'] ?? [], $adapter, $recipe['mode'], $count, 0 );
             self::scope_schema( $recipe['bindings'] ?? [], $recipe['regions'] ?? [] );
+            if ( array_key_exists( 'omissions', $recipe ) ) { self::validate_omissions( $recipe, $adapter ); }
             if ( isset( $recipe['custom_fields'] ) && ! is_array( $recipe['custom_fields'] ) ) { self::fail( 'The optional custom-fields companion must remain its complete separately sealed recipe.' ); }
             return $recipe;
         } );
@@ -99,6 +105,10 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             if ( ++$count > 2000 || ! is_array( $binding ) || array_diff( array_keys( $binding ), [ 'id', 'label', 'target', 'source', 'format', 'required', 'instructions', 'native_media' ] ) || ! is_string( $binding['target'] ?? null ) || '' === $binding['target'] || ! is_string( $binding['source'] ?? null ) || ! in_array( $binding['format'] ?? '', [ 'text', 'html', 'url', 'number', 'boolean' ], true ) || ! is_bool( $binding['required'] ?? null ) ) { self::fail( 'Each native binding declares a target, relative content source, format and required preference.' ); }
             self::parts( $binding['target'] ); self::parts( $binding['source'] ); self::metadata( $binding );
             if ( isset( $targets[ $binding['target'] ] ) ) { self::fail( 'A native field cannot have two bindings in the same scope.' ); } $targets[ $binding['target'] ] = true;
+            if ( null !== Nova_Bridge_Suite_Recipe_Native_Media::post_column( $binding['target'] ) ) {
+                if ( 0 !== $depth || 'static' !== $mode || 'text' !== $binding['format'] || array_key_exists( 'native_media', $binding ) ) { self::fail( 'The native title and excerpt are fixed plain-text fields in a static layout.' ); }
+                continue;
+            }
             $media = Nova_Bridge_Suite_Recipe_Native_Media::spec( $native, $binding, $adapter );
             if ( $media && ( 0 !== $depth || 'static' !== $mode ) ) { self::fail( 'Native image import currently needs a fixed field in a static layout.' ); }
             if ( ! $media || 'featured' !== $media['kind'] ) { self::checked( $adapter->validate_binding( $native, $binding ) ); }
@@ -121,7 +131,150 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             foreach ( array_keys( $targets ) as $target ) { if ( self::inside_range( $target, $region ) ) { self::fail( 'A fixed binding cannot target content replaced by a region; move it into that prototype.' ); } }
             foreach ( $regions as $j => $other ) { if ( $j <= $i ) { continue; } if ( $region['target'] === $other['target'] ) { $a = $region['start']; $b = $other['start']; if ( ( $a === $b ) || ( $a < $b + $other['count'] && $b < $a + $region['count'] ) ) { self::fail( 'Native region replacement ranges must not overlap.' ); } } elseif ( self::inside_range( $other['target'], $region ) || self::inside_range( $region['target'], $other ) ) { self::fail( 'Nested regions belong inside their owning prototype, not overlapping root ranges.' ); } }
         }
-        if ( method_exists( $adapter, 'validate_plan_scope' ) ) { $native_bindings = array_values( array_filter( $bindings, static function ( $binding ) { return Nova_Bridge_Suite_Recipe_Native_Media::FEATURED !== $binding['target']; } ) ); self::checked( $adapter->validate_plan_scope( $native, $native_bindings, $regions ) ); }
+        if ( method_exists( $adapter, 'validate_plan_scope' ) ) { $native_bindings = array_values( array_filter( $bindings, static function ( $binding ) { return ! Nova_Bridge_Suite_Recipe_Native_Media::is_native_post( $binding['target'] ); } ) ); self::checked( $adapter->validate_plan_scope( $native, $native_bindings, $regions ) ); }
+    }
+    /** Omitted elements are whole native nodes that a saved layout leaves out of every generated page. */
+    public static function omission_targets( $omissions ): array {
+        if ( ! self::list_array( $omissions ) || count( $omissions ) > 200 ) { self::fail( 'List at most 200 removed elements.' ); }
+        $targets = [];
+        foreach ( $omissions as $omission ) {
+            if ( ! is_array( $omission ) || array_diff( array_keys( $omission ), [ 'target', 'label' ] ) || ! is_string( $omission['target'] ?? null ) ) { self::fail( 'Each removed element names its native element.' ); }
+            self::metadata( $omission ); $parts = self::parts( $omission['target'] );
+            if ( count( $parts ) < 2 || ! ctype_digit( (string) end( $parts ) ) ) { self::fail( 'Only an element inside the layout can be removed.' ); }
+            $targets[] = $omission['target'];
+        }
+        if ( count( array_unique( $targets ) ) !== count( $targets ) ) { self::fail( 'An element can be removed only once.' ); }
+        return $targets;
+    }
+    private static function validate_omissions( array $recipe, $adapter ): void {
+        $targets = self::omission_targets( $recipe['omissions'] );
+        if ( ! $targets ) { return; }
+        if ( 'static' !== $recipe['mode'] || in_array( $recipe['builder'], [ 'core', 'acf' ], true ) || ! is_callable( [ $adapter, 'describe' ] ) ) { self::fail( 'Removing elements needs a fixed builder layout.' ); }
+        $description = self::checked( $adapter->describe( $recipe['blueprint'] ) ); $elements = [];
+        foreach ( $description['fields'] ?? [] as $field ) { if ( is_string( $field['node_target'] ?? null ) ) { $elements[ $field['node_target'] ] = true; } }
+        foreach ( $targets as $target ) {
+            if ( ! isset( $elements[ $target ] ) ) { self::fail( 'Only an element that shows a listed field can be removed.' ); }
+            foreach ( $targets as $other ) { if ( $other !== $target && 0 === strpos( $other, $target . '/' ) ) { self::fail( 'An element inside another removed element is already removed.' ); } }
+            foreach ( $recipe['bindings'] ?? [] as $binding ) { if ( $binding['target'] === $target || 0 === strpos( $binding['target'], $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); } }
+        }
+        // Prove that the builder accepts the document without these elements.
+        self::checked( $adapter->validate_blueprint( self::apply_omissions( $recipe['blueprint'], $targets, $adapter ) ) );
+    }
+    public static function apply_omissions( array $native, array $targets, $adapter ): array {
+        // Remove later siblings first so earlier pointers keep their indexes.
+        usort( $targets, static function ( $a, $b ) { $x = self::parts( $a ); $y = self::parts( $b ); for ( $i = 0, $n = min( count( $x ), count( $y ) ); $i < $n; $i++ ) { if ( $x[$i] === $y[$i] ) { continue; } return ctype_digit( $x[$i] ) && ctype_digit( $y[$i] ) ? (int) $y[$i] <=> (int) $x[$i] : strcmp( $y[$i], $x[$i] ); } return count( $y ) <=> count( $x ); } );
+        foreach ( $targets as $target ) {
+            $parts = self::parts( $target ); $index = (int) array_pop( $parts );
+            $parent = '/' . implode( '/', array_map( static function ( $part ) { return str_replace( [ '~', '/' ], [ '~0', '~1' ], (string) $part ); }, $parts ) );
+            $list = self::get( $native, $parent, $found );
+            if ( ! $found || ! self::list_array( $list ) || $index >= count( $list ) ) { self::fail( 'A removed element no longer exists in the saved layout.' ); }
+            if ( method_exists( $adapter, 'remove_node' ) ) { $native = self::checked( $adapter->remove_node( $native, $parent, $index ) ); }
+            else { self::splice( $native, $parent, $index, 1, [] ); }
+        }
+        return $native;
+    }
+    /**
+     * Keep image entries pointing at their own element after earlier siblings were removed: entries are
+     * keyed by, and carry (*_target), pointers into the native document. An entry inside a removed
+     * element is dropped.
+     */
+    public static function shift_pointers( array $entries, array $removed ): array {
+        if ( ! $entries || ! $removed ) { return $entries; }
+        $shift = static function ( string $pointer ) use ( $removed ): ?string {
+            $parts = self::parts( $pointer ); $result = $parts;
+            foreach ( $removed as $target ) {
+                $gone = self::parts( $target ); $depth = count( $gone ) - 1;
+                if ( $depth < 0 || count( $parts ) <= $depth || array_slice( $parts, 0, $depth ) !== array_slice( $gone, 0, $depth ) || ! ctype_digit( (string) $parts[ $depth ] ) ) { continue; }
+                if ( (string) $parts[ $depth ] === (string) $gone[ $depth ] ) { return null; }
+                if ( (int) $parts[ $depth ] > (int) $gone[ $depth ] ) { $result[ $depth ] = (string) ( (int) $result[ $depth ] - 1 ); }
+            }
+            return '/' . implode( '/', array_map( static function ( $part ) { return str_replace( [ '~', '/' ], [ '~0', '~1' ], (string) $part ); }, $result ) );
+        };
+        $out = [];
+        foreach ( $entries as $key => $entry ) {
+            $moved = is_string( $key ) && '' !== $key && '/' === $key[0] ? $shift( $key ) : $key;
+            if ( null === $moved ) { continue; }
+            if ( is_array( $entry ) ) {
+                foreach ( $entry as $name => $value ) {
+                    if ( is_string( $name ) && '_target' === substr( $name, -7 ) && is_string( $value ) && '' !== $value && '/' === $value[0] ) {
+                        $value = $shift( $value ); if ( null === $value ) { continue 2; } $entry[ $name ] = $value;
+                    }
+                }
+            }
+            $out[ $moved ] = $entry;
+        }
+        return $out;
+    }
+    /** True when a delivered value shows nothing: no text and no embedded media. */
+    public static function blank( $value ): bool {
+        if ( null === $value ) { return true; }
+        if ( ! is_string( $value ) ) { return false; }
+        if ( preg_match( '/<(?:img|iframe|video|audio|svg|picture|object|embed|input|button|hr)\b/i', $value ) ) { return false; }
+        $text = html_entity_decode( strip_tags( $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        return '' === (string) preg_replace( '/[\s\x{00A0}\x{200B}\x{FEFF}]+/u', '', (string) $text );
+    }
+
+    /**
+     * Elements to drop because every mapped value they show was optional and left empty.
+     * A container goes with them once nothing it showed remains (separators and spacers without
+     * fields do not count). A grid column stays, emptied, while its row still shows content, so the
+     * other columns keep their widths. Explicit omissions take part and are returned as well.
+     *
+     * @param array $fields Described fields of the native document (target, node_target).
+     * @param array $empty  Targets of optional bindings that received no content.
+     * @param array $kept   Targets of bindings that still show content.
+     */
+    public static function vacant_elements( array $native, array $fields, array $empty, array $kept, array $omissions = [] ): array {
+        $nodes = []; $owners = [];
+        foreach ( $fields as $field ) { if ( is_string( $field['target'] ?? null ) && is_string( $field['node_target'] ?? null ) ) { $nodes[ $field['target'] ] = $field['node_target']; $owners[ $field['node_target'] ] = true; } }
+        $inside = static function ( string $pointer, string $root ): bool { return $pointer === $root || 0 === strpos( $pointer, $root . '/' ); };
+        $removed = array_fill_keys( $omissions, true ); $vacant = false;
+        foreach ( $empty as $target ) {
+            $node = $nodes[ $target ] ?? null;
+            if ( null === $node || ! self::element_pointer( $node ) ) { continue; }
+            foreach ( $kept as $other ) { if ( $inside( $other, $node ) ) { continue 2; } }
+            $removed[ $node ] = true; $vacant = true;
+        }
+        if ( ! $vacant ) { return $omissions; }
+        foreach ( array_keys( $removed ) as $pointer ) { foreach ( array_keys( $removed ) as $other ) { if ( $other !== $pointer && $inside( $pointer, $other ) ) { unset( $removed[ $pointer ] ); break; } } }
+        $emptied = [];
+        $parent = static function ( string $pointer ): string { $at = strrpos( $pointer, '/' ); return false === $at ? '' : substr( $pointer, 0, $at ); };
+        $filler = static function ( $node, string $pointer ) use ( $owners, $inside ): bool {
+            if ( ! preg_match( '/(?:separator|divider|spacer|empty_space|(?:^|[\/_\\-])(?:gap|hr|clear|clearfix)$)/i', self::node_type( $node ) ) ) { return false; }
+            foreach ( array_keys( $owners ) as $owner ) { if ( $inside( $owner, $pointer ) ) { return false; } }
+            return true;
+        };
+        for ( $round = 0; $round < 64; $round++ ) {
+            $changed = false; $lists = [];
+            foreach ( array_keys( $removed + $emptied ) as $pointer ) { $lists[ $parent( $pointer ) ] = true; }
+            foreach ( array_keys( $lists ) as $list_pointer ) {
+                $owner = $parent( $list_pointer );
+                if ( isset( $removed[ $owner ] ) || isset( $emptied[ $owner ] ) || ! self::element_pointer( $owner ) ) { continue; }
+                $list = self::get( $native, $list_pointer, $found );
+                if ( ! $found || ! self::list_array( $list ) || ! $list ) { continue; }
+                foreach ( $list as $index => $child ) { $pointer = $list_pointer . '/' . $index; if ( ! isset( $removed[ $pointer ] ) && ! isset( $emptied[ $pointer ] ) && ! $filler( $child, $pointer ) ) { continue 2; } }
+                // Nothing this container showed remains.
+                if ( self::column( self::get( $native, $owner ) ) ) { $emptied[ $owner ] = true; }
+                else {
+                    foreach ( array_keys( $removed + $emptied ) as $pointer ) { if ( $inside( $pointer, $owner ) ) { unset( $removed[ $pointer ], $emptied[ $pointer ] ); } }
+                    $removed[ $owner ] = true;
+                }
+                $changed = true;
+            }
+            if ( ! $changed ) { break; }
+        }
+        return array_keys( $removed );
+    }
+    private static function element_pointer( string $pointer ): bool { $parts = self::parts( $pointer ); return count( $parts ) >= 2 && ctype_digit( (string) end( $parts ) ); }
+    private static function node_type( $node ): string {
+        if ( ! is_array( $node ) ) { return ''; }
+        if ( isset( $node['elType'] ) && is_string( $node['elType'] ) ) { return 'widget' === $node['elType'] ? (string) ( $node['widgetType'] ?? '' ) : $node['elType']; }
+        foreach ( [ $node['tag'] ?? null, $node['blockName'] ?? null, $node['data']['type'] ?? null, $node['name'] ?? null, $node['type'] ?? null ] as $type ) { if ( is_string( $type ) && '' !== $type ) { return $type; } }
+        return '';
+    }
+    private static function column( $node ): bool {
+        $type = self::node_type( $node );
+        return 1 === preg_match( '/(?:^|[\/_\\-])(?:column|col)(?:_inner(?:_[0-9])?)?$/i', $type ) || 1 === preg_match( '/^av_(?:one|two|three|four)_(?:full|half|third|fourth|fifth)$/', $type );
     }
     private static function inside_range( string $pointer, array $region ): bool { $prefix = $region['target'] . '/'; if ( 0 !== strpos( $pointer, $prefix ) ) { return false; } $tail = substr( $pointer, strlen( $prefix ) ); $index = explode( '/', $tail )[0]; return ctype_digit( $index ) && (int) $index >= $region['start'] && (int) $index < $region['start'] + $region['count']; }
     private static function validate_prototype( $prototype, $adapter, string $mode, int &$count, int $depth ): void {
@@ -188,8 +341,25 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             $recipe = self::checked( self::validate( $recipe ) ); $normalized = self::checked( self::normalize( $content ) ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
             $state = [ 'warnings' => $normalized['_normalization_warnings'] ?? [], 'regions' => [], 'bindings' => 0, 'instances' => 0, 'generated_bytes' => 0 ];
             $native = self::compile_scope( $recipe['blueprint'], $recipe['bindings'] ?? [], $recipe['regions'] ?? [], $normalized, $adapter, $seed, [], $state, 0 );
+            $removed = self::omission_targets( $recipe['omissions'] ?? [] );
+            if ( ! empty( $state['vacant'] ) && 'static' === $recipe['mode'] && ! in_array( $recipe['builder'], [ 'core', 'acf' ], true ) && is_callable( [ $adapter, 'describe' ] ) ) {
+                // Optional fields left empty take their element (and any container left showing nothing) with them.
+                $description = self::checked( $adapter->describe( $recipe['blueprint'] ) );
+                $explicit = $removed; $removed = self::vacant_elements( $recipe['blueprint'], $description['fields'] ?? [], $state['vacant'], $state['kept'] ?? [], $removed );
+                $vacated = count( array_diff( $removed, $explicit ) );
+            }
+            if ( ! empty( $state['vacant'] ) && 'static' === $recipe['mode'] && 'acf' === $recipe['builder'] && method_exists( $adapter, 'vacant_rows' ) ) {
+                // Repeater and flexible-content rows play the part of elements, within ACF's row minimums.
+                $explicit = $removed; $removed = $adapter::vacant_rows( $native, $state['vacant'], $state['kept'] ?? [], $removed );
+                $vacated = count( array_diff( $removed, $explicit ) );
+            }
+            $native = self::apply_omissions( $native, $removed, $adapter );
+            if ( ! empty( $state['native_media'] ) ) { $state['native_media'] = self::shift_pointers( $state['native_media'], $removed ); }
             $result = self::checked( $adapter->finalize( $native, $seed, [ 'recipe' => $recipe, 'content' => $normalized, 'regions' => $state['regions'] ] ) );
             if ( ! is_array( $result ) || ! isset( $result['native_document'], $result['writer_payload'], $result['preview_html'] ) || ! is_array( $result['writer_payload'] ) || ! is_string( $result['preview_html'] ) ) { self::fail( 'The adapter did not return a complete native document, writer payload and structure preview.' ); }
+            if ( ! empty( $state['post_fields'] ) ) { $result['post_fields'] = $state['post_fields']; }
+            if ( ! empty( $recipe['omissions'] ) ) { $result['omitted'] = count( $recipe['omissions'] ); }
+            if ( ! empty( $vacated ) ) { $result['vacated'] = $vacated; }
             if ( ! empty( $state['native_media'] ) ) { $result['writer_payload']['nova_media'] = $state['native_media']; $state['warnings'][] = 'Mapped images are imported and applied in the native test draft and publication. This structure preview retains the reference images.'; }
             $result['warnings'] = array_values( array_unique( array_merge( $state['warnings'], (array) ( $result['warnings'] ?? [] ) ) ) );
             $result['summary'] = array_merge( (array) ( $result['summary'] ?? [] ), [ 'builder' => $recipe['builder'], 'mode' => $recipe['mode'], 'bindings' => $state['bindings'], 'instances' => $state['instances'], 'regions' => $state['regions'] ] );
@@ -204,9 +374,17 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         if ( $depth > self::MAX_DEPTH ) { self::fail( 'Native region recursion exceeded eight levels.' ); }
         foreach ( $bindings as $binding ) {
             $value = self::get( $content, $binding['source'], $found );
+            $column = Nova_Bridge_Suite_Recipe_Native_Media::post_column( $binding['target'] );
+            if ( null !== $column ) {
+                if ( ! $found || null === $value || '' === $value ) { if ( $binding['required'] ) { self::fail( 'Required content is missing at ' . $binding['source'] . '.' ); } continue; }
+                $state['post_fields'][ $column ] = self::format_value( $value, 'text', $state['warnings'] ); ++$state['bindings']; continue;
+            }
             $media = Nova_Bridge_Suite_Recipe_Native_Media::spec( $native, $binding, $adapter );
+            $vacant = ! $binding['required'] && ( ! $found || self::blank( $value ) );
+            // An unfilled optional image keeps the captured image, so on its own it neither empties nor keeps its element.
+            if ( 0 === $depth && ! ( $media && $vacant ) ) { $state[ $vacant ? 'vacant' : 'kept' ][] = $binding['target']; }
             if ( $media ) {
-                if ( ( ! $found || null === $value || '' === $value ) && ! $binding['required'] ) { continue; }
+                if ( $vacant ) { continue; }
                 if ( ! $found || ! is_string( $value ) || '' === $value ) { self::fail( 'Required image URL is missing at ' . $binding['source'] . '.' ); }
                 $entry = Nova_Bridge_Suite_Recipe_Native_Media::entry( $media, $value );
                 if ( $entry ) { $state['native_media'][$binding['target']] = $entry; }

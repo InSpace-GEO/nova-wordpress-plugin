@@ -187,6 +187,18 @@ function nova_mapping_wpb_regenerate_shortcodes_custom_css_meta( $post_id, $shor
 	$post_id    = (int) $post_id;
 	$shortcodes = (string) $shortcodes;
 
+	// The installed builder knows theme parameters and default/responsive CSS. A regex only
+	// understands vc_custom_* rules and silently loses other registered design controls.
+	if ( function_exists( 'wpbakery' ) ) {
+		$base = wpbakery();
+		if ( is_object( $base ) && is_callable( [ $base, 'buildShortcodesCss' ] ) ) {
+			$base->buildShortcodesCss( $post_id, 'default' );
+			$base->buildShortcodesCss( $post_id, 'custom' );
+			return;
+		}
+		if ( is_object( $base ) && is_callable( [ $base, 'buildShortcodesCustomCss' ] ) ) { $base->buildShortcodesCustomCss( $post_id ); return; }
+	}
+
 	preg_match_all( '/\.vc_custom_\d+\s*\{[^}]*\}/s', $shortcodes, $m );
 	$rules = array_values( array_unique( $m[0] ?? array() ) );
 	$css   = implode( "\n", $rules );

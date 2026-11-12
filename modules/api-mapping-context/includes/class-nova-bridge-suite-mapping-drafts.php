@@ -1,6 +1,7 @@
 <?php
 /** Local mapping drafts. No publishing, remote synchronization or activation. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Mapping_Drafts {
 
@@ -159,7 +160,7 @@ final class Nova_Bridge_Suite_Mapping_Drafts {
 
     private static function option_name( array $reference ): string {
         // Keep the previous draft discoverable when this reference's structure changes.
-        return self::OPTION_PREFIX . hash( 'sha256', $reference['entity']['reference_type'] . ':' . $reference['entity']['reference_id'] );
+        return Nova_WordPress_Environment::key( self::OPTION_PREFIX . hash( 'sha256', $reference['entity']['reference_type'] . ':' . $reference['entity']['reference_id'] ) );
     }
 
     /** Read the database directly; a cached option cannot be the basis of compare-and-swap. */
@@ -201,7 +202,7 @@ final class Nova_Bridge_Suite_Mapping_Drafts {
     /** Synchronization reads the captured revision even when its authoring example no longer exists. */
     public static function saved_creation( string $type, int $id, string $expected_revision ) {
         if ( ! in_array( $type, [ 'post', 'term' ], true ) || $id < 1 || ! self::text( $expected_revision, 100 ) ) { return self::error( 'reference', 'Supply a concrete saved mapping reference and revision.' ); }
-        $stored = self::stored( self::OPTION_PREFIX . hash( 'sha256', $type . ':' . $id ) );
+        $stored = self::stored( Nova_WordPress_Environment::key( self::OPTION_PREFIX . hash( 'sha256', $type . ':' . $id ) ) );
         if ( isset( $stored['error'] ) ) { return $stored['error']; }
         $draft = $stored['draft'];
         if ( ! $draft || 'create' !== ( $draft['routing']['operation'] ?? '' ) ) { return null; }

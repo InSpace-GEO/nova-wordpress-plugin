@@ -23,6 +23,13 @@ final class Nova_WordPress_Localized_Fields {
         $id = (int) get_queried_object_id();
         $fields = Nova_Bridge_Suite_Translation_Writer::localized_fields( $id, $provider['provider'], $provider['language'] );
         if ( ! $fields ) { return; }
+        $seo = array_filter( $fields, static function ( $field ) { return 'seo' === ( $field['provider'] ?? '' ); } );
+        if ( $seo ) {
+            require_once __DIR__ . '/class-nova-wordpress-localized-seo.php';
+            Nova_WordPress_Localized_SEO::on_request( $id, $seo, $trp );
+            $fields = array_diff_key( $fields, $seo );
+            if ( ! $fields ) { return; }
+        }
 
         // If the site repurposes a field after delivery, stop serving its old translation.
         if ( ! class_exists( 'Nova_Bridge_Suite_Content_Transport' ) ) { require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-content-transport.php'; }

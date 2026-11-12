@@ -36,9 +36,10 @@ language in both flows.
 
 ## Rollout and verification
 
-This is a draft integration change, not a plugin release. Upgrade all WordPress
-installations receiving deliveries for the same NOVA site before enabling group
-metadata in the producer. Older strict delivery schemas reject unknown fields.
+Upgrade all WordPress installations receiving deliveries for the same NOVA site
+before deploying the backend producer with automatic URL-family emission.
+Older strict delivery schemas reject this field. There is no per-domain toggle
+in the automatic producer.
 No existing delivery is rewritten during upgrade.
 
 Local tests use the production family/linking implementation with in-memory

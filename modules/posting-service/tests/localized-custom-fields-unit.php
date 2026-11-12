@@ -37,7 +37,7 @@ if ( is_file( $core . '/utf8.php' ) ) {
     function wp_is_valid_utf8( $s ) { return true; }
 }
 function is_utf8_charset( $s = null ) { return true; }
-function get_option( $key, $fallback = false ) { return 'blog_charset' === $key ? 'UTF-8' : ( 'home' === $key ? home_url() : $fallback ); }
+function get_option( $key, $fallback = false ) { return 'active_plugins' === $key ? ( $GLOBALS['seo_plugins'] ?? [] ) : ( 'blog_charset' === $key ? 'UTF-8' : ( 'home' === $key ? home_url() : $fallback ) ); }
 function home_url( $path = '' ) { return 'https://lang.test' . $path; }
 function get_post( $id ) { return $GLOBALS['post']; }
 function get_permalink( $id ) { return home_url( '/entry/' ); }
@@ -48,7 +48,7 @@ function get_post_meta( $id, $name = '', $single = false ) {
     if ( '' === $name && null === $filtered ) { return $GLOBALS['data'][$id] ?? []; }
     $values = $filtered ?? ( $GLOBALS['data'][$id][$name] ?? [] ); return $single ? ( $values[0] ?? '' ) : $values;
 }
-function update_post_meta( $id, $name, $value ) { $GLOBALS['data'][$id][$name] = [ $value ]; }
+function update_post_meta( $id, $name, $value ) { $GLOBALS['data'][$id][$name] = [ wp_unslash( $value ) ]; }
 function wp_parse_url( $url ) { return parse_url( $url ); }
 function wp_json_encode( $v, $flags = 0 ) { return json_encode( $v, $flags ); }
 function current_user_can( ...$args ) { return true; }
@@ -197,4 +197,35 @@ if ( 'translatepress' === $provider ) {
 }
 $catalog['acf']['caption']['key'] = 'field_new';
 request_locale( 'de_DE' ); verify( 'Source caption' === get_post_meta( 41, 'caption', true ), 'Old localized ACF value shadowed a repurposed field' );
+// SEO stays in the per-language journal, not in source post meta or generic field reads.
+$seo_plugins = [ 'wordpress-seo/wp-seo.php' ]; $hooks = [];
+$data[41]['_yoast_wpseo_title'] = [ 'Original search title' ];
+$data[41]['_yoast_wpseo_metadesc'] = [ 'Original description' ];
+$seo = [ '/@nova/seo/yoast/title'=>['provider'=>'seo','key'=>'yoast','type'=>'title','value'=>'Français & précis'],
+    '/@nova/seo/yoast/description'=>['provider'=>'seo','key'=>'yoast','type'=>'description','value'=>'Une description "exacte".'] ];
+publish_locale( 'fr_FR', 2, $seo );
+$german = $seo; $german['/@nova/seo/yoast/title']['value'] = 'Deutscher Suchtitel';
+publish_locale( 'de_DE', 3, $german );
+request_locale( 'fr_FR' );
+verify( 'Français & précis' === apply_filters( 'wpseo_title', 'Original search title' ), 'Localized SEO title was not rendered for its locale' );
+verify( 'Une description "exacte".' === apply_filters( 'wpseo_metadesc', 'Original description' ), 'Localized SEO description was not rendered' );
+verify( 'Original search title' === get_post_meta( 41, '_yoast_wpseo_title', true ) && '' === get_post_meta( 41, '/@nova/seo/yoast/title', true ), 'Localized SEO mutated or exposed synthetic source metadata' );
+$seo_html = '<html><head><title>Français &amp; précis</title><meta name="description" content="Une description &quot;exacte&quot;."><meta property="og:title" content="Unmapped social title"></head><body>Original body</body></html>';
+$marked = apply_filters( $pre, $seo_html );
+verify( substr_count( $marked, 'data-nova-seo-field=' ) === 2, 'Localized SEO head was not protected from automatic retranslation' );
+$restored = apply_filters( $post_hook, str_replace( [ 'Français &amp; précis', 'Une description &quot;exacte&quot;.' ], [ 'Wrong title', 'Wrong description' ], $marked ) );
+verify( str_contains( html_entity_decode( $restored, ENT_QUOTES | ENT_HTML5, 'UTF-8' ), 'Français & précis' ) && str_contains( $restored, 'Une description &quot;exacte&quot;.' ) && ! str_contains( $restored, 'data-nova-seo-field' ) && str_contains( $restored, '<body>Original body</body>' ), 'Provider retranslation corrupted mapped SEO or unrelated content: ' . $restored );
+request_locale( 'de_DE' ); verify( 'Deutscher Suchtitel' === apply_filters( 'wpseo_title', 'Original search title' ), 'German SEO reused French metadata' );
+request_locale( 'en_US' ); verify( 'Original search title' === apply_filters( 'wpseo_title', 'Original search title' ), 'Source-language SEO was overridden' );
+$seo_plugins = []; request_locale( 'fr_FR' ); verify( 'Native' === apply_filters( 'wpseo_title', 'Native' ), 'Inactive SEO plugin retained a stale localized override' );
+class Seo_Native_Typography_Fixture { public static function metadata_content( $text ) { return str_replace( '"quoted"', '“quoted”', $text ); } }
+class_alias( Seo_Native_Typography_Fixture::class, 'The_SEO_Framework\\Data\\Filter\\Sanitize' );
+$hooks = []; $seo_plugins = [ 'autodescription/autodescription.php' ];
+Nova_WordPress_Localized_SEO::on_request( 41, [ '/@nova/seo/tsf/description'=>['key'=>'tsf','type'=>'description','value'=>'A "quoted" description'] ], 'translatepress' === $provider );
+verify( 'A "quoted" description' === apply_filters( 'the_seo_framework_custom_field_description', 'Original' ), 'Localized hook bypassed native description formatting' );
+$typography = '<html><head><meta name="description" content="A “quoted” description"></head><body>Unmapped</body></html>';
+$marked = apply_filters( $pre, $typography );
+verify( str_contains( $marked, 'data-nova-seo-field=' ), 'Native description typography was not protected' );
+$restored = apply_filters( $post_hook, str_replace( 'A “quoted” description', 'Wrong', $marked ) );
+verify( str_contains( $restored, 'A “quoted” description' ) && str_contains( $restored, '<body>Unmapped</body>' ), 'Restoration changed native typography or unrelated content' );
 echo "$provider localized custom-field checks: $checks passed.\n";

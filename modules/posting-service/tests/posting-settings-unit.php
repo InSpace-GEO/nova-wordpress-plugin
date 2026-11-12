@@ -32,7 +32,10 @@ function wp_parse_url( $url ) { return parse_url( $url ); }
 function add_settings_error( $option, $code, $message ) { $GLOBALS['errors'][] = $code; }
 function settings_errors( $option ) {}
 function settings_fields( $group ) { echo '<input type="hidden" name="option_page" value="' . esc_attr( $group ) . '">'; }
+function admin_url( $path ) { return 'https://wordpress.example/wp-admin/' . $path; }
+function wp_nonce_field( $action ) { echo '<input name="_wpnonce" value="fixture-nonce">'; }
 function submit_button( $label ) { echo '<button>' . esc_html( $label ) . '</button>'; }
+function wp_print_inline_script_tag( $script ) { echo '<script>' . $script . '</script>'; }
 function esc_attr( $value ) { return htmlspecialchars( (string) $value, ENT_QUOTES ); }
 function esc_html( $value ) { return esc_attr( $value ); }
 function esc_textarea( $value ) { return esc_html( $value ); }
@@ -73,13 +76,17 @@ foreach ( [ 'http://posting.example', 'https://user:password@posting.example', '
 check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'site_id' => 'another-site' ] ) ) === $saved, 'Site is a UUID.' );
 check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'token' => "secret\r\nheader" ] ) ) === $saved, 'Credential cannot inject headers.' );
 Nova_Bridge_Suite_Posting_Jobs::$unfinished = true;
-check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'base_url' => 'https://other.example' ] ) ) === $saved, 'Unfinished work cannot be abandoned through origin replacement.' );
+check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'base_url' => 'https://other.example' ] ) )['base_url'] === 'https://other.example', 'An environment switch needs no confirmation field; cancelling old work is the default.' );
 Nova_Bridge_Suite_Posting_Jobs::$unfinished = new WP_Error();
-check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'site_id' => '12345678-1234-4234-8234-123456789abd' ] ) ) === $saved, 'Database failures preserve current site binding.' );
+check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'site_id' => '12345678-1234-4234-8234-123456789abd' ] ) )['site_id'] === '12345678-1234-4234-8234-123456789abd', 'Site changes switch by default too.' );
 Nova_Bridge_Suite_Posting_Jobs::$unfinished = false;
-check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $blank, [ 'base_url' => 'https://other.example' ] ) ) === $saved && end( $errors ) === 'nova_posting_destination', 'A different origin cannot reuse credentials from blank password fields.' );
-$changed = Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'base_url' => 'https://other.example', 'token' => 'other-fixture-token', 'webhook_secret' => 'other-fixture-secret', 'enabled' => 0, 'paused' => 1 ] ) );
-check( $changed['enabled'] && ! $changed['paused'] && 'https://other.example' === $changed['base_url'], 'A reconciled destination switch with re-entered credentials never needs a second save.' );
+check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $blank, [ 'base_url' => 'https://other.example', 'confirm_environment_switch' => '1' ] ) ) === $saved && end( $errors ) === 'nova_posting_destination', 'A different origin cannot reuse credentials from blank password fields.' );
+$changed = Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'base_url' => 'https://other.example', 'token' => 'other-fixture-token', 'webhook_secret' => 'other-fixture-secret', 'enabled' => 0, 'paused' => 1, 'confirm_environment_switch' => '1' ] ) );
+check( $changed['enabled'] && ! $changed['paused'] && 'https://other.example' === $changed['base_url'] && ! isset( $changed['confirm_environment_switch'] ), 'A confirmed destination switch validates without persisting the confirmation.' );
+Nova_Bridge_Suite_Posting_Jobs::$unfinished = true;
+check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'base_url' => 'https://other.example', 'confirm_environment_switch' => '1' ] ) )['base_url'] === 'https://other.example', 'Pending deliveries no longer prevent a confirmed switch.' );
+check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'base_url' => '', 'confirm_environment_switch' => '1' ] ) ) === $saved, 'An incomplete destination cannot cancel the old work.' );
+check( Nova_Bridge_Suite_Posting_Settings::sanitize( array_merge( $input, [ 'token' => 'rotated-token' ] ) )['token'] === 'rotated-token', 'Credential rotation does not need switch confirmation.' );
 Nova_Bridge_Suite_Posting_Settings::updated( $first, $next, Nova_Bridge_Suite_Posting_Settings::OPTION );
 check( 1 === Nova_Bridge_Suite_Posting_Delivery::$initializations, 'Saving connection settings invokes webhook catch-up initialization.' );
 Nova_Bridge_Suite_Posting_Settings::updated( $next, [ 'enabled' => false ], Nova_Bridge_Suite_Posting_Settings::OPTION );
@@ -107,6 +114,8 @@ check( 1 === preg_match( '~<details><summary>Multi-site WordPress</summary>(.*?)
 foreach ( [ '[paused]', '[enabled]', 'Confirm service compatibility', 'Publishing uses the WordPress permissions', $saved['token'], $saved['webhook_secret'] ] as $hidden ) {
     check( ! str_contains( $markup, $hidden ), 'Removed switches, obsolete instructions and saved credentials stay out of the form.' );
 }
+check( str_contains( $markup, '<dialog id="nova-switch-dialog"' ) && str_contains( $markup, 'Copy and synchronize' ) && str_contains( $markup, 'Switch without copying' ) && str_contains( $markup, 'will be cancelled' ) && ! str_contains( $markup, 'type="checkbox" name="' . Nova_Bridge_Suite_Posting_Settings::OPTION . '[confirm_environment_switch]' ) && ! str_contains( $markup, 'type="checkbox" name="' . Nova_Bridge_Suite_Posting_Settings::OPTION . '[copy_environment_layouts]' ), 'A configured connection asks about copying only in a dialog; no switch checkboxes remain in the form.' );
+check( str_contains( $markup, 'data-site-id="' . $saved['site_id'] . '"' ) && str_contains( $markup, 'data-nova-switch="copy_environment_layouts"' ) && str_contains( $markup, 'data-nova-switch="sync_copied_layouts"' ), 'The dialog compares against the saved connection and sends copy and sync together.' );
 check( str_contains( $markup, 'for="nova-posting-actor">Posting user</label>' ) && str_contains( $markup, 'value="28" selected="selected">NOVA &lt;author&gt;</option>' ), 'The form selects and escapes the saved posting user.' );
 unset( $users[28] ); $markup = render_form();
 check( str_contains( $markup, '<option value="" selected>Choose a posting user' ) && ! str_contains( $markup, 'value="17" selected' ), 'A revoked user does not silently switch accounts on render.' );
@@ -118,4 +127,11 @@ check( ! Nova_Bridge_Suite_Posting_Settings::connection()['enabled'], 'An otherw
 $saved = [ 'actor_user_id' => 17 ];
 $effective = Nova_Bridge_Suite_Posting_Settings::connection();
 check( $effective['enabled'] && $effective['site_id'] === $input['site_id'] && [ 'actor_user_id' => 17 ] === $saved, 'A complete wp-config connection with a saved actor is recognized without persisting its credentials.' );
+require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-posting-connection.php';
+$saving = new ReflectionProperty( Nova_Bridge_Suite_Posting_Connection::class, 'saving' );
+if ( PHP_VERSION_ID < 80100 ) { $saving->setAccessible( true ); }
+$saving->setValue( null, true );
+$trusted = $changed + [ 'history_archived' => true ];
+check( Nova_Bridge_Suite_Posting_Settings::sanitize( $trusted ) === $trusted, 'WordPress resanitization preserves the guarded save and its private archive marker.' );
+$saving->setValue( null, false );
 echo "PASS {$checks} posting connection checks\n";
