@@ -42,7 +42,15 @@ $frozen_versions = [];
 for ( $revision = 1; $revision <= 2; ++$revision ) {
     $source_recipe['revision'] = $revision;
     $source_recipe['recipe']['blueprint']['document'][0]['settings']['title_color'] = 1 === $revision ? '#123abc' : '#ff00ff';
-    if ( 2 === $revision ) { $source_recipe['recipe']['seo_fields'] = [ '/@nova/seo/yoast/title' => [ 'provider' => 'yoast', 'field' => 'title', 'required' => false ] ]; }
+    if ( 2 === $revision ) {
+        $source_recipe['recipe']['seo_fields'] = [ '/@nova/seo/yoast/title' => [ 'provider' => 'yoast', 'field' => 'title', 'required' => false ] ];
+        $source_recipe['recipe']['blueprint']['document'][] = [ 'id' => 'abc1236', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Contact' ], 'elements' => [] ];
+        $described = Nova_Bridge_Suite_Recipe_Engine::adapter( 'elementor' )->describe( $source_recipe['recipe']['blueprint'] );
+        $locale_field = array_column( $described['fields'], null, 'target' )['/document/2/settings/title'];
+        $source_recipe['locale_preservation'] = [ 'version' => 1, 'provider' => 'polylang', 'source_locale' => 'nl_NL', 'unavailable' => [], 'variants' => [
+            [ 'locale' => 'it_IT', 'code' => 'it', 'reference_id' => 910, 'values' => [ '/document/2/settings/title' => [ 'format' => $locale_field['format'], 'value' => 'Contatti' ] ] ],
+        ] ];
+    }
     Nova_Bridge_Suite_Layout_Recipes::$history[$source_recipe['id']][$revision] = $source_recipe;
     Nova_Bridge_Suite_Layout_Recipes::$record = $source_recipe;
     $projected = stored_ok( Nova_Bridge_Suite_Writing_Adapter::template_input( stored_ok( Nova_Bridge_Suite_Stored_Layout::from_recipe( $source_recipe ) ) ) );
@@ -56,6 +64,7 @@ for ( $revision = 1; $revision <= 2; ++$revision ) {
 $versions = [ [ 'template_id' => $native_template, 'revision' => 1 ], [ 'template_id' => $native_template, 'revision' => 2 ] ];
 $file = stored_ok( Nova_Bridge_Suite_Shared_Layouts::export_selected( $connection, $versions ) );
 $copied = json_decode( wp_json_encode( $file ), true );
+check( str_contains( wp_json_encode( $copied ), 'Contatti' ), 'Shared layout packages retain saved locale values.' );
 check( ! str_contains( wp_json_encode( $file ), $connection['token'] ) && ! str_contains( wp_json_encode( $file ), 'private authoring sample' ) && ! str_contains( wp_json_encode( $file ), 'private source receipt' ), 'File excludes credentials, source receipts and sample content.' );
 check( array_column( stored_ok( Nova_Bridge_Suite_Shared_Layouts::catalog( $connection ) )['templates'], 'revision' ) === [ 2, 1 ], 'Source can select active and historical approvals without resaving.' );
 $source_options = $GLOBALS['wpdb'];
