@@ -277,6 +277,16 @@ class Nova_Bridge_Suite_Posting_Jobs {
     }
 
     /** Every durable transition must still own its unexpired lease. */
+    /** Claimable work for the follow-up decision: how many are due now and when the next one becomes due. */
+    public function pending_work( string $site_id, bool $paused = false ) {
+        $now = time();
+        $phase_filter = $paused ? " AND phase IN ('applying','committed','event_pending')" : '';
+        $row = $this->db->get_row( $this->db->prepare( "SELECT COUNT(*) AS pending, SUM(CASE WHEN next_attempt <= %d AND lease_until < %d THEN 1 ELSE 0 END) AS due, MIN(GREATEST(next_attempt, lease_until + 1)) AS next_due FROM {$this->table} WHERE site_id = %s AND protocol=%s AND identity_conflict=0 AND state IN ('ready','running'){$phase_filter}", $now, $now, $site_id, self::PROTOCOL ), ARRAY_A );
+        if ( ! empty( $this->db->last_error ) || ! is_array( $row ) ) { return $this->error(); }
+        $pending = (int) ( $row['pending'] ?? 0 );
+        return [ 'pending' => $pending, 'due' => (int) ( $row['due'] ?? 0 ), 'next_due' => $pending ? (int) $row['next_due'] : null ];
+    }
+
     public function save( array $job, array $changes ) {
         $owned = $this->lock( 'admission' );
         if ( is_wp_error( $owned ) ) { return $owned; }

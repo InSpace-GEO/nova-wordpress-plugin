@@ -1,5 +1,17 @@
 # Release verification
 
+## 1.3.3
+
+All 140 local suites passed, including 92 new follow-up checks (batch chains, single-use continuation tokens, wakes during a batch or a connection switch, back-off retries, lost continuations, the bounded chain, pause, suspension and disabling).
+
+On staging (WordPress 7.1.4, Elementor 4.1.4, Polylang), the candidate's own discovery, worker and stored-layout writer made real writes from a single signed HTTPS wake. A temporary must-use plugin answered posting-service calls for test deliveries only; TranslatePress was left out of the delivery requests because, with Polylang, it stops every delivery.
+
+- One wake with 10 released deliveries: batches of 3, 3, 3 and 1 ran in four separate requests (the wake, then three /posting/continue calls) and published all 10 posts in about 13 seconds. Afterwards no follow-up event or continuation token remained.
+- A wake sent while the connection lock was held got 202 and was recorded with a follow-up event. WP-Cron later ran that event: it discovered and published the two new deliveries.
+- One refused receipt (simulated 503) and one deliberately lost continuation: the backstop event ran after about 3 minutes, retried the receipt and wrote the remaining delivery.
+
+Test posts, writer records and options were removed, discovery was restored and the staging plugin returned to 1.3.0. Not covered: a live NOVA delivery, and hosts that block requests to themselves (only simulated by dropping the request).
+
 ## 1.3.2
 
 All 139 local suites passed. On staging with Beaver Builder 2.10.2.2, a native draft with retained WordPress block content reproduced the ambiguous-builder error in 1.3.1 even though Beaver replaced that body in the real WordPress render loop. The fix opened the Beaver layout through the mapping endpoint, exposed its live heading and left both stored documents unchanged. Disabling Beaver restored block detection. Missing renderers, rendering opt-outs and competing native builders remain explicit conflicts. Disposable staging pages were removed. This change does not add composite layouts with independently editable builder documents.
