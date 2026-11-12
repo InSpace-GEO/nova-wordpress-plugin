@@ -1,6 +1,6 @@
 {
-  "source_commit": "1bd3fb94e6360a8dc9c5247917bcd12a2aac8271",
-  "openapi_sha256": "80432e985cab8d142d381560aef41e9635c63a696bc293d2a8f10a305813db98",
+  "source_commit": "966808db3cc3b63782db97d2d4bb218d91da5ceb",
+  "openapi_sha256": "1135b9b5f78b5abeceff807cf479864186db4b96bc653c0375b67e29823017bf",
   "schemas": {
     "Delivery": {
       "description": "Delivery identity, content and saved publishing configuration. Content uses destination field IDs when configured, or canonical source names without a template. Missing replacement values are omitted; original empty strings and arrays are preserved.",
@@ -816,6 +816,93 @@
           "minLength": 1,
           "maxLength": 1024,
           "description": "Connector attestation reference required only for publication_succeeded."
+        },
+        "publication": {
+          "$ref": "#/components/schemas/ConnectorPublication"
+        }
+      }
+    },
+    "ConnectorPublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional URL report, allowed only on publication_succeeded. Connectors that do not report URLs omit it; publishing is unaffected.",
+      "required": [
+        "url",
+        "url_status"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https?://[^/?#@\\s]+(?:[/?][^#\\s]*)?$",
+          "description": "Absolute URL the item actually has in the CMS. For unpublished items, the URL it will get when published. It must identify the item by its path: when only a query string does (for example WordPress plain permalinks, /?p=123), omit publication. Such a report is accepted but not forwarded."
+        },
+        "url_status": {
+          "type": "string",
+          "enum": [
+            "final",
+            "provisional"
+          ],
+          "description": "final when the item is publicly published; provisional for draft, scheduled, pending or private items."
+        },
+        "intended_url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https?://[^/?#@\\s]+(?:[/?][^#\\s]*)?$",
+          "description": "The delivery URL, echoed back."
+        },
+        "canonical": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https?://[^/?#@\\s]+(?:[/?][^#\\s]*)?$",
+          "description": "Canonical URL, when the CMS knows it."
+        },
+        "noindex": {
+          "type": "boolean",
+          "description": "Whether the item is excluded from indexing, when the CMS knows it."
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 35,
+          "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$",
+          "description": "Language of the reported item. When sent it must equal the delivery language."
+        },
+        "cms_status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Native CMS status, for example publish or draft."
+        },
+        "native": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "system",
+            "type",
+            "id"
+          ],
+          "description": "CMS object identity, for connectors that have a stable native ID.",
+          "properties": {
+            "system": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+            },
+            "type": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the connector read the URL."
         }
       }
     },
@@ -1164,7 +1251,8 @@
             },
             "text": {
               "type": "string",
-              "maxLength": 8000
+              "maxLength": 8000,
+              "x-nova-max-utf8-bytes": 8000
             }
           }
         },
@@ -1196,7 +1284,8 @@
               "label": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 200
+                "maxLength": 200,
+                "x-nova-max-utf8-bytes": 200
               },
               "capacity": {
                 "type": "integer",
@@ -1262,12 +1351,14 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "x-nova-max-utf8-bytes": 200
         },
         "purpose": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 2000
+          "maxLength": 2000,
+          "x-nova-max-utf8-bytes": 2000
         },
         "value_type": {
           "type": "string",
@@ -1286,7 +1377,8 @@
         },
         "instructions": {
           "type": "string",
-          "maxLength": 8000
+          "maxLength": 8000,
+          "x-nova-max-utf8-bytes": 8000
         },
         "element": {
           "type": "string"
@@ -1633,7 +1725,8 @@
       }
     },
     "PublishingTemplateInputV3": {
-      "description": "V3 publishing template configuration. The UTF-8 request body limit is 256 KiB.",
+      "description": "V3 publishing template configuration. The UTF-8 request body limit is 256 KiB, measured on the entire original serialized request including whitespace and escapes. The x-nova-max-utf8-bytes annotations document the existing raw-body and decoded-string byte limits, separately from JSON Schema character limits.",
+      "x-nova-max-utf8-bytes": 262144,
       "type": "object",
       "additionalProperties": false,
       "required": [

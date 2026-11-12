@@ -158,11 +158,10 @@ foreach ( [ 'crash_owner', 'crash_before_save', 'crash_save', 'crash_publish' ] 
     $saved = ( $proof['state'] ?? '' ) === 'not_committed' ? ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) ) ) : $proof;
     check( $saved['post_id'] === 10 && $inserts === 0 && $saves === 1 && $publication_changes === 1, 'Ownership/save/publication interruptions recover one existing page without replaying a completed save.' );
 }
-foreach ( [ 'human_edit', 'owner_changed', 'wrong_type', 'ambiguous', 'other_owner', 'private' ] as $case ) {
+foreach ( [ 'human_edit', 'owner_changed', 'wrong_type', 'ambiguous', 'private' ] as $case ) {
     reset_native(); existing_page();
     if ( $case === 'wrong_type' ) { $posts[10]->post_type = 'post'; }
     if ( $case === 'ambiguous' ) { existing_page( 11 ); }
-    if ( $case === 'other_owner' ) { $meta[10]['_nova_stored_layout_owner'] = [ 'site_id' => op( 77 ), 'url_id' => 'different' ]; }
     if ( $case === 'private' ) { $posts[10]->post_status = 'private'; }
     list( $content, $configuration ) = fixture(); $plan = Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $configuration, [ 'operation_id' => op( 1 ) ] );
     if ( in_array( $case, [ 'human_edit', 'owner_changed' ], true ) ) {
@@ -172,6 +171,24 @@ foreach ( [ 'human_edit', 'owner_changed', 'wrong_type', 'ambiguous', 'other_own
     }
     check( is_wp_error( $plan ) && $inserts === 0 && $saves === 0, 'Changed, ambiguously owned, wrong-type or unsupported existing pages fail before replacement.' );
 }
+// A delivery overwrites the page at its exact URL even when another NOVA delivery (another URL record or environment) wrote it.
+reset_native(); existing_page(); $meta[10]['_nova_stored_layout_owner'] = [ 'site_id' => op( 77 ), 'url_id' => 'different' ]; $posts[10]->post_content_filtered = Nova_Bridge_Suite_Stored_Layout_Writer::FORMAT . ':' . op( 70 ) . ':old';
+list( $content, $configuration ) = fixture(); $saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $configuration, [ 'operation_id' => op( 1 ) ] ) ), op( 1 ) ) );
+check( $saved['post_id'] === 10 && $inserts === 0 && $saves === 1 && '42' === ( get_post_meta( 10, '_nova_stored_layout_owner' )['url_id'] ?? null ), 'A page another NOVA delivery wrote is replaced at its exact URL and owned by this delivery.' );
+// Another content item or mapping may take the URL over; an older or equal version of the current item may not.
+list( $other, $configuration ) = fixture( '600' ); $other['content_item_id'] = '202';
+ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $other, $configuration, [ 'operation_id' => op( 2 ) ] ) ), op( 2 ) ) );
+check( $saves === 2 && $inserts === 0, 'Another content item took over the URL.' );
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $other, $configuration, [ 'operation_id' => op( 3 ) ] ) ), 'An equal version of the current content item is still refused.' );
+list( $remapped, $configuration ) = fixture( '601' ); $remapped['content_item_id'] = '202'; $configuration['template']['id'] = op( 98 ); $remapped['configuration'] = $configuration['template'];
+ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $remapped, $configuration, [ 'operation_id' => op( 4 ) ] ) ), op( 4 ) ) );
+check( $saves === 3 && $inserts === 0, 'Another mapping template took over the URL.' );
+// NOVA may later address the page by the link WordPress gave it; the retained page follows that exact link.
+$posts[10]->post_name = 'renamed'; list( $moved, $configuration ) = fixture( '602' ); $moved['content_item_id'] = '202'; $configuration['template']['id'] = op( 98 ); $moved['configuration'] = $configuration['template']; $moved['url'] = 'https://example.test/renamed/';
+$saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $moved, $configuration, [ 'operation_id' => op( 5 ) ] ) ), op( 5 ) ) );
+check( $saved['post_id'] === 10 && $saves === 4 && $inserts === 0 && get_post( 10 )->post_name === 'renamed', 'A delivery at the current page link updates the page in place.' );
+$moved['content_item_version_id'] = '603'; $moved['version_number'] = 103; $moved['url'] = 'https://example.test/elsewhere/';
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $moved, $configuration, [ 'operation_id' => op( 6 ) ] ) ), 'A retained page still cannot move to an unrelated URL.' );
 reset_native(); list( $content, $configuration ) = fixture(); existing_page();
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $configuration, [ 'operation_id' => op( 1 ), 'target_post_id' => 0 ] ) ), 'A target appearing between policy selection and planning cannot silently change create into update.' );
 reset_native(); list( $content, $configuration ) = fixture();
@@ -234,7 +251,7 @@ check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::probe_mapping( $conf
 ok( Nova_Bridge_Suite_Stored_Layout_Writer::probe_mapping( $config['template'], $config['template']['mapping'], $config['local'], [ 'actor_user_id' => 2 ] ) ); check( get_current_user_id() === 1 && $source_reads === 0, 'Mapping approval works on the older registries, checks the configured actor using only the stored layout, then restores the administrator.' );
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::probe_mapping( $config['template'], $config['template']['mapping'], $config['local'], [ 'actor_user_id' => 3 ] ) ) && get_current_user_id() === 1, 'An unprivileged publishing actor cannot borrow the approving administrator permissions.' );
 foreach ( [ 'url', 'language', 'permission', 'widget' ] as $case ) { reset_native(); list( $content, $config ) = fixture(); if ( $case === 'url' ) { $content['url'] = 'https://other.test/article/'; } if ( $case === 'language' ) { $content['language'] = 'nl-NL'; } if ( $case === 'permission' ) { $permission = false; } if ( $case === 'widget' ) { $missing_widget = true; } check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $config, [ 'operation_id' => op( 1 ) ] ) ) && $inserts === 0, 'Invalid site/language/permission/provider fails before insertion.' ); }
-reset_native(); $plan = planned(); ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) ) ); list( $content, $config ) = fixture( '502' ); $content['url_id'] = '43'; check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $config, [ 'operation_id' => op( 2 ) ] ) ) && $inserts === 1, 'An unrelated URL identity cannot take over an occupied native URL.' ); unset( $posts[10] ); check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::recover( $plan, op( 1 ) ) ) && $inserts === 1, 'Deletion does not silently recreate the generated page.' );
+reset_native(); $plan = planned(); ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) ) ); list( $content, $config ) = fixture( '502' ); $content['url_id'] = '43'; $taken = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $content, $config, [ 'operation_id' => op( 2 ) ] ) ), op( 2 ) ) ); check( $inserts === 1 && $saves === 2, 'Another URL record delivering to an occupied URL overwrites that page instead of creating another.' ); unset( $posts[10] ); check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::recover( $plan, op( 1 ) ) ) && $inserts === 1, 'Deletion does not silently recreate the generated page.' );
 
 function presentation_source() {
     $GLOBALS['example_meta'] = [ 'vendor_width' => 'full-width', 'vendor_header' => 'hidden' ];

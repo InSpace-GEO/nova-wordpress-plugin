@@ -75,30 +75,20 @@ final class Nova_Bridge_Suite_Posting_Worker {
         $this->recovery_only = ! empty( $this->connection['paused'] ) || 403 === $status;
         $started = microtime( true );
         $processed = 0;
-        $aborted = false;
         $max_claims = empty( $this->connection['url_scope_enabled'] ) ? 3 : 100;
         for ( $i = 0; $i < $max_claims && $processed < 3 && microtime( true ) - $started < 20; ++$i ) {
             $job = $this->jobs->claim( $this->connection['site_id'], $this->recovery_only );
-            if ( is_wp_error( $job ) ) { $aborted = true; self::observe( $observe, [ 'last_error' => $job->get_error_code() ] ); break; }
+            if ( is_wp_error( $job ) ) { self::observe( $observe, [ 'last_error' => $job->get_error_code() ] ); break; }
             if ( ! $job ) { break; }
             self::observe( $observe, [ 'jobs_claimed' => $i + 1, 'last_job' => self::job_diagnostic( $job ) ] );
             $result = $this->process( $job );
-            if ( is_wp_error( $result ) ) { $aborted = true; self::observe( $observe, [ 'last_error' => $result->get_error_code() ] ); }
+            if ( is_wp_error( $result ) ) { self::observe( $observe, [ 'last_error' => $result->get_error_code() ] ); }
             elseif ( is_array( $result ) ) { self::observe( $observe, [ 'last_job' => self::job_diagnostic( $result ), 'last_error' => $result['last_error'] ?? '' ] ); }
             // Foreign work must not consume this installation's three publishing slots.
             if ( ! is_array( $result ) || 'skipped' !== ( $result['phase'] ?? '' ) ) { ++$processed; }
-            if ( is_array( $result ) && in_array( $result['last_error'] ?? '', [ 'authentication_required', 'site_ineligible' ], true ) ) { $aborted = true; break; }
+            if ( is_array( $result ) && in_array( $result['last_error'] ?? '', [ 'authentication_required', 'site_ineligible' ], true ) ) { break; }
         }
         $this->jobs->prune();
-        $exhausted = $i >= $max_claims || $processed >= 3 || microtime( true ) - $started >= 20;
-        if ( $exhausted && ! $aborted && ! $this->recovery_only && method_exists( $this->jobs, 'next_translation_dependent' ) ) {
-            $next = $this->jobs->next_translation_dependent( $this->connection['site_id'] );
-            if ( is_wp_error( $next ) ) { self::observe( $observe, [ 'last_error' => $next->get_error_code() ] ); }
-            elseif ( is_array( $next ) && is_callable( [ 'Nova_Bridge_Suite_Posting_Delivery', 'continue_dependencies' ] ) ) {
-                $sent = Nova_Bridge_Suite_Posting_Delivery::continue_dependencies( $next );
-                if ( is_wp_error( $sent ) ) { self::observe( $observe, [ 'last_error' => $sent->get_error_code() ] ); }
-            }
-        }
     }
 
     private static function observe( ?callable $observe, array $summary ): void {
@@ -214,7 +204,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
             }
             foreach ( [ 'context', 'configuration', 'selected_policy', 'native_writer', 'result' ] as $key ) { unset( $payload[$key] ); }
         }
-        foreach ( [ 'events', 'pending_event', 'event_bytes', 'event_sha256', 'event_continue', 'native_absence_proof', 'failure_code' ] as $key ) { unset( $payload[ $key ] ); }
+        foreach ( [ 'events', 'pending_event', 'event_bytes', 'event_sha256', 'event_continue', 'native_absence_proof', 'failure_code', 'failure_message', 'native_error_detail' ] as $key ) { unset( $payload[ $key ] ); }
         $payload = array_merge( $payload, $fetched, [ 'prior_attempts' => $history ] );
         return $this->jobs->save( $job, [ 'payload' => $payload, 'phase' => 'validated', 'attempts' => 0, 'next_attempt' => 0, 'last_error' => '' ] );
     }
@@ -392,9 +382,9 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $retained_writer = $job['payload']['native_writer'] ?? '';
                 $retained_translation = 'dictionary_translation' === $retained_writer;
                 $configuration = $retained_local || $retained_translation || $retained_layout ? $job['payload']['configuration'] : call_user_func( $this->configuration, $snapshot, $job['site_id'] );
-                if ( is_wp_error( $configuration ) ) { return $this->native_failure( $job, $snapshot, $configuration->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                if ( is_wp_error( $configuration ) ) { return $this->native_failure( $job, $snapshot, $configuration->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $configuration->get_error_message() ); }
                 $native_snapshot = Nova_Bridge_Suite_Posting_Protocol::writer_snapshot( $snapshot, $configuration );
-                if ( is_wp_error( $native_snapshot ) ) { return $this->native_failure( $job, $snapshot, $native_snapshot->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                if ( is_wp_error( $native_snapshot ) ) { return $this->native_failure( $job, $snapshot, $native_snapshot->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $native_snapshot->get_error_message() ); }
                 // Only the transient writer view contains private local template details.
                 // The journal, ETag, attempt authority and receipts keep the exact wire body.
                 $snapshot = $native_snapshot;
@@ -407,7 +397,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( ! isset( self::WRITERS[$writer_name] ) || 'dictionary_translation' === $writer_name ) { $writer_name = 'fixed_mapping'; }
                 if ( $this->default_dispatch && ( '' === $retained_writer || $retained_translation || ( ! $stored_layout && ! $owned_cpt ) ) ) {
                     $provider = Nova_Bridge_Suite_Translation_Writer::provider( $snapshot['language'] );
-                    if ( is_wp_error( $provider ) ) { return $this->native_failure( $job, $snapshot, $provider->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                    if ( is_wp_error( $provider ) ) { return $this->native_failure( $job, $snapshot, $provider->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $provider->get_error_message() ); }
                     if ( $retained_translation || null !== $provider ) {
                         // Fixed references, local rules and term writers edit the shared original.
                         if ( ! $stored_layout && ! $owned_cpt ) { return $this->native_failure( $job, $snapshot, 'nova_translation_mapping_unsupported', [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
@@ -425,7 +415,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                     $selected = ( $retained_local || $retained_layout ) && isset( $job['payload']['selected_policy'] ) ? $job['payload']['selected_policy'] : call_user_func( $this->policy, $this->client, $snapshot, $configuration );
                 }
                 if ( is_wp_error( $selected ) && 'nova_translation_source_pending' === $selected->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
-                if ( is_wp_error( $selected ) ) { return $this->native_failure( $job, $snapshot, $selected->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                if ( is_wp_error( $selected ) ) { return $this->native_failure( $job, $snapshot, $selected->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $selected->get_error_message() ); }
                 $reference = $selected['reference'] ?? []; $routing = $selected['routing'] ?? [];
                 $operation = $routing['operation'] ?? null; $target = $reference['reference_id'] ?? 0;
                 $source_free = ( $local_rules || $static_term || $stored_layout || $owned_cpt ) && 'create' === $operation && 0 === $target;
@@ -439,7 +429,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( is_wp_error( $job ) ) { return $job; }
                 $plan = call_user_func( [ $this->writer, 'plan' ], $snapshot, $configuration, $context );
                 if ( is_wp_error( $plan ) && 'nova_translation_source_pending' === $plan->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
-                if ( is_wp_error( $plan ) ) { return $this->native_failure( $job, $snapshot, $plan->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                if ( is_wp_error( $plan ) ) { return $this->native_failure( $job, $snapshot, $plan->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $plan->get_error_message() ); }
                 if ( ! is_array( $plan ) ) { return $this->block( $job, 'plan_invalid' ); }
                 $job = $this->save_payload( $job, [ 'plan' => $plan ], 'planned', [ 'target_id' => $target ] );
                 if ( is_wp_error( $job ) ) { return $job; }
@@ -472,30 +462,32 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 }
             } else { $result = $job['payload']['result'] ?? null; }
             if ( is_wp_error( $result ) ) {
+                $job = $this->retain_native_error( $job, $result );
+                if ( is_wp_error( $job ) ) { return $job; }
                 if ( 'nova_translation_busy' === $result->get_error_code() ) { return $this->retry( $job, 'nova_translation_busy' ); }
                 if ( 'nova_writer_ambiguous_commit' === $result->get_error_code() ) { return $this->retry( $job, 'native_commit_reconciliation' ); }
                 $proof = call_user_func( [ $this->writer, 'recover' ], $job['payload']['plan'], $job['operation_id'] );
-                if ( is_array( $proof ) && 'not_committed' === ( $proof['state'] ?? null ) && true === ( $proof['no_native_commit'] ?? false ) ) { return $this->native_failure( $job, $snapshot, $proof['failure_code'] ?? $result->get_error_code(), $proof ); }
+                if ( is_array( $proof ) && 'not_committed' === ( $proof['state'] ?? null ) && true === ( $proof['no_native_commit'] ?? false ) ) { return $this->native_failure( $job, $snapshot, $proof['failure_code'] ?? $result->get_error_code(), $proof, $result->get_error_message() ); }
                 return is_array( $proof ) && ! empty( $proof[$native_id_key] ) ? $this->retry( $job, 'native_commit_reconciliation' ) : $this->block( $job, $result->get_error_code() );
             }
             if ( is_array( $result ) && 'not_committed' === ( $result['state'] ?? null ) && true === ( $result['no_native_commit'] ?? false ) && false === ( $result['safe_to_apply'] ?? null ) ) { return $this->native_failure( $job, $snapshot, $result['failure_code'] ?? 'native_target_unavailable', $result ); }
             if ( ! is_array( $result ) || empty( $result[$native_id_key] ) ) { return $this->block( $job, 'mutation_result_unverified' ); }
             if ( 'committed' !== $job['phase'] ) {
-                $job = $this->save_payload( $job, [ 'result' => $result ], 'committed', [ 'target_id' => (int) $result[$native_id_key] ] );
+                $job = $this->save_payload( $job, [ 'result' => $result, 'native_error_detail' => '' ], 'committed', [ 'target_id' => (int) $result[$native_id_key] ] );
                 if ( is_wp_error( $job ) ) { return $job; }
             }
             if ( $actor_eligible && is_callable( [ $this->writer, 'finish' ] ) ) {
                 $authority = $this->current_authority( $job );
                 if ( true !== $authority ) { return $authority; }
                 $result = call_user_func( [ $this->writer, 'finish' ], $job['payload']['plan'], $result );
-                if ( is_wp_error( $result ) ) { return $this->retry( $job, $result->get_error_code() ); }
+                if ( is_wp_error( $result ) ) { $saved = $this->retain_native_error( $job, $result ); return is_wp_error( $saved ) ? $saved : $this->retry( $saved, $result->get_error_code() ); }
                 $job = $this->save_payload( $job, [ 'result' => $result ], 'committed' );
                 if ( is_wp_error( $job ) ) { return $job; }
             }
             // An existing native commitment can be attested after its actor leaves.
             // Only read back the result: finish/recover can still change native content.
             $verified = call_user_func( [ $this->writer, 'verify' ], $job['payload']['plan'], $result, ! $actor_eligible );
-            if ( is_wp_error( $verified ) ) { return $this->retry( $job, $verified->get_error_code() ); }
+            if ( is_wp_error( $verified ) ) { $saved = $this->retain_native_error( $job, $verified ); return is_wp_error( $saved ) ? $saved : $this->retry( $saved, $verified->get_error_code() ); }
             if ( ! is_array( $verified ) || (int) ( $verified[$native_id_key] ?? 0 ) !== (int) $result[$native_id_key] || ! in_array( $verified['cms_post_status'] ?? null, [ 'draft', 'publish', 'future', 'private', 'pending' ], true ) ) { return $this->block( $job, 'verification_result_invalid' ); }
             if ( ! $actor_eligible && ( ! empty( $verified['derived_pending'] ) || 'complete' !== ( $verified['state'] ?? 'complete' ) ) ) { return $this->block( $job, 'publishing_user_unavailable' ); }
             if ( 'publish' === $verified['cms_post_status'] && Nova_Bridge_Suite_Translation_Source::is_provider_original( $snapshot ) && method_exists( $this->jobs, 'wake_translation_dependents' ) ) {
@@ -507,7 +499,10 @@ final class Nova_Bridge_Suite_Posting_Worker {
             $job = $this->save_payload( $job, [ 'result' => $verified ], 'committed' );
             if ( is_wp_error( $job ) ) { return $job; }
             $publication_ref = $static_term ? $verified['publication_ref'] : 'wordpress:post:' . $verified['post_id'] . ';operation:' . $job['operation_id'];
-            return $this->queue_event( $job, $snapshot, 'publication_succeeded', [ 'published_at' => Nova_Bridge_Suite_Posting_Protocol::now(), 'publication_ref' => $publication_ref ], 'complete' );
+            $evidence = [ 'published_at' => Nova_Bridge_Suite_Posting_Protocol::now(), 'publication_ref' => $publication_ref ];
+            $publication = self::publication_report( $snapshot, $verified, $static_term, $job['payload']['native_writer'] ?? '', $job['payload']['plan'] ?? [] );
+            if ( null !== $publication ) { $evidence['publication'] = $publication; }
+            return $this->queue_event( $job, $snapshot, 'publication_succeeded', $evidence, 'complete' );
         } catch ( Throwable $error ) {
             return $this->retry( $job, 'worker_interrupted' );
         } finally {
@@ -519,12 +514,85 @@ final class Nova_Bridge_Suite_Posting_Worker {
         }
     }
 
-    private function native_failure( array $job, array $snapshot, string $code, array $proof ) {
+    /**
+     * The URL the verified item actually has, read from WordPress itself rather than from
+     * the writer's plan, so WPML/Polylang and date-based permalinks report their real URL.
+     * Optional evidence: returns null instead of blocking success when WordPress cannot
+     * give an absolute URL that matches the contract.
+     */
+    private static function publication_report( array $snapshot, array $verified, bool $static_term, string $writer = '', array $plan = [] ): ?array {
+        try {
+            if ( $static_term ) {
+                $term = get_term( (int) ( $verified['term_id'] ?? 0 ) );
+                if ( ! is_object( $term ) || is_wp_error( $term ) ) { return null; }
+                $url = get_term_link( $term ); $cms_status = 'publish';
+                $native = [ 'system' => 'wordpress', 'type' => (string) $term->taxonomy, 'id' => (string) $term->term_id ];
+            } else {
+                $id = (int) ( $verified['post_id'] ?? 0 ); $cms_status = get_post_status( $id );
+                // get_permalink() gives the ?p= form for unpublished posts. Build their future URL the way the editor does.
+                $url = in_array( $cms_status, [ 'draft', 'pending', 'future', 'auto-draft' ], true ) ? self::sample_permalink( $id ) : get_permalink( $id );
+                $native = [ 'system' => 'wordpress', 'type' => (string) get_post_type( $id ), 'id' => (string) $id ];
+                // TranslatePress/Weglot translate the original in place: the verified post is the
+                // original, and its localized URL comes from the provider, as the writer checks at plan time.
+                if ( 'dictionary_translation' === $writer ) {
+                    if ( ! is_array( $plan['provider'] ?? null ) || ! is_string( $url ) ) { return null; }
+                    $localized = Nova_Bridge_Suite_Translation_Writer::translated_url( $plan['provider'], $url );
+                    $url = is_array( $localized ) ? ( $localized['identity'] ?? null ) : null;
+                }
+            }
+            if ( ! is_string( $url ) || ! is_string( $cms_status ) ) { return null; }
+            if ( self::query_identified( $url ) ) { return null; }
+            $report = [ 'url' => $url, 'url_status' => 'publish' === $cms_status ? 'final' : 'provisional', 'cms_status' => $cms_status, 'native' => $native, 'observed_at' => Nova_Bridge_Suite_Posting_Protocol::now() ];
+            $optional = [ 'intended_url' => $snapshot['url'] ?? null, 'language' => is_string( $snapshot['language'] ?? null ) ? str_replace( '_', '-', $snapshot['language'] ) : null ];
+            foreach ( $optional as $key => $value ) {
+                // Each optional field is checked on its own so one odd value never drops the URL.
+                $candidate = $report + [ $key => $value ];
+                if ( is_string( $value ) && true === Nova_Bridge_Suite_Posting_Protocol::validate( $candidate, 'ConnectorPublication' ) ) { $report = $candidate; }
+            }
+            return true === Nova_Bridge_Suite_Posting_Protocol::validate( $report, 'ConnectorPublication' ) ? $report : null;
+        } catch ( Throwable $error ) {
+            return null;
+        }
+    }
+
+    /**
+     * NOVA stores page URLs as paths, so a URL that only its query identifies (plain permalinks:
+     * /?p=123, ?page_id=45, a draft preview) would name the homepage or another page. Omit it.
+     */
+    private static function query_identified( string $url ): bool {
+        $parts = wp_parse_url( $url );
+        $query = is_array( $parts ) ? (string) ( $parts['query'] ?? '' ) : '';
+        if ( '' === $query ) { return false; }
+        $path = (string) ( $parts['path'] ?? '' );
+        return '' === $path || '/' === $path || 1 === preg_match( '/(?:^|&)(?:p|page_id|preview)=/i', $query );
+    }
+
+    private static function sample_permalink( int $post_id ) {
+        if ( ! function_exists( 'get_sample_permalink' ) && defined( 'ABSPATH' ) && is_file( ABSPATH . 'wp-admin/includes/post.php' ) ) { require_once ABSPATH . 'wp-admin/includes/post.php'; }
+        if ( ! function_exists( 'get_sample_permalink' ) ) { return null; }
+        $sample = get_sample_permalink( $post_id );
+        return is_array( $sample ) && is_string( $sample[0] ?? null ) ? str_replace( [ '%pagename%', '%postname%' ], (string) ( $sample[1] ?? '' ), $sample[0] ) : null;
+    }
+
+    /** Keep the real check locally even when the operation must retain its reconciliation state. */
+    private function retain_native_error( array $job, WP_Error $error ) {
+        $detail = trim( (string) preg_replace( '/\s+/u', ' ', strip_tags( $error->get_error_code() . ': ' . $error->get_error_message() ) ) );
+        $detail = function_exists( 'mb_substr' ) ? mb_substr( $detail, 0, 600 ) : substr( $detail, 0, 600 );
+        return $this->save_payload( $job, [ 'native_error_detail' => $detail ], $job['phase'] );
+    }
+
+    private function native_failure( array $job, array $snapshot, string $code, array $proof, string $message = '' ) {
         $code = preg_match( '/^[a-z0-9_]{1,100}$/D', $code ) ? $code : 'native_failure';
-        return $this->queue_event( $job, $snapshot, 'publication_failed', [ 'reason' => $code ], 'complete', [ 'native_absence_proof' => $proof, 'failure_code' => $code ] );
+        // The code alone hides which WordPress check failed (e.g. nova_layout_writer_native wraps ~40 of them).
+        // Keep the WordPress message locally so the delivery list can show it; the event schema stays unchanged.
+        $extra = [ 'native_absence_proof' => $proof, 'failure_code' => $code, 'native_error_detail' => '' ];
+        $message = trim( (string) preg_replace( '/\s+/u', ' ', strip_tags( $message ) ) );
+        if ( '' !== $message ) { $extra['failure_message'] = function_exists( 'mb_substr' ) ? mb_substr( $message, 0, 500 ) : substr( $message, 0, 500 ); }
+        return $this->queue_event( $job, $snapshot, 'publication_failed', [ 'reason' => $code ], 'complete', $extra );
     }
 
     private function queue_event( array $job, array $snapshot, string $kind, array $evidence, string $continue, array $extra = [] ) {
+        if ( 'publication_succeeded' === $kind ) { $extra['native_error_detail'] = ''; $extra['failure_message'] = ''; }
         $event = array_merge( [ 'event_id' => strtolower( wp_generate_uuid4() ), 'kind' => $kind, 'site_id' => $job['site_id'], 'delivery_id' => $snapshot['id'], 'content_item_version_id' => $snapshot['content_item_version_id'], 'version_number' => $snapshot['version_number'], 'source_sha256' => $snapshot['source_sha256'], 'attempt_id' => $job['payload']['attempt_id'], 'delivery_etag' => $job['payload']['delivery_etag'] ], $evidence );
         if ( is_wp_error( Nova_Bridge_Suite_Posting_Protocol::event_input( $event ) ) ) { return $this->block( $job, 'event_schema' ); }
         $bytes = Nova_Bridge_Suite_Receipt_Json::encode( $event );

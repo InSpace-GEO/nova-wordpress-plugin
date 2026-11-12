@@ -1,6 +1,8 @@
 <?php
 /** Exact local row plans. No generic save hooks, remote commands or whole-parent ACF writes. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
+require_once __DIR__ . '/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Writer_Failure extends RuntimeException {
     public $reason;
@@ -337,7 +339,7 @@ final class Nova_Bridge_Suite_Mapped_Writer {
     private static function check_row_permissions( array $plan, int $post_id ): void {
         $rows = array_column( $plan['snapshot']['meta'], null, 'meta_id' );
         foreach ( $plan['changes']['meta'] as $id => $value ) {
-            if ( ! isset( $rows[ $id ] ) || ! current_user_can( 'edit_post_meta', $post_id, $rows[ $id ]['meta_key'] ) ) { self::fail( 'permission', 'The publishing user cannot edit a mapped native metadata row.' ); }
+            if ( ! isset( $rows[ $id ] ) || ! Nova_WordPress_Meta_Permission::can_edit( 'post', $post_id, $rows[ $id ]['meta_key'] ) ) { self::fail( 'permission', 'The publishing user cannot edit a mapped native metadata row.' ); }
         }
     }
     private static function taxonomy_plan( array $snapshot, string $operation, string $desired ): array {
@@ -458,8 +460,8 @@ final class Nova_Bridge_Suite_Mapped_Writer {
         $digest = $plan['plan_digest'] ?? ''; $unsigned = $plan; unset( $unsigned['plan_digest'] );
         if ( ( $plan['format'] ?? '' ) !== self::WRITER_ID || ! is_string( $digest ) || ! hash_equals( $digest, self::digest( $unsigned ) ) || ( $plan['context']['operation_id'] ?? null ) !== $operation_id ) { self::fail( 'plan_integrity', 'The persisted plan or its operation identity changed.' ); }
     }
-    private static function operation_key( string $operation_id ): string { return '_nova_writer_op_' . hash( 'sha256', $operation_id ); }
-    private static function content_key( string $site_id, string $content_id ): string { return '_nova_writer_content_' . hash( 'sha256', $site_id . "\0" . $content_id ); }
+    private static function operation_key( string $operation_id ): string { return Nova_WordPress_Environment::key( '_nova_writer_op_' . hash( 'sha256', $operation_id ) ); }
+    private static function content_key( string $site_id, string $content_id ): string { return Nova_WordPress_Environment::key( '_nova_writer_content_' . hash( 'sha256', $site_id . "\0" . $content_id ) ); }
     private static function target_fence( int $post_id ): ?array {
         global $wpdb;
         $rows = self::rows( $wpdb->prepare( 'SELECT meta_id, post_id, meta_value FROM ' . self::table( 'postmeta' ) . ' WHERE post_id = %d AND meta_key = %s ORDER BY meta_id FOR UPDATE', $post_id, '_nova_writer_target_fence_v1' ) );

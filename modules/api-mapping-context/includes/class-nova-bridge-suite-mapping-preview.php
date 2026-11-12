@@ -87,12 +87,22 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		header( 'X-Frame-Options: SAMEORIGIN' );
 		header( 'Referrer-Policy: no-referrer' );
 		if ( self::$canvas ) {
-			if ( 'post' === $type ) { add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 ); }
+			if ( 'post' === $type ) {
+				add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 );
+				add_filter( 'the_content', [ __CLASS__, 'mark_shortcodes' ], 9 );
+				require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
+				add_filter( 'do_shortcode_tag', [ 'Nova_Bridge_Suite_Shortcode_Preview', 'tag_output' ], PHP_INT_MAX, 3 );
+			}
 			header( 'Content-Security-Policy: ' . self::canvas_policy() );
 			$script = NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_DIR . 'assets/recipe-canvas.js';
-			wp_enqueue_script( 'nova-recipe-canvas', NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/recipe-canvas.js', [], (string) filemtime( $script ), false );
+			// Release ZIPs retain deterministic timestamps. Key the preview asset to its
+			// contents so a previous release cannot supply stale instrumentation.
+			$version = substr( hash_file( 'sha256', $script ), 0, 16 );
+			wp_enqueue_script( 'nova-recipe-canvas', NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/recipe-canvas.js', [], $version, false );
 			$config = self::$canvas; unset( $config['taxonomy'] ); $config['parentOrigin'] = self::$parent_origin;
 			wp_add_inline_script( 'nova-recipe-canvas', 'window.NovaRecipeCanvas=' . wp_json_encode( $config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ) . ';', 'before' );
+			require_once __DIR__ . '/class-nova-bridge-suite-preview-bootstrap.php';
+			Nova_Bridge_Suite_Preview_Bootstrap::start( $config, add_query_arg( [ 'ver' => $version ], NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/recipe-canvas.js' ), self::$canvas_nonce );
 			return;
 		}
 		$script = NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_DIR . 'assets/mapping-preview.js';
@@ -103,6 +113,11 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] || ! str_contains( $content, '<!-- wp:html' ) ) { return $content; }
 		require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
 		return serialize_blocks( Nova_Mapping_Gutenberg_HTML::preview_blocks( parse_blocks( $content ) ) );
+	}
+	public static function mark_shortcodes( string $content ): string {
+		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }
+		require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
+		return Nova_Bridge_Suite_Shortcode_Preview::mark_content( $content );
 	}
 	private static function wpml_domain_language( int $id, string $post_type, string $url ): string {
 		if ( ! is_callable( [ $GLOBALS['sitepress'] ?? null, 'switch_lang' ] ) || 2 !== (int) apply_filters( 'wpml_setting', null, 'language_negotiation_type' ) ) { return ''; }

@@ -258,7 +258,6 @@ final class Nova_Bridge_Suite_Recipe_Flatsome {
     }
     public function publication_snapshot( int $id, array $payload ) {
         $post = get_post( $id ); if ( ! $post || ! current_user_can( 'edit_post', $id ) ) { return self::error( 'The retained UX Builder page cannot be inspected.', 403 ); }
-        $target = $this->check_target( $post ); if ( is_wp_error( $target ) ) { return $target; }
         $meta = []; foreach ( $payload['meta'] ?? [] as $key => $_ ) { $meta[$key] = [ 'present' => metadata_exists( 'post', $id, $key ), 'value' => (string) get_post_meta( $id, $key, true ) ]; }
         return [ 'content' => (string) $post->post_content, 'template' => (string) get_page_template_slug( $id ), 'meta' => $meta ];
     }
@@ -269,7 +268,6 @@ final class Nova_Bridge_Suite_Recipe_Flatsome {
     public function publication_apply( int $id, array $payload, array $fields ) {
         $post = get_post( $id ); if ( ! $post || ! current_user_can( 'edit_post', $id ) ) { return self::error( 'The retained UX Builder item is not editable.', 403 ); }
         $checked = $this->publication_probe( $post->post_type, $payload, $post->post_status ); if ( is_wp_error( $checked ) ) { return $checked; }
-        $target = $this->check_target( $post ); if ( is_wp_error( $target ) ) { return $target; }
         $data = $this->post_data( $id, $payload, $fields ); $data = apply_filters( 'ux_builder_save_post', $data );
         if ( ! is_array( $data ) || ( $data['ID'] ?? null ) !== $id ) { return self::error( 'The native UX Builder save filter changed the retained target.' ); }
         $saved = wp_update_post( wp_slash( $data ), true ); if ( is_wp_error( $saved ) ) { return $saved; }

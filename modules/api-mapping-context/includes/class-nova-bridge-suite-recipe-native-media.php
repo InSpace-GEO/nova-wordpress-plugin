@@ -4,6 +4,23 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 final class Nova_Bridge_Suite_Recipe_Native_Media {
     public const FEATURED = '/native_post/featured_image';
+    public const TITLE = '/native_post/title';
+    public const EXCERPT = '/native_post/excerpt';
+    /** Native post columns written next to the layout, never inside the builder document. */
+    public const POST_FIELDS = [ self::TITLE => 'title', self::EXCERPT => 'excerpt' ];
+
+    public static function post_column( string $target ): ?string { return self::POST_FIELDS[ $target ] ?? null; }
+    public static function is_native_post( string $target ): bool { return self::FEATURED === $target || isset( self::POST_FIELDS[ $target ] ); }
+
+    public static function post_fields( string $post_type ): array {
+        $fields = [ [ 'target' => self::TITLE, 'label' => 'Title', 'kind' => 'title', 'format' => 'text', 'allowed_formats' => [ 'text' ], 'writable' => true, 'required' => true, 'roles' => [ 'title', 'seo_title', 'custom' ],
+            'value' => '', 'sample' => '', 'native_post' => 'title', 'context' => 'WordPress', 'instructions' => 'The page title. Themes usually show it as the main heading (H1).' ] ];
+        if ( function_exists( 'post_type_supports' ) && post_type_supports( $post_type, 'excerpt' ) ) {
+            $fields[] = [ 'target' => self::EXCERPT, 'label' => 'Excerpt', 'kind' => 'excerpt', 'format' => 'text', 'allowed_formats' => [ 'text' ], 'writable' => true, 'required' => false, 'roles' => [ 'intro', 'meta_description', 'custom' ],
+                'value' => '', 'sample' => '', 'native_post' => 'excerpt', 'context' => 'WordPress', 'instructions' => 'A short plain-text summary. Themes, archives and dynamic builder content can show it.' ];
+        }
+        return $fields;
+    }
 
     public static function featured_field(): array {
         return [ 'target' => self::FEATURED, 'label' => 'Featured image', 'kind' => 'image_url', 'format' => 'url', 'allowed_formats' => [ 'url' ], 'writable' => true, 'required' => false,
@@ -11,7 +28,14 @@ final class Nova_Bridge_Suite_Recipe_Native_Media {
     }
 
     public static function describe( array $description, string $resource ): array {
-        if ( preg_match( '/^post_type:([a-z0-9_-]{1,20})$/D', $resource, $match ) && function_exists( 'post_type_supports' ) && post_type_supports( $match[1], 'thumbnail' ) ) {
+        if ( ! preg_match( '/^post_type:([a-z0-9_-]{1,20})$/D', $resource, $match ) ) { return $description; }
+        $existing = array_column( $description['fields'] ?? [], 'target' );
+        // Core layouts have their own title, but their body/Introduction is not the WordPress excerpt.
+        foreach ( self::post_fields( $match[1] ) as $field ) {
+            if ( self::TITLE === $field['target'] && in_array( '/document/title', $existing, true ) ) { continue; }
+            if ( ! in_array( $field['target'], $existing, true ) ) { $description['fields'][] = $field; }
+        }
+        if ( function_exists( 'post_type_supports' ) && post_type_supports( $match[1], 'thumbnail' ) ) {
             $description['fields'][] = self::featured_field();
         }
         return $description;
@@ -32,13 +56,26 @@ final class Nova_Bridge_Suite_Recipe_Native_Media {
             if ( empty( $field['writable'] ) || ! is_array( $spec ) || ! is_string( $spec['id_target'] ?? null ) ) { break; }
             Nova_Bridge_Suite_Recipe_Engine::parts( $spec['id_target'] );
             $kind = $spec['kind'] ?? '';
+            if ( 'salient_header' === $kind && '/meta/_nectar_header_bg' === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Native_Adapter ) { return [ 'kind' => $kind, 'id_target' => $binding['target'] ]; }
             if ( ( 'elementor' === $kind || ( 'enfold' === $kind && $adapter instanceof Nova_Bridge_Suite_Recipe_Enfold ) ) && ( $spec['url_target'] ?? '' ) === $binding['target'] ) {
                 return [ 'kind' => $kind, 'url_target' => $spec['url_target'], 'id_target' => $spec['id_target'] ];
+            }
+            if ( 'avada' === $kind && ( $spec['url_target'] ?? '' ) === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Native_Adapter ) {
+                return [ 'kind' => 'avada', 'url_target' => $spec['url_target'], 'id_target' => $spec['id_target'] ];
+            }
+            if ( 'wpbakery' === $kind && $spec['id_target'] === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Native_Adapter ) {
+                return [ 'kind' => 'wpbakery', 'id_target' => $spec['id_target'] ];
             }
             if ( ( $spec['kind'] ?? '' ) === 'flatsome' && $spec['id_target'] === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Flatsome ) {
                 return [ 'kind' => 'flatsome', 'id_target' => $spec['id_target'] ];
             }
+            if ( 'betheme' === $kind && $spec['id_target'] === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Betheme ) {
+                return [ 'kind' => $kind, 'id_target' => $binding['target'] ];
+            }
             if ( 'cornerstone' === $kind && $spec['id_target'] === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_Cornerstone ) {
+                return [ 'kind' => $kind, 'id_target' => $binding['target'] ];
+            }
+            if ( 'acf' === $kind && $spec['id_target'] === $binding['target'] && $adapter instanceof Nova_Bridge_Suite_Recipe_ACF ) {
                 return [ 'kind' => $kind, 'id_target' => $binding['target'] ];
             }
             break;

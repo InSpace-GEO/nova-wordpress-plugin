@@ -1,12 +1,13 @@
 <?php
 /** Standard delivery lifecycle for the explicitly approved scalar category adapter. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Static_Term_Writer {
     public const FORMAT = 'nova.static-term-writer/v1';
     private static function error( string $code, string $message ): WP_Error { return Nova_Bridge_Suite_Static_Recipe_Adapter::error( $code, $message ); }
     private static function digest( array $value ): string { return Nova_Bridge_Suite_Static_Recipe_Adapter::digest( $value ); }
-    private static function key( string $operation ): string { return 'nova_static_term_operation_' . hash( 'sha256', $operation ); }
+    private static function key( string $operation ): string { return Nova_WordPress_Environment::key( 'nova_static_term_operation_' . hash( 'sha256', $operation ) ); }
     private static function save( string $key, array $value ) { update_option( $key, $value, false ); return get_option( $key, null ) === $value ? true : self::error( 'journal_storage', 'The native category journal could not be retained.' ); }
     private static function capability() {
         $taxonomy = get_taxonomy( 'product_cat' );

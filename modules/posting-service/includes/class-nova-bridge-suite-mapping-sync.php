@@ -1,6 +1,7 @@
 <?php
 /** Publishing-template setup; native profiles and human instructions remain in WordPress. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
 
 final class Nova_Bridge_Suite_Mapping_Sync {
@@ -25,13 +26,13 @@ final class Nova_Bridge_Suite_Mapping_Sync {
     private static function connection(): array { return class_exists( 'Nova_Bridge_Suite_Posting_Settings' ) ? Nova_Bridge_Suite_Posting_Settings::connection() : []; }
     private static function error( string $code, string $message, int $status = 409 ): WP_Error { return Nova_Bridge_Suite_Writing_Adapter::error( $code, $message, $status ); }
     private static function json( $value ): string { return Nova_Bridge_Suite_Writing_Adapter::canonical_json( $value ); }
-    private static function key( string $site, string $type, int $id ): string { return 'nova_mapping_sync_' . hash( 'sha256', $site . ':' . $type . ':' . $id ); }
-    private static function profile_key( string $site, string $id, int $revision ): string { return 'nova_publishing_profile_' . hash( 'sha256', $site . ':' . $id . ':' . $revision ); }
+    private static function key( string $site, string $type, int $id, ?array $connection = null ): string { return Nova_WordPress_Environment::key( 'nova_mapping_sync_' . hash( 'sha256', $site . ':' . $type . ':' . $id ), $connection ); }
+    private static function profile_key( string $site, string $id, int $revision, ?array $connection = null ): string { return Nova_WordPress_Environment::key( 'nova_publishing_profile_' . hash( 'sha256', $site . ':' . $id . ':' . $revision ), $connection ); }
     public static function authored_profile( string $site, string $id, int $revision ) { return get_option( self::profile_key( $site, $id, $revision ), null ); }
     public static function state( string $type, int $id, string $site ): ?array { $state = get_option( self::key( $site, $type, $id ), null ); return is_array( $state ) ? $state : null; }
-    public static function scope_state( string $site, string $scope ): ?array { $state = get_option( 'nova_mapping_sync_' . hash( 'sha256', $site . ':' . $scope ), null ); return is_array( $state ) ? $state : null; }
+    public static function scope_state( string $site, string $scope, ?array $connection = null ): ?array { $state = get_option( Nova_WordPress_Environment::key( 'nova_mapping_sync_' . hash( 'sha256', $site . ':' . $scope ), $connection ), null ); return is_array( $state ) ? $state : null; }
     // WordPress can return a cached boolean or the scalar string persisted in wp_options.
-    public static function destination_enabled( string $site ): bool { return in_array( get_option( 'nova_posting_v3_' . hash( 'sha256', $site ), false ), [ true, 1, '1' ], true ) || Nova_Bridge_Suite_Shared_Layouts::has_imports( self::connection(), $site ); }
+    public static function destination_enabled( string $site, ?array $connection = null ): bool { return in_array( get_option( Nova_WordPress_Environment::key( 'nova_posting_v3_' . hash( 'sha256', $site ), $connection ), false ), [ true, 1, '1' ], true ) || Nova_Bridge_Suite_Shared_Layouts::has_imports( self::connection(), $site ); }
     private static function response( array $data ) { $response = rest_ensure_response( $data ); $response->header( 'Cache-Control', 'private, no-store' ); return $response; }
     private static function permission( $request ) {
         $permission = Nova_Bridge_Suite_Mapping_Drafts::can_admin(); if ( is_wp_error( $permission ) ) { return $permission; }
@@ -168,14 +169,14 @@ final class Nova_Bridge_Suite_Mapping_Sync {
             if ( is_wp_error( $probe ) ) { return $probe; }
             $profile = [ 'contract' => self::CONTRACT, 'site_id' => $this->client->site_id(), 'template' => self::frozen_remote( $record ), 'remote' => self::frozen_remote( $record ), 'local' => $draft, 'profile_digest' => hash( 'sha256', self::json( $draft ) ) ];
             if ( $creation ) { $profile['mode'] = 'stored_layout_v3'; }
-            $key = self::profile_key( $profile['site_id'], $record['id'], $record['revision'] );
+            $key = self::profile_key( $profile['site_id'], $record['id'], $record['revision'], $this->client->connection() );
             $imported = Nova_Bridge_Suite_Shared_Layouts::installed_profile( self::connection(), $profile['site_id'], $record['id'], $record['revision'] );
             if ( is_wp_error( $imported ) || ( null !== $imported && self::json( $imported ) !== self::json( $profile ) ) ) { return self::error( 'profile_conflict', 'This revision already belongs to a different imported layout.' ); }
             if ( ! add_option( $key, $profile, '', false ) && self::json( get_option( $key, [] ) ) !== self::json( $profile ) ) { return self::error( 'profile_conflict', 'This remote revision already belongs to another local native profile. It cannot be reassigned.', 409 ); }
             if ( 3 === $record['definition']['version'] ) {
-                $enabled_key = 'nova_posting_v3_' . hash( 'sha256', $profile['site_id'] );
+                $enabled_key = Nova_WordPress_Environment::key( 'nova_posting_v3_' . hash( 'sha256', $profile['site_id'] ), $this->client->connection() );
                 update_option( $enabled_key, true, false );
-                if ( ! self::destination_enabled( $profile['site_id'] ) ) { return self::error( 'storage', 'V3 discovery could not be enabled for this approved profile.', 500 ); }
+                if ( ! self::destination_enabled( $profile['site_id'], $this->client->connection() ) ) { return self::error( 'storage', 'V3 discovery could not be enabled for this approved profile.', 500 ); }
             }
             $this->state['status'] = 'active'; $this->state['evidence'] = $probe; $saved = $this->checkpoint();
             return is_wp_error( $saved ) ? $saved : $this->state;
@@ -297,7 +298,7 @@ final class Nova_Bridge_Suite_Mapping_Sync {
 
     private function acquire( array $draft ) {
         global $wpdb;
-        $this->state_name = '' === $this->local_scope ? self::key( $this->client->site_id(), $draft['reference_type'], (int) $draft['reference_id'] ) : 'nova_mapping_sync_' . hash( 'sha256', $this->client->site_id() . ':' . $this->local_scope );
+        $this->state_name = '' === $this->local_scope ? self::key( $this->client->site_id(), $draft['reference_type'], (int) $draft['reference_id'], $this->client->connection() ) : Nova_WordPress_Environment::key( 'nova_mapping_sync_' . hash( 'sha256', $this->client->site_id() . ':' . $this->local_scope ), $this->client->connection() );
         $this->lock_name = $this->state_name . '_lock';
         $old = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $this->lock_name ) );
         $decoded = null === $old ? null : maybe_unserialize( $old );

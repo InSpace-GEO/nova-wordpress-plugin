@@ -24,7 +24,7 @@
 
 	async function api( suffix, body, mapping ) {
 
-		var opts = { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-WP-Nonce': config.nonce } };
+		var opts = { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-WP-Nonce': config.nonce, 'X-Nova-Environment': config.environment || '' } };
 
 		if ( body !== undefined ) { opts.headers[ 'Content-Type' ] = 'application/json'; opts.body = JSON.stringify( body ); }
 

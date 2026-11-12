@@ -2,6 +2,9 @@
 /** Native provenance and authenticated visual context; never persists or mutates a page. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+require_once __DIR__ . '/class-nova-bridge-suite-elementor-reusable.php';
+require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
+
 final class Nova_Bridge_Suite_Recipe_Visual {
     private static function error( string $message, int $status = 409 ): WP_Error {
         return new WP_Error( 'nova_recipe_visual_source', $message, [ 'status' => $status ] );
@@ -40,15 +43,20 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         $detected = method_exists( 'Nova_Bridge_Suite_Recipe_Builders', 'detect_reference' ) ? Nova_Bridge_Suite_Recipe_Builders::detect_reference( $id ) : [];
         if ( is_wp_error( $detected ) ) { return $detected; }
         $detected = array_values( array_unique( (array) $detected ) );
-        if ( count( $detected ) > 1 ) { return self::error( 'This example contains more than one native builder. Choose its actual builder explicitly before mapping.', 422 ); }
+        if ( count( $detected ) > 1 ) {
+            $names = [ 'core' => 'WordPress content fields', 'gutenberg' => 'WordPress blocks', 'elementor' => 'Elementor', 'beaver' => 'Beaver Builder', 'divi4' => 'Divi 4', 'divi5' => 'Divi 5', 'wpbakery' => 'WPBakery', 'avada' => 'Avada', 'flatsome' => 'Flatsome', 'enfold' => 'Enfold', 'cornerstone' => 'Cornerstone', 'breakdance' => 'Breakdance' ];
+            $labels = array_map( static function ( $builder ) use ( $names ) { return $names[ $builder ] ?? $builder; }, $detected );
+            return new WP_Error( 'nova_recipe_builder_ambiguous', 'This example has active content from more than one builder (' . implode( ', ', $labels ) . '). Under Advanced: builder detection, choose the builder used for this page, then select Use this existing page again.', [ 'status' => 422, 'detected_builders' => $detected ] );
+        }
         if ( $detected ) { return $detected[0]; }
         $post = get_post( $id );
-        return $post && function_exists( 'has_blocks' ) && has_blocks( $post->post_content ) ? 'gutenberg' : 'core';
+        if ( $post && function_exists( 'has_blocks' ) && has_blocks( $post->post_content ) ) { return 'gutenberg'; }
+        return class_exists( 'Nova_Bridge_Suite_Recipe_ACF' ) && Nova_Bridge_Suite_Recipe_ACF::has_layout( $id ) ? 'acf' : 'core';
     }
     private static function capture( array $resource, int $id, string $builder, string $mode, array $declared_fields = [], bool $include_document_settings = true ) {
         if ( 'gutenberg' === $builder ) { return Nova_Bridge_Suite_Recipe_Builders::adapter( $builder )->capture( $id, false ); }
         if ( 'core' === $builder ) { return Nova_Bridge_Suite_Recipe_Core::design( $resource, $id, $mode, $declared_fields ); }
-        if ( 'acf' === $builder ) { return Nova_Bridge_Suite_Recipe_ACF::design( $resource['post_type'] ?? '', $id, 'taxonomy' === $resource['type'] ? '' : (string) get_page_template_slug( $id ), $resource['taxonomy'] ?? '' ); }
+        if ( 'acf' === $builder ) { return Nova_Bridge_Suite_Recipe_ACF::design( $resource['post_type'] ?? '', $id, 'taxonomy' === $resource['type'] ? '' : (string) get_page_template_slug( $id ), $resource['taxonomy'] ?? '', 'static' === $mode ); }
         return Nova_Bridge_Suite_Recipe_Builders::capture( $builder, $id, $include_document_settings );
     }
     private static function source( array $resource, int $id, string $builder, array $blueprint ) {
@@ -78,6 +86,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             // Compare the original page's links/structure without re-reading those blocks;
             // the signed receipt above still authenticates the complete captured snapshot.
             $expected = $recipe['blueprint'];
+            if ( 'elementor' === $recipe['builder'] ) { $expected = Nova_Bridge_Suite_Elementor_Reusable::linked_blueprint( $expected ); }
             if ( 'gutenberg' === $recipe['builder'] ) {
                 $expected['document'] = Nova_Mapping_Gutenberg_HTML::source_blocks( $expected['document'] );
             }
@@ -90,8 +99,36 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         }
         return $canonical;
     }
+    /**
+     * The theme decides where an ACF value is printed, so the canvas finds it by its value: the one
+     * element in the main content showing exactly this text, or the one image of this media file.
+     */
+    public static function acf_locator( array $field ): array {
+        $unbound = [ 'strategy' => 'unbound', 'reason' => 'The theme decides where this custom field is rendered. Select its declared field from the inventory.' ];
+        $value = $field['value'] ?? '';
+        if ( ! is_string( $value ) || '' === trim( $value ) ) { return $unbound; }
+        if ( 'image_url' === ( $field['kind'] ?? '' ) ) {
+            return preg_match( '~^https?://~i', $value ) ? [ 'strategy' => 'value_match', 'node_id' => 'acf', 'media' => $value, 'precision' => 'field' ] : $unbound;
+        }
+        if ( ! in_array( $field['kind'] ?? '', [ 'text', 'textarea', 'wysiwyg', 'email', 'title' ], true ) ) { return $unbound; }
+        $text = trim( preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+        $length = function_exists( 'mb_strlen' ) ? mb_strlen( $text ) : strlen( $text );
+        // Very short values repeat across a page; addresses and anchors are attributes, not visible text.
+        if ( $length < 3 || $length > 20000 || preg_match( '~^(?:https?://|/|#|mailto:|tel:)\S*$~i', $text ) ) { return $unbound; }
+        return [ 'strategy' => 'value_match', 'node_id' => 'acf', 'text' => $text, 'precision' => 'wysiwyg' === ( $field['kind'] ?? '' ) ? 'region' : 'field' ];
+    }
     public static function enrich( array $design, array $resource, int $id = 0, ?array $saved_source = null, string $saved_receipt = '' ): array {
         $builder = $design['builder']; $fields = []; $preview = []; $containers = [];
+        $shortcodes = in_array( $builder, [ 'wpbakery', 'avada', 'divi4' ], true ) && is_array( $design['blueprint']['document'] ?? null );
+        $shortcode_hash = $shortcodes ? Nova_Bridge_Suite_Shortcode_Preview::document_hash( $design['blueprint']['document'] ) : '';
+        // An Elementor dynamic tag that renders the page title, excerpt or image shows where that page field appears.
+        $dynamic_locators = [];
+        foreach ( $design['fields'] ?? [] as $field ) {
+            $source = $field['dynamic']['source'] ?? ''; $node = $field['native_node_id'] ?? '';
+            if ( '' !== $source && ! isset( $dynamic_locators[ $source ] ) && is_string( $node ) && preg_match( '/^[a-zA-Z0-9_-]+$/D', $node ) ) {
+                $dynamic_locators[ $source ] = [ 'strategy' => 'elementor', 'node_id' => $node, 'element_type' => $field['element_type'] ?? '', 'control_path' => $field['control_path'] ?? [], 'precision' => 'element' ];
+            }
+        }
         foreach ( $design['fields'] ?? [] as $field ) {
             $field['field_id'] = 'field_' . substr( hash( 'sha256', $builder . ':' . $field['target'] ), 0, 20 );
             $value = Nova_Bridge_Suite_Recipe_Engine::get( $design['blueprint'], $field['target'], $found );
@@ -108,7 +145,15 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 elseif ( 'product_cat' === ( $resource['taxonomy'] ?? '' ) && 'content_below_products' === ( $field['custom_field_key'] ?? '' ) && ! empty( $field['writable'] ) ) { $locator = [ 'strategy' => 'core', 'control_path' => [ 'bottom_content' ], 'precision' => 'region' ]; }
                 else { $locator = [ 'strategy' => 'unbound', 'reason' => 'This field has no independent element on the source page.' ]; }
             }
-            if ( 'acf' === $builder ) { $locator = [ 'strategy' => 'unbound', 'reason' => 'The theme decides where this custom field is rendered. Select its declared field from the inventory.' ]; }
+            if ( 'acf' === $builder ) { $locator = self::acf_locator( $field ); }
+            if ( $shortcodes && is_string( $field['node_target'] ?? null ) && 0 === strpos( $field['node_target'], '/document/' ) ) {
+                $marker = Nova_Bridge_Suite_Shortcode_Preview::marker( $field['node_target'], $shortcode_hash );
+                $locator = [ 'strategy' => 'shortcode', 'marker' => $marker, 'node_id' => $marker, 'kind' => (string) ( $field['kind'] ?? '' ), 'element_type' => $locator['element_type'], 'control_path' => $locator['control_path'], 'precision' => 'element' ];
+            }
+            if ( Nova_Bridge_Suite_Recipe_Native_Media::is_native_post( $field['target'] ) ) {
+                $control = [ Nova_Bridge_Suite_Recipe_Native_Media::TITLE => 'title', Nova_Bridge_Suite_Recipe_Native_Media::EXCERPT => 'excerpt', Nova_Bridge_Suite_Recipe_Native_Media::FEATURED => 'featured_image' ][ $field['target'] ];
+                $locator = $dynamic_locators[ $field['target'] ] ?? [ 'strategy' => 'core', 'control_path' => [ $control ], 'precision' => 'title' === $control ? 'field' : 'region' ];
+            }
             if ( empty( $locator['node_id'] ) && 'core' !== $locator['strategy'] ) { $locator['strategy'] = 'unbound'; }
             if ( 'gutenberg' === $builder && ( str_contains( $field['target'], '/nova_html_slots/' )
                 || ( 'unbound' === $locator['strategy'] && str_ends_with( $field['target'], '/innerHTML' ) ) ) ) {
@@ -116,7 +161,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 $locator = Nova_Mapping_Gutenberg_HTML::preview_locator( $design['blueprint'], $field ) ?? $locator;
             }
             $field['locator'] = $locator; $fields[] = $field;
-            $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator' ] ) );
+            $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator', 'current_value', 'node_target' ] ) );
         }
         foreach ( $design['containers'] ?? [] as $container ) {
             $container['container_id'] = 'container_' . substr( hash( 'sha256', $builder . ':' . $container['target'] ), 0, 20 );
@@ -136,6 +181,10 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         $validated = self::validate_source( [ 'source_reference' => $source, 'source_receipt' => $source_receipt ], [ 'builder' => $builder, 'mode' => $design['recipe_preset']['mode'], 'blueprint' => $design['blueprint'] ], $resource );
         if ( is_wp_error( $validated ) ) { $design['visual_preview'] = [ 'status' => 'stale', 'reason' => $validated->get_error_message() ]; return $design; }
         $source = $validated; $design['source_reference'] = $source;
+        if ( 'elementor' === $builder && Nova_Bridge_Suite_Recipe_Engine::digest( Nova_Bridge_Suite_Elementor_Reusable::linked_blueprint( $design['blueprint'] ) ) !== $source['native_digest'] ) {
+            $design['visual_preview'] = [ 'status' => 'unavailable', 'reason' => 'Independent component copies can differ from the live example. Map their fields in the list below; the saved copies are used for delivery.' ];
+            return $design;
+        }
         if ( 'flatsome' === $builder && class_exists( 'Nova_Bridge_Suite_Recipe_Flatsome' ) && Nova_Bridge_Suite_Recipe_Engine::digest( Nova_Bridge_Suite_Recipe_Flatsome::linked_blueprint( $design['blueprint'] ) ) !== $source['native_digest'] ) {
             $design['visual_preview'] = [ 'status' => 'unavailable', 'reason' => 'Captured UX Blocks use their saved layout. Select their fields below and review a generated draft; the live example can still show different reusable block content.' ];
             return $design;
@@ -151,6 +200,23 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         // Keep Autoptimize's public-page rewriting out of this signed preview request.
         $url = add_query_arg( [ 'nova_recipe_canvas' => $session, 'nova_recipe_digest' => $source['native_digest'], 'ao_noptimize' => '1' ], $url );
         $design['visual_preview'] = [ 'status' => 'available', 'url' => $url, 'session_id' => $session, 'digest' => $source['native_digest'], 'reference_id' => $source['reference_id'], 'reference_type' => $source['reference_type'], 'reason' => 'Click content to choose its purpose. Site scripts and forms are disabled in this isolated design view; hidden or theme-controlled fields remain in the inventory.' ];
+        // Theme templates can print native fields in generic modules. Supply the example's own values
+        // and attachment identity; a generic excerpt/thumbnail class can belong to a related article.
+        $post = 'post' === $source['reference_type'] ? get_post( $source['reference_id'] ) : null;
+        $native_values = $post ? [ Nova_Bridge_Suite_Recipe_Native_Media::TITLE => (string) $post->post_title, Nova_Bridge_Suite_Recipe_Native_Media::EXCERPT => (string) $post->post_excerpt ] : [];
+        $thumbnail = $post && function_exists( 'get_post_thumbnail_id' ) ? (int) get_post_thumbnail_id( $post->ID ) : 0;
+        $image_url = $thumbnail && function_exists( 'wp_get_attachment_url' ) ? (string) wp_get_attachment_url( $thumbnail ) : '';
+        if ( $post ) { $native_values[ Nova_Bridge_Suite_Recipe_Native_Media::FEATURED ] = $image_url; }
+        foreach ( [ 'fields', 'preview_fields' ] as $list ) {
+            foreach ( $design[ $list ] as &$entry ) {
+                if ( isset( $native_values[ $entry['target'] ] ) ) { $entry['current_value'] = $native_values[ $entry['target'] ]; }
+                if ( $post && 'core' === $entry['locator']['strategy'] ) {
+                    if ( Nova_Bridge_Suite_Recipe_Native_Media::EXCERPT === $entry['target'] ) { $entry['locator']['text'] = html_entity_decode( wp_strip_all_tags( $post->post_excerpt ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ); }
+                    if ( Nova_Bridge_Suite_Recipe_Native_Media::FEATURED === $entry['target'] ) { $entry['locator']['media'] = $image_url; $entry['locator']['attachment_id'] = $thumbnail; }
+                }
+            }
+            unset( $entry );
+        }
         foreach ( $design['preview_fields'] as &$field ) { $field['locator']['reference_id'] = $source['reference_id']; } unset( $field );
         foreach ( $design['preview_containers'] as &$container ) { $container['locator']['reference_id'] = $source['reference_id']; } unset( $container );
         return $design;

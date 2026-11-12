@@ -22,6 +22,8 @@ function flush_fixture() {
 }
 if ( 0 === strpos( $mode, 'fastcgi' ) ) { function fastcgi_finish_request() { return flush_fixture(); } }
 elseif ( 'litespeed' === $mode ) { function litespeed_finish_request() { return flush_fixture(); } }
+function wp_next_scheduled( $hook ) { return false; }
+function wp_clear_scheduled_hook( $hook ) { return 0; }
 class Nova_Bridge_Suite_Posting_Settings {
     public static $fail_next = false;
     public static function connection() {
@@ -31,8 +33,9 @@ class Nova_Bridge_Suite_Posting_Settings {
 }
 class Nova_Bridge_Suite_Posting_Jobs {
     public function storage_exists() { return true; }
-    public function summaries( $site ) { return [ [ 'id' => 1, 'state' => 'blocked', 'next_attempt' => 0, 'last_error' => 'authentication_required' ], [ 'id' => 2, 'state' => 'ready', 'next_attempt' => 123, 'last_error' => 'nova_posting_transport' ] ]; }
+    public function summaries( $site ) { return [ [ 'id' => 1, 'state' => 'blocked', 'created_at' => gmmktime(12, 0, 0, 1, 1, 2025), 'updated_at' => time(), 'intended_url' => 'https://example.test/treatment/', 'next_attempt' => 0, 'last_error' => 'authentication_required' ], [ 'id' => 2, 'state' => 'ready', 'next_attempt' => 123, 'last_error' => 'nova_posting_transport' ] ]; }
 }
+function wp_date( $format, $timestamp ) { return ( new DateTimeImmutable( '@' . $timestamp ) )->setTimezone( new DateTimeZone( 'Europe/Amsterdam' ) )->format( $format ); }
 class Nova_Bridge_Suite_Posting_Worker {
     public function __construct( $connection ) {}
     public function run( $observe ) {
@@ -81,11 +84,13 @@ check( 'unsupported' === $mode ? null === $record['response_completion_elapsed_m
 check( 'finished' === $record['state'] && $record['completed'] && false === $record['successful'] && is_int( $record['duration_ms'] ) && 1 === $record['jobs_claimed'], 'A returned batch is distinct from successful job processing.' );
 check( 'unclassified_error' === $record['last_error'] && 'unclassified_error' === $record['last_job']['error_code'] && 503 === $record['discovery_http_status'], 'Unknown error codes collapse to fixed safe diagnostics while discovery HTTP status remains useful.' );
 check( '11111111-1111-4111-8111-111111111111' === $record['site_id'] && '22222222-2222-4222-8222-222222222222' === $record['last_job']['delivery_id'] && null === $record['last_job']['attempt_id'], 'Correlation retains only valid site/delivery/attempt UUIDs.' );
-check( '12345678901234567890' === $record['last_job']['content_id'] && 1234567890 === $record['last_job']['next_attempt'] && 'new_wake_or_manual_catch_up_after_due' === $record['last_job']['recovery_action'], 'Retry diagnostics correlate native work and retain its manual catch-up requirement.' );
+check( '12345678901234567890' === $record['last_job']['content_id'] && 1234567890 === $record['last_job']['next_attempt'] && 'automatic_when_due' === $record['last_job']['recovery_action'], 'Retry diagnostics correlate native work and its automatic retry.' );
 check( false === strpos( json_encode( $record ), 'secret' ) && strlen( json_encode( $record ) ) < 2000, 'Payloads, URLs, tokens, raw error text and unknown plain codes never enter the bounded option.' );
 check( [] === array_filter( $option_writes, static function ( $write ) { return false !== $write['autoload']; } ), 'Last-run diagnostics never request autoload.' );
 $status = Nova_Bridge_Suite_Posting_Delivery::status( null );
-check( $record === $status->data['last_run'] && null === $status->data['next_scheduled'] && 'explicit_resume' === $status->data['jobs'][0]['recovery_action'] && 'new_wake_or_manual_catch_up_after_due' === $status->data['jobs'][1]['recovery_action'], 'Existing administrator status exposes diagnostics and per-job recovery without adding a scheduler.' );
+check( '2025-01-01 13:00:00 CET' === $status->data['jobs'][0]['received_at_label'] && '2025-01-01T12:00:00+00:00' === $status->data['jobs'][0]['received_at'] && 'https://example.test/treatment/' === $status->data['jobs'][0]['intended_url'], 'Delivery summaries use first receipt, preserve the intended URL and format in the site timezone.' );
+check( '' === $status->data['jobs'][1]['received_at_label'] && '' === $status->data['jobs'][1]['intended_url'], 'Older or unfetched delivery records do not invent a timestamp or destination.' );
+check( $record === $status->data['last_run'] && null === $status->data['next_scheduled'] && 'explicit_resume' === $status->data['jobs'][0]['recovery_action'] && 'automatic_when_due' === $status->data['jobs'][1]['recovery_action'], 'Administrator status exposes diagnostics and per-job recovery.' );
 $admin = false; $logged_in = false;
 check( 401 === Nova_Bridge_Suite_Posting_Delivery::status( null )->get_error_data()['status'], 'Anonymous callers cannot inspect last-run diagnostics.' );
 $logged_in = true;

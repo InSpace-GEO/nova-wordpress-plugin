@@ -89,7 +89,8 @@ final class Nova_Bridge_Suite_Stored_Layout {
             elseif ( is_string( $value ) && ( preg_match( '/\[elementor-template\b/i', $value ) || ( ! $dynamic && preg_match( '/\[elementor-tag\b/i', $value ) ) || ( in_array( $key, [ 'template_id', 'loop_template_id' ], true ) && '' !== $value && '0' !== $value ) ) ) { self::fail( 'The layout still references an external native template or an inline dynamic tag. Keep native tags in their protected control settings; inline external templates before saving.' ); }
             elseif ( in_array( $key, [ 'template_id', 'loop_template_id' ], true ) && ! empty( $value ) ) { self::fail( 'The layout still references an external native template. Inline it before saving.' ); }
         };
-        $scan( $blueprint );
+        require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-elementor-reusable.php';
+        $scan( Nova_Bridge_Suite_Elementor_Reusable::validation_blueprint( $blueprint ) );
     }
 
     private static function nodes( array $nodes, array $prefix, array &$out ): void {

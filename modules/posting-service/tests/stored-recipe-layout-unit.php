@@ -255,5 +255,28 @@ check( $blocks[0]['attrs'] === $gutenberg['document'][0]['attrs'] && $blocks[0][
 check( $blocks[0]['innerBlocks'][0]['innerHTML'] === '<h2 class="wp-block-heading retained-heading">New block heading</h2>', 'Gutenberg binds a plain heading while retaining its native heading wrapper' );
 check( $blocks[0]['innerBlocks'][1]['innerHTML'] === '<p>New first paragraph.</p><p>New second paragraph.</p>', 'Gutenberg rich content replaces the target body in source order' );
 check( $compiled['writer_payload']['meta']['retained_design'] === $gutenberg['meta']['retained_design'] && $compiled['writer_payload']['meta']['_wp_page_template'] === 'templates/full-width.php', 'Gutenberg retains native design metadata and page template' );
+// SEO is explicit metadata, independent of the builder and never copied from the example.
+$seo_record = record( 'core', 'page', $php_template, [] );
+foreach ( [ 'yoast', 'rank_math', 'seopress', 'tsf', 'smartcrawl', 'slim_seo', 'aioseo', 'squirrly' ] as $provider ) {
+    foreach ( [ 'title', 'description' ] as $field ) {
+        $path = Nova_WordPress_Layout_SEO::path( $provider, $field );
+        $seo_record['recipe']['seo_fields'][$path] = [ 'provider' => $provider, 'field' => $field, 'required' => false ];
+    }
+}
+$seo_draft = good( Layout::from_recipe( $seo_record ), 'Every supported SEO provider projects without accessing a live source' );
+$seo_wire = good( Writing::template_input( $seo_draft ), 'SEO destinations use the existing V3 contract' );
+$hints = array_column( $seo_wire['mapping']['source_hints'], 'source_fields', 'field_id' );
+foreach ( $seo_record['recipe']['seo_fields'] as $path => $entry ) {
+    check( ( $hints[Writing::field_id( $path )] ?? null ) === [ 'title' === $entry['field'] ? 'title' : 'meta_description' ], 'SEO source hints distinguish NOVA title from the visible heading' );
+}
+$seo_path = '/@nova/seo/yoast/title'; $desc_path = '/@nova/seo/yoast/description';
+$seo_compiled = good( Layout::compile( $seo_draft, fitted( [ '/title' => 'Visible heading', $seo_path => 'Search title', $desc_path => '' ] ), 'seo-create' ), 'SEO values compile independently of the native heading' );
+check( $seo_compiled['post_fields']['title'] === 'Visible heading' && $seo_compiled['custom_fields'] === [ $seo_path => [ 'provider'=>'seo','key'=>'yoast','type'=>'title','value'=>'Search title' ] ], 'Only a supplied nonempty SEO value is written; missing and optional empty metadata is preserved' );
+$no_seo = good( Layout::compile( $seo_draft, fitted( [ '/title'=>'Heading' ] ), 'seo-absent' ), 'Optional absent SEO does not block content' );
+check( ! isset( $no_seo['custom_fields'] ), 'No SEO mutation is compiled without supplied mapped metadata' );
+$bad_seo = $seo_record; $bad_seo['recipe']['seo_fields'][$seo_path]['field'] = 'canonical';
+check( is_wp_error( Layout::from_recipe( $bad_seo ) ), 'Unselected SEO controls cannot be smuggled into native writes' );
+$changed_seo = $seo_draft; $changed_seo['seo_fields'][$seo_path]['provider'] = 'rank_math';
+check( is_wp_error( Layout::compile( $changed_seo, fitted( [ '/title'=>'Heading' ] ), 'changed-seo' ) ), 'Frozen SEO destination identity cannot be changed by a delivery' );
 check( $live_io_attempts === 0, 'No source or query-result reads, writes, or HTTP requests occurred; the only lookups allowed were for the declared local Loop Item' );
 echo 'PASS ' . $checks . " generic stored-recipe layout assertions\n";

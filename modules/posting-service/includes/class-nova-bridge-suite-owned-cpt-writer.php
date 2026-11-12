@@ -1,6 +1,8 @@
 <?php
 /** Native writer for the NOVA-owned service and blog post types. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
+require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-owned-cpt-media.php';
 require_once __DIR__ . '/class-nova-bridge-suite-owned-cpt-seo.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
@@ -15,13 +17,13 @@ final class Nova_Bridge_Suite_Owned_CPT_Writer {
     private static function digest( $v ): string { return hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $v ) ); }
     private static function option( string $key ) { wp_cache_delete( $key, 'options' ); return get_option( $key, null ); }
     private static function checkpoint( string $key, array $value ): void { if ( strlen( wp_json_encode( $value ) ) > 2097152 ) { self::fail( 'journal_size', 'The native operation exceeds its journal limit.' ); } if ( null === self::option( $key ) ) { add_option( $key, $value, '', false ); } else { update_option( $key, $value, false ); } if ( self::option( $key ) !== $value ) { self::fail( 'storage', 'Native progress could not be retained.' ); } }
-    private static function opkey( string $operation ): string { return 'nova_cpt_operation_' . hash( 'sha256', $operation ); }
+    private static function opkey( string $operation ): string { return Nova_WordPress_Environment::key( 'nova_cpt_operation_' . hash( 'sha256', $operation ) ); }
     private static function locale( $value ): string {
         if ( ! is_string( $value ) || ! preg_match( '/^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/iD', $value ) ) { self::fail( 'association', 'The native URL association needs a verified delivery language.' ); }
         return strtolower( str_replace( '_', '-', $value ) );
     }
-    private static function legacy_key( array $identity ): string { return 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] ); }
-    private static function assoc_key( array $identity ): string { return 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . self::locale( $identity['language'] ?? null ) ); }
+    private static function legacy_key( array $identity ): string { return Nova_WordPress_Environment::key( 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] ) ); }
+    private static function assoc_key( array $identity ): string { return Nova_WordPress_Environment::key( 'nova_cpt_url_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . self::locale( $identity['language'] ?? null ) ) ); }
     private static function assoc( array $identity ): ?array {
         $v = self::option( self::assoc_key( $identity ) ); $legacy = null === $v;
         // Keep legacy data intact so retained operation plans can still recover it.
@@ -128,7 +130,7 @@ final class Nova_Bridge_Suite_Owned_CPT_Writer {
         $p = [ 'format' => self::FORMAT, 'operation_id' => $op, 'context' => $context, 'site_id' => $content['site_id'], 'template_id' => $configuration['template']['id'], 'template_revision' => $configuration['template']['revision'], 'post_type' => $type, 'rest_base' => $object->rest_base ?: $type, 'target' => $target['target'], 'target_post_id' => $target['id'], 'association_before' => $target['association'], 'native_before_keys' => $before_keys, 'native_before' => $target['id'] ? self::state( $target['id'], $before_keys ) : null, 'seo' => $seo, 'seo_before' => $target['id'] ? Nova_Bridge_Suite_Owned_CPT_SEO::read( $target['id'], array_keys( $seo ) ) : null, 'title' => $title, 'meta' => $meta, 'images' => $images, 'image_alt' => $image_alt, 'desired_status' => $status, 'delivery_identity' => array_intersect_key( $content, array_flip( [ 'site_id', 'url_id', 'content_item_id', 'content_item_version_id', 'version_number', 'language', 'source_sha256', 'url_family' ] ) ) ]; if ( strlen( wp_json_encode( $p ) ) > 786432 ) { self::fail( 'plan_size', 'The native plan exceeds its journal limit.' ); } $p['plan_digest'] = self::digest( $p ); return $p;
     } ); }
     private static function assert_plan( array $p, string $op ): void { $copy = $p; unset( $copy['plan_digest'] ); if ( ( $p['format'] ?? '' ) !== self::FORMAT || ( $p['operation_id'] ?? '' ) !== $op || ! Nova_Bridge_Suite_Posting_Protocol::uuid( $op ) || self::digest( $copy ) !== ( $p['plan_digest'] ?? '' ) ) { self::fail( 'plan', 'The retained operation plan changed.' ); } }
-    private static function locked( array $p, callable $work ) { global $wpdb; if ( ! isset( $wpdb->posts ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->posts ) ) { self::fail( 'storage', 'Native storage is unavailable.' ); } $key = 'nova-cpt:' . substr( hash( 'sha256', $wpdb->posts . ':' . $p['target']['target_url'] ), 0, 50 ); if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $key ) ) ) { self::fail( 'busy', 'Another operation owns this URL.' ); } try { return $work(); } finally { $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $key ) ); } }
+    private static function locked( array $p, callable $work ) { global $wpdb; if ( ! isset( $wpdb->posts ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->posts ) ) { self::fail( 'storage', 'Native storage is unavailable.' ); } $key = Nova_Bridge_Suite_Native_Lock::name( $wpdb, 'nova-cpt:', $wpdb->posts . ':' . $p['target']['target_url'], 50 ); if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $key ) ) ) { self::fail( 'busy', 'Another operation owns this URL.' ); } try { return $work(); } finally { $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $key ) ); } }
     private static function marker( array $p ): string { return self::FORMAT . ':' . $p['operation_id'] . ':' . $p['plan_digest']; }
     private static function reserved( array $p ): int { global $wpdb; $ids = $wpdb->get_col( $wpdb->prepare( 'SELECT ID FROM `' . $wpdb->posts . '` WHERE post_content_filtered = %s AND post_type = %s ORDER BY ID', self::marker( $p ), $p['post_type'] ) ); if ( ! empty( $wpdb->last_error ) || ! is_array( $ids ) || count( $ids ) > 1 ) { self::fail( 'reservation', 'The native reservation is ambiguous.' ); } return $ids ? (int) $ids[0] : 0; }
     private static function expected_meta( array $p ): array {

@@ -91,6 +91,30 @@ check( ! linked( 10, 20, 'fr' ), 'Primary URL mismatch leaves unrelated post unl
 reset_fixture(); native_post( 10, 'en', 'https://example.test/original/' ); native_post( 20, 'fr', 'https://example.test/fr/original/' ); association( $primary, 10 );
 good( Source::link( plan( identity( '100', 'fr-FR', null ), 'fr' ), 20 ), 'Same URL multilingual linking remains supported' );
 check( linked( 10, 20, 'fr' ), 'Legacy family links as before' );
+// The same group combines a translation on one URL ID and a localization on another.
+foreach ( [ [ 0, 1, 2 ], [ 2, 1, 0 ], [ 1, 0, 2 ] ] as $order ) {
+    reset_fixture();
+    $items = [
+        [ identity( '100', 'nl-NL' ), 10, 'nl-nl', 'https://example.test/nl-nl/diensten/' ],
+        [ identity( '100', 'en-US' ), 20, 'en', 'https://example.test/services/' ],
+        [ identity( '200', 'fr-FR' ), 30, 'fr', 'https://example.test/fr/prestations/' ],
+    ];
+    foreach ( $order as $index ) {
+        [ $item, $post_id, $code, $url ] = $items[$index];
+        $item['url_family']['primary_language'] = 'nl-NL';
+        $item['url_family']['primary_url'] = $items[0][3];
+        native_post( $post_id, $code, $url );
+        good( Source::preflight( plan( $item, $code ), $post_id ), 'Mixed translation/localization preflight' );
+        good( Source::link( plan( $item, $code ), $post_id ), 'Mixed translation/localization links' );
+        association( $item, $post_id );
+    }
+    foreach ( $items as [ $item, $post_id, $code, $url ] ) {
+        check( get_permalink( $post_id ) === $url && get_post_meta( $post_id, '_nova_stored_layout_owner' )['url_id'] === $item['url_id'], 'Each member keeps its own permalink and URL ownership' );
+        foreach ( $items as [ , $other_id, $other_code ] ) {
+            if ( $other_id !== $post_id ) { check( linked( $post_id, $other_id, $other_code ), 'All three members belong to one native family' ); }
+        }
+    }
+}
 check( Source::group_lock( $primary ) === null, 'Legacy deliveries retain only their original publication lock' );
 check( Source::group_lock( identity( '100', 'en-US' ) ) === Source::group_lock( identity( '200', 'fr-FR' ) ), 'Grouped URLs share a family lock' );
 $other = identity( '200', 'fr-FR' ); $other['site_id'] = 'site-2';

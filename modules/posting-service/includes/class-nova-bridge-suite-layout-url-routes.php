@@ -1,6 +1,7 @@
 <?php
 /** Selectors for native creation layouts. '/' denotes the NOVA page-type default. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-layout-page-types.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
 
 final class Nova_Bridge_Suite_Layout_URL_Routes {
@@ -61,7 +62,7 @@ final class Nova_Bridge_Suite_Layout_URL_Routes {
     public static function previous_default( string $site, string $id, string $type ): ?array {
         foreach ( Nova_Bridge_Suite_Layout_Recipes::saved_recipe_ids() as $recipe_id ) {
             $state = Nova_Bridge_Suite_Mapping_Sync::scope_state( $site, 'recipe:' . $recipe_id );
-            if ( 'active' !== ( $state['status'] ?? '' ) || ( $state['template']['id'] ?? '' ) !== $id || ( $state['template']['page_type'] ?? '' ) !== $type ) { continue; }
+            if ( 'active' !== ( $state['status'] ?? '' ) || ( $state['template']['id'] ?? '' ) !== $id || ! Nova_Bridge_Suite_Layout_Page_Types::accepts( [ 'local' => $state['local'] ?? [], 'template' => $state['template'] ], $type ) ) { continue; }
             $revision = $state['template']['revision'];
             $profile = Nova_Bridge_Suite_Mapping_Sync::authored_profile( $site, $id, $revision );
             if ( 'stored_layout_v3' !== ( $profile['mode'] ?? '' ) || ( $profile['template']['id'] ?? '' ) !== $id || ( $profile['template']['revision'] ?? 0 ) !== $revision ) { return null; }

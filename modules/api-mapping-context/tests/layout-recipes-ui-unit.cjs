@@ -22,7 +22,7 @@ class Element {
  focus(options={}){if(this.disabled)return;this.ownerDocument.activeElement=this;this.focusCalls.push(options);(this.ownerDocument.focusCalls||=[]).push({element:this,options});}setSelectionRange(start,end,direction='none'){if(!['input','textarea'].includes(this.tag)||this.tag==='input'&&!['text','search','url','tel','password'].includes(this.type))throw Error('Selection is unavailable for this control');this.selectionStart=start;this.selectionEnd=end;this.selectionDirection=direction;}
  getBoundingClientRect(){return {top:(this.mockTop||0)-(this.ownerDocument.defaultView.scrollY||0),left:this.mockLeft||0,height:this.mockHeight||this.clientHeight||0,width:this.clientWidth||0};}
 }
-async function mounted(settings={}){const document={activeElement:null,focusCalls:[],createElement:tag=>new Element(tag,document)},host=new Element('div',document),f=fixture(),data=new Map(settings.session||[]),listeners={},frames=new Map();let frameId=0;document.defaultView={scrollX:0,scrollY:0,scrollCalls:[],scrollTo(x,y){if(typeof x==='object'){y=x.top;x=x.left||0;}this.scrollX=x;this.scrollY=y;this.scrollCalls.push({x,y});},requestAnimationFrame(callback){const id=++frameId;frames.set(id,callback);return id;},cancelAnimationFrame(id){frames.delete(id);},location:{origin:'https://site.example',href:'https://site.example/wp-admin/options-general.php?page=nova-settings&tab=layout-recipes'},confirm:()=>true,addEventListener:(type,handler)=>{listeners[type]=handler;},sessionStorage:{getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)}};const controller=ui.mount(host,{url:'/mapping/layout-recipes',nonce:'test',layoutsUrl:'https://site.example/wp-admin/layouts',...(settings.config||{})},{request:async(path,payload)=>{f.calls.push({path,payload:clone(payload||null)});if(settings.request)return settings.request(path,payload);if(path==='/catalog')return clone(catalog);if(path==='/design')return {...clone(design),custom_fields_design:clone(acf)};if(path==='/save')return {id:'00000000-0000-4000-8000-000000000001',revision:payload.expected_revision+1,resource_id:payload.resource_id,posting_page_type:payload.posting_page_type,default_saved:true,recipe:clone(payload.recipe)};if(path.startsWith('/draft?operation_id='))return {id:511,status:'draft',operation_id:decodeURIComponent(path.split('=')[1]),edit_url:'https://site.example/wp-admin/post.php?post=511',view_url:'https://site.example/review-511?preview=true',reused:true};throw Error('Unexpected '+path);},uuid:()=> '00000000-0000-4000-8000-000000000999'});await controller.ready;return {controller,host,calls:f.calls,listeners,window:document.defaultView,flushFrames(){for(let pass=0;pass<5&&frames.size;pass++){const batch=[...frames.values()];frames.clear();batch.forEach(callback=>callback());}assert.equal(frames.size,0,'Render-position restoration must not create a frame loop');},pendingFrames:frames};}
+async function mounted(settings={}){const document={activeElement:null,focusCalls:[],createElement:tag=>new Element(tag,document)},host=new Element('div',document),f=fixture(),data=new Map(settings.session||[]),listeners={},frames=new Map();let frameId=0;document.defaultView={scrollX:0,scrollY:0,scrollCalls:[],scrollTo(x,y){if(typeof x==='object'){y=x.top;x=x.left||0;}this.scrollX=x;this.scrollY=y;this.scrollCalls.push({x,y});},requestAnimationFrame(callback){const id=++frameId;frames.set(id,callback);return id;},cancelAnimationFrame(id){frames.delete(id);},location:{origin:'https://site.example',href:'https://site.example/wp-admin/options-general.php?page=nova-settings&tab=layout-recipes'},confirm:()=>true,addEventListener:(type,handler)=>{listeners[type]=handler;},sessionStorage:{getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)}};const controller=ui.mount(host,{url:'/mapping/layout-recipes',nonce:'test',layoutsUrl:'https://site.example/wp-admin/layouts',...(settings.config||{})},{request:async(path,payload)=>{f.calls.push({path,payload:clone(payload||null)});if(settings.request)return settings.request(path,payload);if(path==='/catalog')return clone(catalog);if(path==='/design')return {...clone(design),custom_fields_design:clone(acf)};if(path==='/save')return {id:'00000000-0000-4000-8000-000000000001',revision:payload.expected_revision+1,resource_id:payload.resource_id,posting_page_type:payload.posting_page_type,default_saved:true,recipe:clone(payload.recipe)};if(path.startsWith('/draft?operation_id='))return {id:511,status:'draft',operation_id:decodeURIComponent(path.split('=')[1]),edit_url:'https://site.example/wp-admin/post.php?post=511',view_url:'https://site.example/review-511?preview=true',reused:true};throw Error('Unexpected '+path);},uuid:()=> '00000000-0000-4000-8000-000000000999',...(settings.fetch?{request:undefined,fetch:settings.fetch}:{})});await controller.ready;return {controller,host,calls:f.calls,listeners,window:document.defaultView,flushFrames(){for(let pass=0;pass<5&&frames.size;pass++){const batch=[...frames.values()];frames.clear();batch.forEach(callback=>callback());}assert.equal(frames.size,0,'Render-position restoration must not create a frame loop');},pendingFrames:frames};}
 function visualDesign(){const definition=[['heading','heading','title','Page heading','html','Existing page heading'],['intro','text-editor','editor','Intro text','html','<p>The original introduction.</p>'],['button','button','text','Button text','text','Get advice'],['button','button','link/url','Button link','url','https://site.example/contact/'],['body','text-editor','editor','Main rich text','html','<h2>Existing detail</h2><p>'+('Complete original paragraph. '.repeat(80))+'</p>']];const blueprint={document:[{id:'heading',elType:'widget',widgetType:'heading',settings:{title:definition[0][5],header_size:'h1'},elements:[]},{id:'intro',elType:'widget',widgetType:'text-editor',settings:{editor:definition[1][5]},elements:[]},{id:'button',elType:'widget',widgetType:'button',settings:{text:definition[2][5],link:{url:definition[3][5]}},elements:[]},{id:'body',elType:'widget',widgetType:'text-editor',settings:{editor:definition[4][5]},elements:[]}],meta:{background:'#8511D9'}};const fields=definition.map((entry,index)=>({field_id:'field_'+index,target:'/document/'+(index>2?index-1:index)+'/settings/'+entry[2],label:entry[3],format:entry[4],kind:entry[1],writable:true,value:entry[5],current_value:entry[5],example:entry[5].replace(/<[^>]+>/g,'').slice(0,160),locator:{strategy:'elementor',reference_id:42,node_id:entry[0],control_path:entry[2].split('/'),element_type:entry[1]}}));fields[3].target='/document/2/settings/link/url';fields[4].target='/document/3/settings/editor';fields.push({field_id:'static_map',target:'/document/4/settings/address',label:'Map location',format:'text',writable:false,protected:true,reason:'This native map control stays static.'});const source_reference={resource_id:'post_type:page',reference_type:'post',reference_id:42,title:'Real sample page',url:'https://site.example/real-sample/',builder:'elementor',native_digest:'a'.repeat(64)};return {builder:'elementor',blueprint,seal:'native-design-seal',fields,containers:[],sources:source,sample:{},recipe_preset:{format:'nova-layout-recipe/v1',builder:'elementor',mode:'mixed',blueprint:clone(blueprint),bindings:[],regions:[],instructions:''},source_reference,source_receipt:'signed-source',visual_preview:{status:'available',url:'https://site.example/real-sample/?nova_recipe_canvas=test',session_id:'00000000-0000-4000-8000-000000000042',digest:source_reference.native_digest,reference_id:42,reference_type:'post'},preview_fields:clone(fields)};}
 async function visualMounted(settings={}){const current=visualDesign(),choices=clone(catalog);choices.builders=[choices.builders[1],choices.builders[0],choices.builders[2]];choices.resources[0].targets=[{reference_id:42,title:'Real sample page',url:current.source_reference.url}];const t=await mounted({...settings,request:async(path,payload)=>{if(settings.request){const value=await settings.request(path,payload,current,choices);if(value!==undefined)return value;}if(path==='/catalog')return clone(choices);if(path==='/design')return clone(current);if(path==='/save')return {id:payload.id||'00000000-0000-4000-8000-000000000001',revision:payload.expected_revision+1,resource_id:payload.resource_id,posting_page_type:payload.posting_page_type,default_saved:true,recipe:clone(payload.recipe)};throw Error('Unexpected '+path);}});return {...t,design:current};}
 function controlFor(t,label){const title=t.host.all().find(item=>item.tag==='label'&&item.ownText===label);assert(title,'Missing control: '+label);return t.host.all().find(item=>item.id===title.htmlFor);}
@@ -35,13 +35,47 @@ function canvasEvent(t,type,extra={}){const frame=t.host.all().find(item=>item.t
 function categoryDesign(){const original=visualDesign(),source_reference={...original.source_reference,resource_id:'taxonomy:product_cat',reference_type:'term',reference_id:18,title:'Floor categories',builder:'core',url:'https://site.example/product-category/floors/'};const fields=[{target:'/document/title',label:'Category title',format:'text',kind:'heading',value:'Floor categories',control:'name'},{target:'/document/description',label:'Top category content',format:'html',kind:'category_body',value:'<p>Original top content.</p>',control:'description'},{target:'/document/bottom_content',label:'Bottom category content',format:'html',kind:'category_body',value:'<h2>Original bottom heading</h2><p>Bottom body.</p>',control:'bottom_content'}].map((field,index)=>({...field,field_id:'category_'+index,writable:true,context:'taxonomy',current_value:field.value,example:field.value.replace(/<[^>]+>/g,''),locator:{strategy:'core',reference_id:18,reference_type:'term',control_path:[field.control]}})),blueprint={document:{title:fields[0].value,description:fields[1].value,bottom_content:fields[2].value}};return {...original,builder:'core',fields,blueprint,source_reference,preview_fields:clone(fields),visual_preview:{...original.visual_preview,reference_id:18,reference_type:'term',url:source_reference.url+'?nova_recipe_canvas=test'},recipe_preset:{format:'nova-layout-recipe/v1',builder:'core',mode:'mixed',blueprint:clone(blueprint),bindings:[],regions:[],instructions:''},excluded_fields:[],declared_term_fields:{}};}
 async function categoryMounted(settings={}){const current=categoryDesign(),choices=clone(catalog);choices.resources[1].targets=[{reference_id:18,title:current.source_reference.title,url:current.source_reference.url}];return mounted({config:{resourceId:'taxonomy:product_cat',...(settings.config||{})},request:async(path,payload)=>{if(settings.request){const value=await settings.request(path,payload,current,choices);if(value!==undefined)return value;}if(path==='/catalog')return clone(choices);if(path==='/design')return clone(current);if(path==='/save')return {id:'category',revision:payload.expected_revision+1,resource_id:payload.resource_id,posting_page_type:payload.posting_page_type,default_saved:true,recipe:clone(payload.recipe)};throw Error('Unexpected '+path);}});}
 (async()=>{
+ await test('ambiguous active builders open the provider chooser and explicit retry captures the chosen page',async()=>{
+  const calls=[],choices=clone(catalog);choices.builders.push({id:'beaver',label:'Beaver Builder',available:true,capture:true,modes:['static','mixed','rules']});
+  choices.resources[0].targets=[{reference_id:42,title:'Real sample page'}];
+  const t=await mounted({fetch:async(url,options)=>{
+   const payload=options.body?JSON.parse(options.body):null;calls.push({url,payload});
+   if(url.endsWith('/catalog'))return {ok:true,json:async()=>choices};
+   assert(url.endsWith('/design'));
+   if(payload.builder==='auto')return {ok:false,status:422,json:async()=>({code:'nova_recipe_builder_ambiguous',message:'Choose the actual builder under Advanced: builder detection.',data:{status:422,detected_builders:['elementor','beaver']}})};
+   assert.equal(payload.builder,'elementor');return {ok:true,json:async()=>visualDesign()};
+  }});
+  t.controller.next();t.flushFrames();assert.equal(detailsFor(t.host,'Advanced: builder detection').open,false);
+  await t.controller.capture(42);t.flushFrames();
+  assert.equal(t.controller.state.step,2);assert.deepEqual(t.controller.state.builderConflict,['elementor','beaver']);
+  assert.equal(detailsFor(t.host,'Advanced: builder detection').open,true);assert.equal(controlFor(t,'Builder detection').value,'auto');
+  const picker=controlFor(t,'Reference item');picker.value='Real sample page';picker.events.input();
+  const option=t.host.all().find(item=>item.tag==='li'&&item.textContent.includes('Real sample page'));assert(option);option.events.click();
+  const builder=controlFor(t,'Builder detection');builder.value='elementor';builder.events.change();
+  t.host.all().find(item=>item.tag==='button'&&item.ownText==='Use this existing page').events.click();
+  for(let i=0;i<20&&t.controller.state.busy;i++)await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(t.controller.state.step,3);assert.equal(t.controller.state.error,false);assert.deepEqual(t.controller.state.builderConflict,[]);
+  assert.equal(calls.at(-1).payload.reference_id,42);assert.equal(calls.at(-1).payload.builder,'elementor');assert(!calls.some(item=>item.url.endsWith('/save')));
+ });
+ await test('example arrow opens the ordinary reference in a separate tab without changing the recipe',async()=>{
+  const t=await visualMounted();t.controller.next();await t.controller.capture(42);
+  const link=byClass(t.host,'nlr-example-link'),before=clone(t.controller.state.recipe);
+  assert.equal(link.tag,'a');assert.equal(link.textContent,'↗');assert.equal(link.href,'https://site.example/real-sample/');assert.equal(link.target,'_blank');assert.equal(link.rel,'noopener noreferrer');assert.equal(link.getAttribute('aria-label'),'Open example page in a new tab');assert(!link.href.includes('nova_recipe_canvas'));assert.deepEqual(t.controller.state.recipe,before);assert(!t.calls.some(item=>item.path==='/save'));
+  for(const url of ['javascript:alert(1)','data:text/html,test','https://user:secret@site.example/']){const unsafe=await visualMounted({request:async(path,payload,current)=>{if(path==='/design'){current.source_reference.url=url;return current;}}});unsafe.controller.next();await unsafe.controller.capture(42);assert(!unsafe.host.all().some(item=>item.className==='nlr-example-link'));}
+ });
+ await test('missing preview handshake times out without blocking fields and a late ready recovers',async()=>{
+  const t=await visualMounted(),timers=new Map();let serial=0;t.window.setTimeout=(fn,ms)=>{assert.equal(ms,15000);timers.set(++serial,fn);return serial;};t.window.clearTimeout=id=>timers.delete(id);
+  t.controller.next();await t.controller.capture(42);assert.equal(timers.size,1);const before=clone(t.controller.state.recipe);[...timers.values()][0]();assert(t.host.textContent.includes('preview could not initialize'));assert.deepEqual(t.controller.state.recipe,before);
+  t.listeners.message(canvasEvent(t,'ready'));assert.equal(timers.size,0);assert(!t.host.textContent.includes('preview could not initialize'));assert(t.host.textContent.includes('Choose a highlighted field'));assert.equal(t.host.all().find(item=>item.tag==='iframe').getAttribute('sandbox'),'allow-scripts');
+ });
+
  await test('previously selected footnotes can be removed while fresh layouts do not offer them',async()=>{
   const t=await visualMounted();t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
-  assert(!t.host.textContent.includes('Editorial custom fields'));
+  assert(!t.host.textContent.includes('Additional content fields (optional)'));
   const path='/@nova/custom-fields/meta/footnotes',field={provider:'meta',key:'footnotes',name:'footnotes',type:'string',label:'footnotes',instructions:''};
   t.controller.edit(state=>{state.recipe.posting_fields={[path]:field};});
   assert(t.host.textContent.includes('Previously selected footnotes metadata'));const selected=controlFor(t,'footnotes');assert(selected.checked);
-  selected.checked=false;selected.events.change();assert(!t.host.textContent.includes('Editorial custom fields'));
+  selected.checked=false;selected.events.change();assert(!t.host.textContent.includes('Additional content fields (optional)'));
   await t.controller.save();assert.equal(t.calls.at(-1).payload.recipe.posting_fields,undefined);
  });
  await test('fixed native layout can save just one selected registered field',async()=>{
@@ -279,23 +313,34 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
  await test('save reports remote success only for the exact saved recipe revision',async()=>{
   let wrong=false;const f=fixture({request:async(path,payload)=>{if(path==='/catalog')return clone(catalog);if(path==='/design')return clone(design);if(path==='/save')return {id:'00000000-0000-4000-8000-000000000001',revision:payload.expected_revision+1,resource_id:payload.resource_id,posting_page_type:payload.posting_page_type,recipe:clone(payload.recipe),default_saved:true,posting_sync:{status:'synced',verified:true,default_selected:true,page_type:payload.posting_page_type,recipe_revision:wrong?99:payload.expected_revision+1,template_revision:2,template_id:'remote-template'}};throw Error(path);}});await ready(f);await f.ctrl.save();assert.equal(f.ctrl.state.error,false);assert.match(f.ctrl.state.feedback,/default confirmed by posting service/);wrong=true;await f.ctrl.save();assert.equal(f.ctrl.state.error,true);assert.match(f.ctrl.state.feedback,/not confirmed/);
  });
- await test('first-step NOVA page type is independent from destination and survives design capture and save',async()=>{
-  const t=await mounted();const type=controlFor(t,'NOVA page type');assert.equal(type.value,'service');assert.deepEqual(type.children.map(option=>option.value),['service','informative','category']);
-  type.value='informative';type.events.change();t.controller.selectMode('static');t.controller.next();await t.controller.capture(0);
-  const blueprint=clone(t.controller.state.recipe.blueprint);
-  assert(!t.host.all().some(item=>item.tag==='label'&&item.ownText==='NOVA page type'),'The type selector belongs to the first step only');
-  assert(t.host.textContent.includes('NOVA page type: Informative. Destination: Pages.'),JSON.stringify({type:t.controller.state.postingPageType,step:t.controller.state.step,feedback:t.controller.state.feedback,text:t.host.textContent}));await t.controller.save();
-  const saved=t.calls.find(call=>call.path==='/save').payload;assert.equal(saved.posting_page_type,'informative');assert.deepEqual(saved.recipe.blueprint,blueprint);assert.equal(t.controller.dirty(),false);
-  t.controller.go(1);const changed=controlFor(t,'NOVA page type');changed.value='category';changed.events.change();assert.equal(t.controller.dirty(),true,'Changing the type changes saved authority');assert(!t.host.textContent.includes('Use suggested destination:'),'An existing design never suggests switching away from its destination');
+ await test('multiple content types share one captured layout and survive saving',async()=>{
+  const t=await mounted();assert(controlFor(t,'Service').checked);assert(!controlFor(t,'Category').checked);
+  controlFor(t,'Category').checked=true;controlFor(t,'Category').events.change();
+  assert.deepEqual(t.controller.state.postingPageTypes,['service','category']);
+  t.controller.selectMode('static');t.controller.next();await t.controller.capture(0);const blueprint=clone(t.controller.state.recipe.blueprint);
+  assert(t.host.textContent.includes('NOVA content types: Service, Category. Destination: Pages.'));
+  await t.controller.save();const saved=t.calls.find(call=>call.path==='/save').payload;
+  assert.deepEqual(saved.posting_page_types,['service','category']);assert.deepEqual(saved.recipe.blueprint,blueprint);assert(!t.controller.dirty());
+  t.controller.go(1);controlFor(t,'Service').checked=false;controlFor(t,'Service').events.change();assert(t.controller.dirty());assert.deepEqual(t.controller.state.postingPageTypes,['category']);
+  controlFor(t,'Category').checked=false;controlFor(t,'Category').events.change();assert.deepEqual(t.controller.state.postingPageTypes,['category']);assert.match(t.controller.state.feedback,/at least one/);
  });
- await test('logical fresh defaults use Posts for Informative, Pages for Service and Woo categories where available',async()=>{
+ await test('logical destination suggestions remain available for one selected type',async()=>{
   const choices=clone(catalog);choices.resources.push({id:'post_type:post',label:'Posts',type:'post_type',creation_supported:true,targets:[]});
   const t=await mounted({request:async(path)=>{if(path==='/catalog')return choices;throw Error(path);}});
-  let type=controlFor(t,'NOVA page type');assert.equal(type.value,'service');type.value='informative';type.events.change();
-  let suggestion=t.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Posts');assert(suggestion);suggestion.events.click();assert.equal(t.controller.state.resourceId,'post_type:post');assert.equal(controlFor(t,'NOVA page type').value,'informative');assert(t.host.textContent.includes('saved locally'));
-  type=controlFor(t,'NOVA page type');type.value='category';type.events.change();suggestion=t.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Woo categories');assert(suggestion);suggestion.events.click();assert.equal(t.controller.state.resourceId,'taxonomy:product_cat');assert.deepEqual(controlFor(t,'NOVA page type').children.map(option=>option.value),['category']);
-  t.controller.selectResource('post_type:page');assert.equal(t.controller.state.postingPageType,'service');t.controller.selectResource('post_type:post');assert.equal(t.controller.state.postingPageType,'informative');assert(t.calls.every(call=>call.path==='/catalog'),'Selecting defaults alone makes no save or sync request');
-  const withoutWoo=clone(choices);withoutWoo.resources=withoutWoo.resources.filter(item=>item.id!=='taxonomy:product_cat');const fallback=await mounted({config:{resourceId:'post_type:post'},request:async(path)=>{if(path==='/catalog')return withoutWoo;throw Error(path);}});type=controlFor(fallback,'NOVA page type');type.value='category';type.events.change();suggestion=fallback.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Pages');assert(suggestion);suggestion.events.click();assert.equal(fallback.controller.state.resourceId,'post_type:page');assert.equal(fallback.controller.state.postingPageType,'category');
+  t.controller.selectPageType('informative');let suggestion=t.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Posts');assert(suggestion);suggestion.events.click();assert.equal(t.controller.state.resourceId,'post_type:post');assert(controlFor(t,'Informative').checked);
+  t.controller.selectPageType('category');suggestion=t.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Woo categories');assert(suggestion);suggestion.events.click();assert.equal(t.controller.state.resourceId,'taxonomy:product_cat');assert(controlFor(t,'Category').checked&&controlFor(t,'Category').disabled);
+  assert(t.calls.every(call=>call.path==='/catalog'));
+  const withoutWoo=clone(choices);withoutWoo.resources=withoutWoo.resources.filter(item=>item.id!=='taxonomy:product_cat');const fallback=await mounted({config:{resourceId:'post_type:post'},request:async(path)=>{if(path==='/catalog')return withoutWoo;throw Error(path);}});fallback.controller.selectPageType('category');suggestion=fallback.host.all().find(item=>item.tag==='button'&&item.ownText==='Use suggested destination: Pages');assert(suggestion);suggestion.events.click();assert.equal(fallback.controller.state.resourceId,'post_type:page');assert.equal(fallback.controller.state.postingPageType,'category');
+ });
+ await test('recognized design settings stay out of fresh editorial choices and legacy selections are explicit',async()=>{
+  const key='site-sidebar-layout',path='/@nova/custom-fields/meta/'+key,field={provider:'meta',name:key,key,type:'string',label:'Sidebar layout',instructions:''};
+  const t=await visualMounted({request:async(route,payload,example)=>{if(route==='/design')return {...clone(example),posting_field_choices:{[path]:field},presentation_choices:{inventory:{fields:{[key]:{label:'Sidebar layout',template_setting:true,present:true,value:'no-sidebar'}}}},presentation_seal:'signed'};}});
+  t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
+  assert(!t.host.textContent.includes('Additional content fields (optional)'));assert(controlFor(t,'Sidebar layout').checked);assert(t.controller.state.design.pendingPresentationKeys.includes(key));
+  t.controller.edit(state=>{state.recipe.posting_fields={[path]:field};state.design.pendingPresentationKeys=[];});
+  assert(t.host.textContent.includes('This saved mapping fills a design setting'));const section=detailsFor(t.host,'Additional content fields (optional)');section.open=true;
+  const before=clone(t.controller.state.recipe);section.open=false;t.controller.edit(()=>{});t.flushFrames();assert(!detailsFor(t.host,'Additional content fields (optional)').open);assert.deepEqual(t.controller.state.recipe,before);
+  t.host.all().find(item=>item.tag==='button'&&item.ownText==='Copy example setting: Sidebar layout').events.click();assert.equal(t.controller.state.recipe.posting_fields,undefined);assert(t.controller.state.design.pendingPresentationKeys.includes(key));assert(!t.host.textContent.includes('Additional content fields (optional)'));
  });
  await test('saved type and exact last sync result load unchanged while legacy defaults remain compatible',async()=>{
   const id='00000000-0000-4000-8000-000000000123';let type='informative',status='failed';const f=fixture({profileId:id,request:async(path)=>{if(path==='/catalog')return clone(catalog);if(path.startsWith('/profile?'))return {id,revision:2,resource_id:'post_type:page',posting_page_type:type,label:'Information',recipe:ui.recipeFrom(design,'static'),design:clone(design),posting_sync:{status,verified:true,default_selected:true,page_type:type,recipe_revision:2,template_revision:3,template_id:'remote',message:'Native activation failed.'}};throw Error(path);}});
@@ -326,7 +371,7 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
    }
   }});
   t.controller.next();await t.controller.capture(42);choosePurpose(t,'title');
-  const bindings=clone(t.controller.state.recipe.bindings), panel=detailsFor(t.host,'Page layout and template settings'), frame=t.host.all().find(item=>item.tag==='iframe');
+  const bindings=clone(t.controller.state.recipe.bindings), panel=detailsFor(t.host,'Design settings copied from your example'), frame=t.host.all().find(item=>item.tag==='iframe');
   const checkbox=controlFor(t,'Content layout'),header=controlFor(t,'Header display'),credit=controlFor(t,'Credit');
   assert(checkbox.checked && header.checked && !credit.checked);panel.open=true;
   const bulk=label=>panel.all().find(item=>item.tag==='button'&&item.ownText===label).events.click();
@@ -354,10 +399,10 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
  await test('choosing an editorial mapping removes the same fixed setting before save',async()=>{
   const path='/@nova/custom-fields/meta/layout',editorial={provider:'meta',name:'layout',key:'layout',type:'string',label:'Mapped layout'};
   const t=await visualMounted({request:async(endpoint,payload,current)=>{
-   if(endpoint==='/design')return {...clone(current),presentation_choices:{inventory:{fields:{layout:{template_setting:true,label:'Fixed layout'}}}},presentation_seal:'sealed',posting_field_choices:{[path]:editorial}};
+   if(endpoint==='/design')return {...clone(current),presentation_choices:{inventory:{fields:{layout:{template_setting:false,label:'Fixed layout'}}}},presentation_seal:'sealed',posting_field_choices:{[path]:editorial}};
   }});
   t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
-  assert(controlFor(t,'Fixed layout').checked);
+  controlFor(t,'Fixed layout').checked=true;controlFor(t,'Fixed layout').events.change();assert(controlFor(t,'Fixed layout').checked);
   const mapped=controlFor(t,'Mapped layout');mapped.checked=true;mapped.events.change();
   assert(!controlFor(t,'Fixed layout').checked && controlFor(t,'Fixed layout').disabled);
   await t.controller.save();assert.equal(t.controller.state.error,false);
@@ -457,6 +502,19 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   await t.controller.captureReusableBlock('/document/1');assert.equal(t.controller.state.error,false);assert.deepEqual(t.controller.state.recipe.bindings,oldBindings);assert.deepEqual(t.controller.state.content,{title:'Keep my sample'});assert.equal(t.controller.state.design.seal,'captured-seal');assert.equal(t.controller.state.design.source_receipt,'expanded-receipt');assert(t.host.textContent.includes('Captured for mapping'));assert(t.host.textContent.includes('no longer depend on the original UX Block'));
   const call=t.calls.find(call=>call.path==='/reusable-block');assert.equal(call.payload.target,'/document/1');assert.equal(call.payload.design.seal,'linked-seal');assert.deepEqual(call.payload.source_reference,original.source_reference);assert.equal(call.payload.source_receipt,'original-receipt');assert(!t.calls.some(call=>['/save','/draft'].includes(call.path)));
  });
+ await test('Elementor globals are explicitly shared until copied and existing content rules survive',async()=>{
+  const original=visualDesign();original.reusable_blocks=[{target:'/document/1',label:'Global widget #42 · Contact button',kind:'global',mode:'linked',expandable:true}];
+  const expanded=clone(original);expanded.seal='copied-seal';expanded.reusable_blocks[0].mode='captured';expanded.source_receipt='copy-receipt';
+  const t=await visualMounted({request:async(path)=>{if(path==='/design')return clone(original);if(path==='/reusable-block')return clone(expanded);}});
+  await t.controller.capture(42);
+  assert(t.host.textContent.includes('Global widget #42'));assert(t.host.textContent.includes('Keep shared — fields are protected'));
+  assert(t.host.textContent.includes('Create independent copy for mapping'));assert(t.host.textContent.includes('will not edit the shared original'));
+  t.controller.edit(()=>{t.controller.state.recipe.bindings=[{target:'/document/0/settings/title',source:'/title',format:'html',required:true,instructions:'Keep this instruction'}];});
+  const before=clone(t.controller.state.recipe.bindings);await t.controller.captureReusableBlock('/document/1');
+  assert.equal(t.controller.state.error,false,t.controller.state.feedback);assert.deepEqual(t.controller.state.recipe.bindings,before);
+  assert(t.host.textContent.includes('Independent copy for mapping'));assert(t.host.textContent.includes('Each delivered page gets its own native copy'));
+  assert(!t.calls.some(call=>['/save','/draft'].includes(call.path)));
+ });
  await test('failed UX Block capture and changed existing fields retain the current mapping',async()=>{
   const choices=clone(catalog);choices.builders.unshift({id:'flatsome',label:'Flatsome',available:true,modes:['static','mixed','rules']});
   const linked={builder:'flatsome',blueprint:{document:[]},seal:'original',fields:[{target:'/document/0/content',label:'Body',format:'html',writable:true}],containers:[],sources:source,reusable_blocks:[{target:'/document/1',label:'Block',mode:'linked'}],recipe_preset:{builder:'flatsome',bindings:[],regions:[]}};let failed=true;
@@ -495,6 +553,30 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert.equal(t.controller.state.mode,'static');assert.equal(t.controller.state.recipe.bindings[0].instructions,'Preserve this field.');
   t.controller.edit(s=>{s.recipe.instructions='An edited saved layout';});await t.controller.save();
   const saveCall=t.calls.find(call=>call.path==='/save');assert.equal(saveCall.payload.expected_revision,7);assert.equal(saveCall.payload.id,id);assert.equal(t.controller.state.revision,8);
+ });
+ await test('SEO metadata defaults to selected without opening its dropdown and retains deliberate deselections',async()=>{
+  const path='/@nova/seo/yoast/title', desc='/@nova/seo/yoast/description';
+  const choices={[path]:{provider:'yoast',field:'title',label:'Yoast SEO · SEO title',required:false,instructions:''},[desc]:{provider:'yoast',field:'description',label:'Yoast SEO · Meta description',required:false,instructions:''}};
+  const t=await visualMounted({request:async(route,payload,current)=>{if(route==='/design')return {...current,seo_field_choices:choices};}});
+  t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);const before=clone(t.controller.state.recipe.blueprint);
+  assert(t.host.textContent.indexOf('SEO metadata')<t.host.textContent.indexOf('Choose your fixed content fields'));
+  assert(controlFor(t,'Yoast SEO · SEO title').checked);assert(controlFor(t,'Yoast SEO · Meta description').checked);
+  assert.equal(detailsFor(t.host,'SEO metadata').open,false);assert.deepEqual(t.controller.state.recipe.seo_fields,choices);
+  let box=controlFor(t,'Yoast SEO · Meta description');box.checked=false;box.events.change();
+  assert.deepEqual(t.controller.state.recipe.seo_fields,{[path]:choices[path]});
+  assert(t.host.textContent.includes('Source: NOVA SEO title (title)'));assert(t.host.textContent.includes('Source: NOVA meta description (meta_description)'));
+  await t.controller.save();const saved=t.calls.find(c=>c.path==='/save').payload;
+  assert.deepEqual(saved.recipe.seo_fields,{[path]:choices[path]});assert.deepEqual(saved.recipe.blueprint,before);
+  assert.equal(saved.recipe.bindings.length,0);assert(!t.calls.some(c=>c.path==='/draft'));
+  t.controller.go(2);await t.controller.capture(42);assert.deepEqual(t.controller.state.recipe.seo_fields,{[path]:choices[path]});assert(!controlFor(t,'Yoast SEO · Meta description').checked);
+  box=controlFor(t,'Yoast SEO · SEO title');box.checked=false;box.events.change();assert.equal(t.controller.state.recipe.seo_fields,undefined);
+  await t.controller.save();assert.equal(t.calls.filter(c=>c.path==='/save').at(-1).payload.recipe.seo_fields,undefined);
+  for(const fields of [undefined,{[path]:choices[path]}]){
+   const id='00000000-0000-4000-8000-000000000117',current={...visualDesign(),seo_field_choices:clone(choices)},recipe=ui.recipeFrom(current,'static');if(fields)recipe.seo_fields=clone(fields);
+   const reopened=await visualMounted({config:{profileId:id},request:async(route)=>{if(route.startsWith('/profile?'))return {id,revision:1,resource_id:'post_type:page',label:'Saved SEO choices',recipe:clone(recipe),design:clone(current)};}});
+   assert.deepEqual(reopened.controller.state.recipe,recipe);assert.equal(reopened.controller.dirty(),false);assert(!controlFor(reopened,'Yoast SEO · Meta description').checked);
+  }
+  const dynamic=await visualMounted({request:async(route,payload,current)=>{if(route==='/design')return {...current,seo_field_choices:choices};}});dynamic.controller.next();await dynamic.controller.capture(42);assert.equal(dynamic.controller.state.recipe.seo_fields,undefined);
  });
  console.log('PASS '+checks+' layout recipe UI workflows.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

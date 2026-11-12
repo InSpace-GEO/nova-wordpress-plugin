@@ -14,6 +14,10 @@ final class Nova_Bridge_Suite_Native_Media {
         $parts = array_map( static function ( $part ) { return str_replace( [ '~1', '~0' ], [ '/', '~' ], $part ); }, explode( '/', substr( $target, strlen( '/document/' ) ) ) );
         return array_merge( [ 'elementor_data' ], $parts );
     }
+    private static function read( array $payload, array $path ) {
+        foreach ( $path as $part ) { if ( ! is_array( $payload ) || ! array_key_exists( $part, $payload ) ) { return null; } $payload = $payload[$part]; }
+        return $payload;
+    }
     private static function place( array &$payload, array $path, $value ): bool {
         $leaf = array_pop( $path ); $current =& $payload;
         foreach ( $path as $part ) { if ( ! is_array( $current ) || ! array_key_exists( $part, $current ) || ! is_array( $current[$part] ) ) { return false; } $current =& $current[$part]; }
@@ -21,25 +25,43 @@ final class Nova_Bridge_Suite_Native_Media {
         $current[$leaf] = $value; return true;
     }
     private static function shortcode_pointer( string $builder, string $target ): ?array {
-        if ( ! preg_match( '#^/document/(?:0|[1-9][0-9]*)(?:/children/(?:0|[1-9][0-9]*))*/attributes/[a-zA-Z_][a-zA-Z0-9_-]*$#D', $target ) ) { return null; }
+        $content = 'avada' === $builder && preg_match( '#^/document/(?:0|[1-9][0-9]*)(?:/children/(?:0|[1-9][0-9]*))*/text$#D', $target );
+        if ( ! $content && ! preg_match( '#^/document/(?:0|[1-9][0-9]*)(?:/children/(?:0|[1-9][0-9]*))*/attributes/[a-zA-Z_][a-zA-Z0-9_-]*$#D', $target ) ) { return null; }
         return array_merge( [ $builder . '_document' ], explode( '/', substr( $target, strlen( '/document/' ) ) ) );
     }
     public static function validate( string $builder, array $payload ) {
         if ( ! array_key_exists( 'nova_media', $payload ) ) { return true; }
         if ( ! is_array( $payload['nova_media'] ) ) { return self::error( 'The native image manifest is invalid.' ); }
-        $featured = false; $targets = []; $shortcode_fields = null; $cornerstone_fields = null;
+        $featured = false; $targets = []; $shortcode_fields = null; $cornerstone_fields = null; $acf_fields = null;
         foreach ( $payload['nova_media'] as $target => $entry ) {
             if ( ! is_string( $target ) || ! is_array( $entry ) || ! is_string( $entry['url'] ?? null ) || ( isset( $entry['clear'] ) && ! is_bool( $entry['clear'] ) ) ) { return self::error( 'The native image binding is invalid.' ); }
             if ( ! empty( $entry['clear'] ) ? '' !== $entry['url'] : '' === trim( $entry['url'] ) ) { return self::error( 'The native image binding needs a source URL or an explicit clear instruction.' ); }
             if ( 'featured' === ( $entry['kind'] ?? '' ) ) {
                 if ( $featured || '/native_post/featured_image' !== $target ) { return self::error( 'A recipe can bind its native featured image only once.' ); }
                 $featured = true;
+            } elseif ( 'salient_header' === ( $entry['kind'] ?? '' ) && 'wpbakery' === $builder ) {
+                if ( '/meta/_nectar_header_bg' !== $target || $target !== ( $entry['id_target'] ?? null ) || ! is_string( $payload['meta']['_nectar_header_bg'] ?? null ) ) { return self::error( 'The Salient header image target is invalid.' ); }
             } elseif ( 'elementor' === ( $entry['kind'] ?? '' ) && 'elementor' === $builder ) {
                 $url_target = $entry['url_target'] ?? ''; $id_target = $entry['id_target'] ?? '';
                 if ( ! is_string( $url_target ) || ! is_string( $id_target ) || $target !== $url_target || ! str_ends_with( $url_target, '/url' ) || substr( $url_target, 0, -4 ) . '/id' !== $id_target || isset( $targets[$url_target] ) ) { return self::error( 'The paired native image targets are invalid.' ); }
                 $url_path = self::pointer( $url_target ); $id_path = self::pointer( $id_target ); $test = $payload;
                 if ( ! $url_path || ! $id_path || ! self::place( $test, $url_path, '' ) || ! self::place( $test, $id_path, 0 ) ) { return self::error( 'A native image target no longer belongs to its compiled media control.' ); }
                 $targets[$url_target] = true;
+            } elseif ( 'acf' === $builder && 'acf' === ( $entry['kind'] ?? '' ) ) {
+                if ( null === $acf_fields ) {
+                    require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-recipe-acf.php';
+                    $description = Nova_Bridge_Suite_Recipe_ACF::describe( ( $payload['acf_layout'] ?? [] ) + [ 'document' => $payload['meta_all']['acf'] ?? [] ] );
+                    $acf_fields = array_column( $description['fields'], null, 'target' );
+                }
+                $field = $acf_fields[$target] ?? [];
+                if ( $target !== ( $entry['id_target'] ?? null ) || empty( $field['writable'] ) || ( $field['native_media']['id_target'] ?? null ) !== $target || isset( $targets[$target] ) ) { return self::error( 'Only a captured ACF image field can receive an imported image.' ); }
+                $targets[$target] = true;
+            } elseif ( 'betheme' === $builder && $builder === ( $entry['kind'] ?? '' ) ) {
+                $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( $builder );
+                $description = $adapter->describe( [ 'document' => $payload['betheme_document'] ?? [] ] );
+                if ( is_wp_error( $description ) ) { return $description; }
+                $fields = array_column( $description['fields'], null, 'target' ); $field = $fields[$target] ?? [];
+                if ( $target !== ( $entry['id_target'] ?? null ) || empty( $field['writable'] ) || ( $field['native_media']['id_target'] ?? null ) !== $target ) { return self::error( 'Only a captured BeBuilder image control can receive an imported image.' ); }
             } elseif ( 'cornerstone' === $builder && $builder === ( $entry['kind'] ?? '' ) ) {
                 if ( null === $cornerstone_fields ) {
                     require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-recipe-builders.php';
@@ -52,13 +74,13 @@ final class Nova_Bridge_Suite_Native_Media {
                 if ( $target !== ( $entry['id_target'] ?? null ) || empty( $field['writable'] ) || ( $field['native_media']['id_target'] ?? null ) !== $target ) {
                     return self::error( 'Only a captured Cornerstone image control can receive an imported image.' );
                 }
-            } elseif ( in_array( $builder, [ 'flatsome', 'enfold' ], true ) && $builder === ( $entry['kind'] ?? '' ) ) {
-                $id_target = $entry['id_target'] ?? null;
-                $binding_target = 'enfold' === $builder ? ( $entry['url_target'] ?? null ) : $id_target;
+            } elseif ( in_array( $builder, [ 'flatsome', 'enfold', 'wpbakery', 'avada' ], true ) && $builder === ( $entry['kind'] ?? '' ) ) {
+                $id_target = $entry['id_target'] ?? null; $paired = in_array( $builder, [ 'enfold', 'avada' ], true );
+                $binding_target = $paired ? ( $entry['url_target'] ?? null ) : $id_target;
                 if ( $target !== $binding_target || ! is_string( $id_target ) || ! ( $id_path = self::shortcode_pointer( $builder, $id_target ) ) ) { return self::error( 'The native shortcode image target is invalid.' ); }
                 $test = $payload;
                 if ( ! self::place( $test, $id_path, 0 ) ) { return self::error( 'The native shortcode image target no longer belongs to its captured layout.' ); }
-                if ( 'enfold' === $builder && ( ! ( $url_path = self::shortcode_pointer( $builder, $target ) ) || ! self::place( $test, $url_path, '' ) ) ) { return self::error( 'The native shortcode image URL target is invalid.' ); }
+                if ( $paired && ( ! ( $url_path = self::shortcode_pointer( $builder, $target ) ) || ! self::place( $test, $url_path, '' ) ) ) { return self::error( 'The native shortcode image URL target is invalid.' ); }
                 if ( null === $shortcode_fields ) {
                     require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-recipe-builders.php';
                     $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( $builder );
@@ -67,7 +89,7 @@ final class Nova_Bridge_Suite_Native_Media {
                     $shortcode_fields = array_column( $description['fields'] ?? [], null, 'target' );
                 }
                 $field = $shortcode_fields[$target] ?? []; $spec = $field['native_media'] ?? [];
-                if ( empty( $field['writable'] ) || ( $spec['kind'] ?? '' ) !== $builder || ( $spec['id_target'] ?? '' ) !== $id_target || ( 'enfold' === $builder && ( $spec['url_target'] ?? '' ) !== $target ) ) { return self::error( 'Only a captured native shortcode image control can receive an imported image.' ); }
+                if ( empty( $field['writable'] ) || ( $spec['kind'] ?? '' ) !== $builder || ( $spec['id_target'] ?? '' ) !== $id_target || ( $paired && ( $spec['url_target'] ?? '' ) !== $target ) ) { return self::error( 'Only a captured native shortcode image control can receive an imported image.' ); }
             } else { return self::error( 'This builder has no native handler for the selected image control.' ); }
         }
         return true;
@@ -95,6 +117,17 @@ final class Nova_Bridge_Suite_Native_Media {
                     if ( ! is_string( $url ) || '' === $url ) { return self::error( 'The retained native image has no readable attachment URL.' ); }
                 }
                 if ( 'featured' === $entry['kind'] ) { $result['featured'] = $id; }
+                elseif ( 'acf' === $entry['kind'] ) {
+                    $document = [ 'document' => $result['payload']['meta_all']['acf'] ];
+                    Nova_Bridge_Suite_Recipe_Engine::put( $document, $entry['id_target'], $id );
+                    $result['payload']['meta_all']['acf'] = $document['document'];
+                }
+                elseif ( 'salient_header' === $entry['kind'] ) { $result['payload']['meta']['_nectar_header_bg'] = $id ? $url : ''; }
+                elseif ( 'betheme' === $entry['kind'] ) {
+                    $document = [ 'document' => $result['payload']['betheme_document'] ];
+                    Nova_Bridge_Suite_Recipe_Betheme::put( $document, $entry['id_target'], $id ? $url : '' );
+                    $result['payload']['betheme_document'] = $document['document'];
+                }
                 elseif ( 'cornerstone' === $entry['kind'] ) {
                     $document = [ 'document' => $result['payload']['cornerstone_document'] ];
                     $old = Nova_Bridge_Suite_Recipe_Engine::get( $document, $entry['id_target'] );
@@ -102,13 +135,24 @@ final class Nova_Bridge_Suite_Native_Media {
                     Nova_Bridge_Suite_Recipe_Engine::put( $document, $entry['id_target'], $id ? $id . $size : '' );
                     $result['payload']['cornerstone_document'] = $document['document'];
                 }
-                elseif ( in_array( $entry['kind'], [ 'flatsome', 'enfold' ], true ) ) {
-                    self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['id_target'] ), (string) $id );
+                elseif ( 'avada' === $entry['kind'] ) {
+                    // Avada stores "attachment|size"; keep the example's image size with the new attachment.
+                    $id_path = self::shortcode_pointer( $builder, $entry['id_target'] ); $old = self::read( $result['payload'], $id_path );
+                    $size = is_string( $old ) && preg_match( '/^[0-9]*(\|[a-zA-Z0-9_-]+)$/D', $old, $match ) ? $match[1] : '';
+                    self::place( $result['payload'], $id_path, $id ? $id . $size : '' );
+                    self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['url_target'] ), $id ? $url : '' );
+                }
+                elseif ( in_array( $entry['kind'], [ 'flatsome', 'enfold', 'wpbakery' ], true ) ) {
+                    // WPBakery stores an empty image parameter when no attachment is selected.
+                    self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['id_target'] ), 'wpbakery' === $entry['kind'] && ! $id ? '' : (string) $id );
                     if ( 'enfold' === $entry['kind'] ) { self::place( $result['payload'], self::shortcode_pointer( $builder, $entry['url_target'] ), $url ); }
                 }
                 else { self::place( $result['payload'], self::pointer( $entry['url_target'] ), $url ); self::place( $result['payload'], self::pointer( $entry['id_target'] ), $id ); }
             }
         } catch ( Throwable $error ) { return self::error( 'The native image result is not yet verified. Recover this same operation before continuing.' ); }
+        if ( in_array( $builder, [ 'wpbakery', 'avada' ], true ) && is_array( $result['payload'][ $builder . '_document' ] ?? null ) && function_exists( 'nova_mapping_wpb_compact_to_shortcodes' ) ) {
+            $result['payload']['layout']['raw_shortcodes'] = nova_mapping_wpb_compact_to_shortcodes( $result['payload'][ $builder . '_document' ] );
+        }
         return $result;
     }
     public static function apply_featured( int $post_id, array $resolved ) {

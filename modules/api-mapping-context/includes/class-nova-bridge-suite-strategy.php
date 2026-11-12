@@ -1,6 +1,8 @@
 <?php
 /** Strategy-scoped, private authoring contracts. @package NOVA_Bridge_Suite */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Strategy {
 
@@ -65,7 +67,7 @@ final class Nova_Bridge_Suite_Strategy {
 
 	public static function get_option(): array {
 		$default = [ 'version' => 1, 'imported_at' => '', 'source_host' => '', 'rows' => [], 'profiles' => [], 'assignments' => [] ];
-		$value = get_option( self::OPTION_NAME, $default );
+		$value = get_option( Nova_WordPress_Environment::key( self::OPTION_NAME ), $default );
 		$option = is_array( $value ) ? array_merge( $default, $value ) : $default;
 		if ( ! isset( $option['imports'] ) ) {
 			$option['imports'] = $option['rows'] ? [ [ 'id' => 'legacy', 'name' => 'Previously imported strategy', 'imported_at' => $option['imported_at'], 'source_host' => $option['source_host'], 'rows' => $option['rows'] ] ] : [];
@@ -74,8 +76,8 @@ final class Nova_Bridge_Suite_Strategy {
 	}
 
 	private static function persist( array $value ): void {
-		if ( false === get_option( self::OPTION_NAME, false ) ) { add_option( self::OPTION_NAME, $value, '', 'no' ); }
-		else { update_option( self::OPTION_NAME, $value, false ); }
+		if ( false === get_option( Nova_WordPress_Environment::key( self::OPTION_NAME ), false ) ) { add_option( Nova_WordPress_Environment::key( self::OPTION_NAME ), $value, '', 'no' ); }
+		else { update_option( Nova_WordPress_Environment::key( self::OPTION_NAME ), $value, false ); }
 	}
 
 	/** RFC 4180 parsing retains embedded commas and newlines; content never enters storage. */
@@ -664,7 +666,7 @@ final class Nova_Bridge_Suite_Strategy {
 			$route = Nova_Bridge_Suite_Content_Transport::route_for( $entity['post_type'] );
 			$values = Nova_Bridge_Suite_Content_Transport::read_fields( get_post( $entity['reference_id'] ) );
 			foreach ( $catalog['acf'] as $name => $field ) {
-				if ( ! current_user_can( 'edit_post_meta', $entity['reference_id'], $name ) ) { continue; }
+				if ( ! Nova_WordPress_Meta_Permission::can_edit( 'post', $entity['reference_id'], $name ) ) { continue; }
 				$pointer = '/meta_all/acf/' . str_replace( [ '~', '/' ], [ '~0', '~1' ], $name );
 				$fields[ $pointer ] = [ 'path' => $pointer, 'label' => $field['label'] ?? $name, 'type' => $field['type'] ?? 'string', 'source' => 'acf', 'writable' => true, 'transport' => 'nova_content_bridge', 'route' => $route . '/{id}', 'request_path' => $pointer, 'methods' => [ 'POST', 'PUT', 'PATCH' ], 'acf_key' => $field['key'], 'native_description' => $field['instructions'] ?? '', 'availability' => 'available', 'description' => '', 'mapping' => '' ];
 				self::acf_instance_fields( $fields, $field, $values['acf'][ $name ] ?? null, $pointer, $fields[ $pointer ], $fields[ $pointer ]['label'] );
@@ -672,7 +674,7 @@ final class Nova_Bridge_Suite_Strategy {
 				if ( isset( $fields[ $native_pointer ] ) && ! $fields[ $native_pointer ]['writable'] ) { $fields[ $native_pointer ]['alternative_path'] = $pointer; }
 			}
 			foreach ( $catalog['meta'] as $name => $field ) {
-				if ( ! current_user_can( 'edit_post_meta', $entity['reference_id'], $name ) ) { continue; }
+				if ( ! Nova_WordPress_Meta_Permission::can_edit( 'post', $entity['reference_id'], $name ) ) { continue; }
 				$pointer = '/meta_all/' . str_replace( [ '~', '/' ], [ '~0', '~1' ], $name );
 				$fields[ $pointer ] = [ 'path' => $pointer, 'label' => $name, 'type' => $field['type'] ?? 'string', 'source' => 'meta', 'writable' => true, 'transport' => 'nova_content_bridge', 'route' => $route . '/{id}', 'request_path' => $pointer, 'methods' => [ 'POST', 'PUT', 'PATCH' ], 'native_description' => $field['description'] ?? '', 'availability' => 'available', 'description' => '', 'mapping' => '' ];
 			}
@@ -701,7 +703,7 @@ final class Nova_Bridge_Suite_Strategy {
 		$route = '/' . trim( ( $object->rest_namespace ?? '' ) ?: 'wp/v2', '/' ) . '/' . trim( ( $object->rest_base ?? '' ) ?: $entity['post_type'], '/' );
 		$id = $entity['reference_id']; $meta = get_post_meta( $id );
 		foreach ( $meta as $name => $values ) {
-			if ( ! Nova_Bridge_Suite_Content_Transport::safe_key( $name ) || ! preg_match( '/^[a-zA-Z][a-zA-Z0-9_]*$/', $name ) || count( $values ) !== 1 || ! current_user_can( 'edit_post_meta', $id, $name ) ) { continue; }
+			if ( ! Nova_Bridge_Suite_Content_Transport::safe_key( $name ) || ! preg_match( '/^[a-zA-Z][a-zA-Z0-9_]*$/', $name ) || count( $values ) !== 1 || ! Nova_WordPress_Meta_Permission::can_edit( 'post', $id, $name ) ) { continue; }
 			$key = get_post_meta( $id, '_' . $name, true );
 			// Keep exact existing scalar storage available even when the bridge also exposes
 			// a complete-parent path. Contracted writers may safely replace only this row.

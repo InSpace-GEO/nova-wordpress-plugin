@@ -20,14 +20,11 @@ final class Family_Jobs_Memory_DB {
         [ $sql, $args ] = $query;
         check( $format === ARRAY_A && str_contains( $sql, 'site_id=%s AND protocol=%s AND identity_conflict=0' ), 'Journal read filters site, protocol and identity conflicts in SQL' );
         check( str_contains( $sql, "phase='received'" ) && str_contains( $sql, 'lease_until=0' ), 'Journal read excludes planned and leased work in SQL' );
-        $ready = str_contains( $sql, "state='ready'" );
-        check( str_contains( $sql, "last_error='nova_translation_source_" . ( $ready ? 'ready' : 'pending' ) . "'" ), 'Journal reads only the intended dependency marker' );
-        if ( $ready ) { check( str_contains( $sql, 'next_attempt<=%d ORDER BY id' ), 'Continuation only considers due work in deterministic order' ); }
-        else { check( str_contains( $sql, "state='blocked'" ), 'Wake reads only parked jobs' ); }
-        $rows = array_filter( $this->rows, static function ( $row ) use ( $args, $ready ) {
+        check( str_contains( $sql, "state='blocked'" ) && str_contains( $sql, "last_error='nova_translation_source_pending'" ), 'Wake reads only parked dependencies' );
+        $rows = array_filter( $this->rows, static function ( $row ) use ( $args ) {
             return $row['site_id'] === $args[0] && $row['protocol'] === $args[1] && ! $row['identity_conflict'] &&
-                $row['state'] === ( $ready ? 'ready' : 'blocked' ) && $row['phase'] === 'received' && !$row['lease_until'] &&
-                $row['last_error'] === 'nova_translation_source_' . ( $ready ? 'ready' : 'pending' ) && ( !$ready || $row['next_attempt'] <= $args[2] );
+                $row['state'] === 'blocked' && $row['phase'] === 'received' && !$row['lease_until'] &&
+                $row['last_error'] === 'nova_translation_source_pending';
         } );
         usort( $rows, static fn( $a, $b ) => $a['id'] <=> $b['id'] );
         return $rows;
@@ -85,7 +82,6 @@ $before = $db->rows;
 check( $jobs->wake_translation_dependents( $original_identity ) === 1, 'Only the exact source dependency is awakened' );
 check( $db->rows[1]['payload'] === $before[1]['payload'] && $db->rows[1]['journal_revision'] === 5 && $db->rows[1]['attempts'] === 0 && $db->rows[1]['next_attempt'] === 0, 'Wake preserves frozen content and updates only retry bookkeeping' );
 foreach ( $before as $row_id => $row ) { if ( $row_id !== 1 ) { check( $db->rows[$row_id] === $row, 'Unrelated or unsafe row remains unchanged: ' . $row_id ); } }
-check( $jobs->next_translation_dependent( $content['site_id'] ) === $content, 'Next continuation returns the exact retained content' );
 check( $jobs->wake_translation_dependents( $original_identity ) === 0, 'Wake replay is idempotent' );
 
 $original_before_upgrade = $original_identity; unset( $original_before_upgrade['url_family'] );
@@ -99,25 +95,7 @@ $db->race_id = 0;
 $reads = $db->reads;
 check( $jobs->wake_translation_dependents( $content ) === 0 && $db->reads === $reads, 'A translated item cannot wake source dependencies' );
 
-$ready = array_replace( $base, [ 'state' => 'ready', 'last_error' => 'nova_translation_source_ready', 'next_attempt' => 0 ] );
-$db->rows = [];
-$id = 1;
-foreach ( [ ['site_id','other-site'], ['protocol','legacy'], ['identity_conflict',1], ['state','blocked'], ['phase','planned'], ['last_error','nova_posting_transport'], ['lease_until',time()+300], ['next_attempt',time()+3600] ] as [ $key, $value ] ) {
-    $db->rows[$id] = array_replace( $ready, [ 'id' => $id, $key => $value ] ); ++$id;
-}
-foreach ( [
-    static function ( &$p ) { $p['plan'] = [ 'frozen' => true ]; },
-    static function ( &$p ) { $p['native_writer'] = 'stored_layout_v3'; },
-    static function ( &$p ) { $p['content']['site_id'] = 'other-site'; },
-    static function ( &$p ) { unset( $p['content']['url_family'] ); },
-] as $change ) {
-    $db->rows[$id] = family_job_payload( array_replace( $ready, [ 'id' => $id ] ), $change ); ++$id;
-}
-check( $jobs->next_translation_dependent( $content['site_id'] ) === null, 'Generic retries, future, leased, conflicted, planned and unrelated work cannot schedule continuation' );
-$db->rows[$id] = array_replace( $ready, [ 'id' => $id ] );
-check( $jobs->next_translation_dependent( $content['site_id'] ) === $content, 'Earlier ineligible rows do not hide a later eligible dependency' );
 $db->read_failure = true;
-check( is_wp_error( $jobs->next_translation_dependent( $content['site_id'] ) ), 'Continuation read errors remain explicit' );
 check( is_wp_error( $jobs->wake_translation_dependents( $original_identity ) ), 'Wake read errors remain explicit' );
 $db->read_failure = false; $db->last_error = ''; $db->write_failure = true; $db->rows = [ 1 => $base ];
 check( is_wp_error( $jobs->wake_translation_dependents( $original_identity ) ) && $db->rows[1] === $base, 'Wake write error cannot report success or mutate retained work' );

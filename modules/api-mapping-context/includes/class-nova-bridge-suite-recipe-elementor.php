@@ -2,6 +2,7 @@
 /** Native Elementor prototypes and protected complete-frame compilation. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-theme-presentation.php';
+require_once __DIR__ . '/class-nova-bridge-suite-elementor-reusable.php';
 require_once dirname( __DIR__ ) . '/adapters/elementor/class-document-presentation.php';
 require_once dirname( __DIR__ ) . '/adapters/elementor/class-element-registry.php';
 if ( ! class_exists( '\\NOVA_Mapping_Elementor\\Elementor_Service', false ) ) {
@@ -29,7 +30,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             if ( array_key_exists( 'document_settings', $blueprint ) ) { $check = \NOVA_Mapping_Elementor\Document_Presentation::validate( $blueprint['document_settings'] ); if ( is_wp_error( $check ) ) { return $check; } }
             Nova_Bridge_Suite_Recipe_Engine::json( $blueprint ); $ids = []; $anchors = []; $count = 0;
             $this->walk( $blueprint['document'], function ( $node ) use ( &$ids, &$anchors, &$count ) {
-                if ( ++$count > 2000 || isset( $ids[ $node['id'] ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'The complete Elementor tree exceeds 2000 nodes or contains duplicate native identities.' ); } $ids[ $node['id'] ] = true;
+                if ( ++$count > 2000 || isset( $ids[ $node['id'] ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'The complete Elementor tree exceeds 2000 nodes or contains duplicate native identities.' ); } $ids[ $node['id'] ] = true; Nova_Bridge_Suite_Elementor_Reusable::validate_copy( $node );
                 $anchor = $node['settings']['_element_id'] ?? ''; if ( '' !== $anchor ) { if ( ! is_string( $anchor ) || preg_match( '/[\x00-\x20]/', $anchor ) || isset( $anchors[ $anchor ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Explicit native HTML anchors must be unique within the saved blueprint.' ); } $anchors[ $anchor ] = true; }
                 $scan = static function ( $value, string $key = '' ) use ( &$scan, &$anchors ) { if ( is_array( $value ) ) { foreach ( $value as $name => $child ) { $scan( $child, (string) $name ); } } elseif ( is_string( $value ) && in_array( $key, [ 'title', 'editor', 'html', 'tab_title', 'tab_content' ], true ) ) { foreach ( self::html_anchors( $value ) as $anchor ) { if ( isset( $anchors[ $anchor ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Inline and native HTML anchor targets must be unambiguous within the complete document.' ); } $anchors[ $anchor ] = true; } } }; $scan( $node['settings'] );
                 if ( 'nested-tabs' === ( $node['widgetType'] ?? '' ) && ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $node['settings']['tabs'] ?? null ) || count( $node['settings']['tabs'] ) !== count( $node['elements'] ?? [] ) ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'A complete native nested-tabs document must retain one navigation record per panel.' ); }
@@ -47,6 +48,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
     public function validate_binding( array $native, array $binding ) {
         return $this->safe( function () use ( $native, $binding ) {
             list( $node, $path ) = $this->node_for_target( $native, $binding['target'] ); $widget = $node['widgetType'] ?? ''; $settings = $node['settings'];
+            if ( Nova_Bridge_Suite_Elementor_Reusable::reference( $node ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'This is a shared Elementor component. Create an independent copy for mapping; NOVA never edits the shared original.' ); }
             $value = Nova_Bridge_Suite_Recipe_Engine::get( $native, $binding['target'], $found );
             $cursor = $settings; $dynamic = false;
             foreach ( $path as $part ) {
@@ -201,7 +203,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
         return $this->safe( function () use ( $blueprint, $seed, $context ) {
             $check = $this->validate_blueprint( $blueprint ); if ( is_wp_error( $check ) ) { return $check; }
             if ( isset( $context['recipe']['blueprint']['document'] ) ) { $old = $this->anchors_and_links( $context['recipe']['blueprint']['document'] ); $current = $this->anchors_and_links( $blueprint['document'] ); foreach ( $current['links'] as $anchor ) { if ( isset( $old['anchors'][ $anchor ] ) && ! isset( $current['anchors'][ $anchor ] ) ) { return $this->error( 'A fixed native link still targets the removed example anchor #' . $anchor . '. Bind that navigation link to canonical content or remove the stale sample link before creating a draft.' ); } } }
-            $blueprint['document'] = $this->provider_flags( $this->rebase( $blueprint['document'], $seed . '/document', false, $identity ) );
+            $blueprint['document'] = $this->provider_flags( $this->rebase( Nova_Bridge_Suite_Elementor_Reusable::native_nodes( $blueprint['document'] ), $seed . '/document', false, $identity ) );
             if ( isset( $blueprint['meta']['custom_css'] ) && is_string( $blueprint['meta']['custom_css'] ) ) { $blueprint['meta']['custom_css'] = $this->native_selectors( $blueprint['meta']['custom_css'], $identity['nodes'] ); }
             if ( isset( $blueprint['document_settings']['custom_css'] ) && is_string( $blueprint['document_settings']['custom_css'] ) ) { $blueprint['document_settings']['custom_css'] = $this->native_selectors( $blueprint['document_settings']['custom_css'], $identity['nodes'] ); }
             if ( isset( $blueprint['document_settings']['__retained__']['custom_css'] ) && is_string( $blueprint['document_settings']['__retained__']['custom_css'] ) ) { $blueprint['document_settings']['__retained__']['custom_css'] = $this->native_selectors( $blueprint['document_settings']['__retained__']['custom_css'], $identity['nodes'] ); }
@@ -252,6 +254,11 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             return $this->describe( $blueprint );
         } );
     }
+    /** Copies receive new builder identities, while authored HTML anchors keep incoming navigation intact. */
+    public function independent_elements( array $nodes, string $seed ): array { return $this->rebase( $nodes, $seed, false ); }
+    public function expand_block( array $blueprint, string $target ) {
+        return $this->safe( function () use ( $blueprint, $target ) { return $this->describe( Nova_Bridge_Suite_Elementor_Reusable::expand( $blueprint, $target, $this ) ); } );
+    }
     public function describe( array $blueprint ) {
         return $this->safe( function () use ( $blueprint ) {
             $check = $this->validate_blueprint( $blueprint ); if ( is_wp_error( $check ) ) { return $check; }
@@ -263,7 +270,8 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                 if ( isset( $node['elements'] ) && $node['elements'] ) { $containers[] = $candidate( $base . '/elements', ( $node['settings']['_title'] ?? '' ) ?: $label, $node['elements'] ); }
                 $media_controls = Nova_Bridge_Suite_Elementor_Media_Controls::inventory( $node );
                 $visit = function ( $value, array $parts ) use ( &$visit, $blueprint, $base, $label, $node, $widget, $media_controls, &$fields, &$ordinals ) {
-                    if ( is_array( $value ) ) { foreach ( $value as $key => $child ) { $visit( $child, array_merge( $parts, [ $key ] ) ); } return; }
+                    // __dynamic__ and __globals__ are Elementor's internal maps of tags and global styles, not controls.
+                    if ( is_array( $value ) ) { foreach ( $value as $key => $child ) { if ( [] === $parts && is_string( $key ) && 0 === strpos( $key, '__' ) ) { continue; } $visit( $child, array_merge( $parts, [ $key ] ) ); } return; }
                     $target = $base . $this->pointer( array_merge( [ 'settings' ], $parts ) ); $key = (string) end( $parts ); $map_address = 'google_maps' === $widget && [ 'address' ] === $parts;
                     if ( ( ! $map_address && ! in_array( $key, [ 'title', 'editor', 'text', 'url', 'alt', 'caption', 'tab_title', 'tab_content' ], true ) ) || ! is_string( $value ) ) { return; }
                     $heading_title = 'heading' === $widget && [ 'title' ] === $parts;
@@ -282,9 +290,31 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                         $fields[count( $fields ) - 1]['native_media'] = [ 'kind' => 'elementor', 'url_target' => $target, 'id_target' => $base . $this->pointer( array_merge( [ 'settings' ], $media['id_path'] ) ) ];
                     }
                 }; $visit( $node['settings'], [] );
+                $this->describe_dynamic( $node, $base, $label, $fields );
             }, [], 0 );
-            return [ 'blueprint' => $blueprint, 'fields' => $fields, 'containers' => $containers, 'prototypes' => [], 'capabilities' => $this->capabilities(), 'warnings' => [ 'A captured native example does not declare repetition or semantic grouping. Select and review those regions explicitly.' ] ];
+            return [ 'blueprint' => $blueprint, 'fields' => $fields, 'containers' => $containers, 'reusable_blocks' => Nova_Bridge_Suite_Elementor_Reusable::inventory( $blueprint ), 'prototypes' => [], 'capabilities' => $this->capabilities(), 'warnings' => [ 'A captured native example does not declare repetition or semantic grouping. Select and review those regions explicitly.' ] ];
         } );
+    }
+    /** Dynamic tags that render this item's own WordPress fields, which can be mapped directly instead. */
+    private const DYNAMIC_SOURCES = [ 'post-title' => [ '/native_post/title', 'title', 'Title' ], 'post-excerpt' => [ '/native_post/excerpt', 'excerpt', 'Excerpt' ], 'post-featured-image' => [ '/native_post/featured_image', 'featured image', 'Featured image' ] ];
+    public static function dynamic_tag( $value ): string { return is_string( $value ) && preg_match( '/\[elementor-tag\b[^\]]*\sname="([a-zA-Z0-9_-]{1,80})"/', $value, $match ) ? $match[1] : ''; }
+    private function describe_dynamic( array $node, string $base, string $label, array &$fields ): void {
+        $dynamic = is_array( $node['settings']['__dynamic__'] ?? null ) ? $node['settings']['__dynamic__'] : [];
+        foreach ( $dynamic as $control => $value ) {
+            $tag = self::dynamic_tag( $value ); if ( ! is_string( $control ) || '' === $tag || ! preg_match( '/^[a-zA-Z0-9_-]{1,128}$/D', $control ) ) { continue; }
+            $source = self::DYNAMIC_SOURCES[ $tag ] ?? null;
+            $reason = $source ? 'Shows this page’s ' . $source[1] . ' through an Elementor dynamic tag. Map “' . $source[2] . '” under WordPress fields to change it.' : 'Filled by the Elementor dynamic tag “' . $tag . '”. Its source is managed outside this layout.';
+            $annotate = static function ( array $field ) use ( $tag, $source, $reason ): array { $field['dynamic'] = [ 'tag' => $tag, 'source' => $source[0] ?? '' ]; $field['writable'] = false; $field['protected'] = true; $field['reason'] = $reason; return $field; };
+            $matched = false;
+            foreach ( $fields as $index => $field ) {
+                if ( ( $field['node_target'] ?? '' ) === $base && ( $field['control_path'][1] ?? null ) === $control ) { $fields[ $index ] = $annotate( $field ); $matched = true; }
+            }
+            if ( $matched ) { continue; }
+            $safe_id = 1 === preg_match( '/^[a-zA-Z0-9_-]+$/D', (string) $node['id'] ); $widget = $node['widgetType'] ?? $node['elType'];
+            $fields[] = $annotate( [ 'target' => $base . $this->pointer( [ 'settings', $control ] ), 'label' => $label . ' · ' . ucwords( str_replace( '_', ' ', $control ) ), 'format' => 'text', 'kind' => $control, 'value' => '',
+                'native_node_id' => $node['id'], 'node_target' => $base, 'element_type' => $widget, 'control_path' => [ 'settings', $control ],
+                'locator' => [ 'strategy' => $safe_id ? 'elementor' : 'none', 'native_node_id' => $node['id'], 'anchor' => '', 'precision' => 'element', 'status' => $safe_id ? 'candidate' : 'unavailable', 'reason' => '' ] ] );
+        }
     }
     public function starter( string $mode = 'mixed' ): array {
         $widget = static function ( $id, $type, $settings ) { return [ 'id' => $id, 'elType' => 'widget', 'widgetType' => $type, 'settings' => $settings, 'elements' => [] ]; };

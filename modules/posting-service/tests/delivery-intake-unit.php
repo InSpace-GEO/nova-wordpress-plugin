@@ -28,6 +28,8 @@ function update_option( $name, $value, $autoload = null ) { $GLOBALS['options'][
 function delete_option( $name ) { unset( $GLOBALS['options'][$name] ); }
 function wp_next_scheduled( $hook ) { return $GLOBALS['cron'][$hook] ?? false; }
 function wp_clear_scheduled_hook( $hook ) { unset( $GLOBALS['cron'][$hook] ); ++$GLOBALS['cleared']; }
+function wp_schedule_single_event( $at, $hook ) { $GLOBALS['cron'][$hook] = $at; return true; }
+function wp_get_scheduled_event( $hook ) { return isset( $GLOBALS['cron'][$hook] ) ? (object) [ 'timestamp' => $GLOBALS['cron'][$hook], 'schedule' => $GLOBALS['cron_recurrence'][$hook] ?? false ] : false; }
 function add_action( $hook, $callback, ...$args ) { $GLOBALS['hooks'][$hook][] = $callback; }
 function fastcgi_finish_request() { $GLOBALS['execution'][] = 'flush'; }
 function register_rest_route( $namespace, $path, $route ) { $GLOBALS['routes'][$path] = $route; }
@@ -62,19 +64,20 @@ class Nova_Bridge_Suite_Posting_Jobs {
     public static $fail_wake = false; public static $resumed = false;
     public function request_discovery( $site ) { if ( self::$fail_wake ) { return new WP_Error( 'fixture_storage', '', [ 'status' => 503 ] ); } ++self::$wakes; return true; }
     public function resume( $id, $site ) { self::$resumed = true; return true; }
+    public function pending_work( $site, $paused ) { return [ 'pending' => 0, 'due' => 0, 'next_due' => null ]; }
 }
 require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-posting-protocol.php';
 require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-posting-discovery.php';
 require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-posting-delivery.php';
 $checks = 0; $admin = true; $logged_in = true; $options = []; $routes = []; $hooks = []; $execution = []; $cleared = 0;
-$cron = [ Nova_Bridge_Suite_Posting_Delivery::CRON_HOOK => 123, 'unrelated_hook' => 456 ];
+$cron = [ Nova_Bridge_Suite_Posting_Delivery::CRON_HOOK => 123, 'unrelated_hook' => 456 ]; $cron_recurrence = [ Nova_Bridge_Suite_Posting_Delivery::CRON_HOOK => 'nova_legacy_interval' ];
 function intake_check( $condition, $message ) { ++$GLOBALS['checks']; if ( ! $condition ) { throw new RuntimeException( $message ); } }
 $request = new Intake_Request();
 Nova_Bridge_Suite_Posting_Settings::$connection = [ 'enabled' => false, 'paused' => true, 'site_id' => '', 'base_url' => '', 'token' => '' ];
 Nova_Bridge_Suite_Posting_Delivery::bootstrap();
-intake_check( ! isset( $hooks[Nova_Bridge_Suite_Posting_Delivery::CRON_HOOK], $hooks['cron_schedules'] ) && isset( $hooks['shutdown'], $hooks['init'] ), 'Bootstrap registers shutdown work and no delivery cron callback or recurrence.' );
+intake_check( isset( $hooks[Nova_Bridge_Suite_Posting_Delivery::CRON_HOOK], $hooks['shutdown'], $hooks['init'] ) && ! isset( $hooks['cron_schedules'] ), 'Bootstrap registers shutdown work and the single follow-up event, never a recurrence.' );
 Nova_Bridge_Suite_Posting_Delivery::initialize();
-intake_check( 1 === $cleared && [ 'unrelated_hook' => 456 ] === $cron, 'Upgrade removes only the old delivery cron, including while disabled.' );
+intake_check( 1 === $cleared && [ 'unrelated_hook' => 456 ] === $cron, 'Upgrade removes only the old recurring delivery cron, including while disabled.' );
 $status = Nova_Bridge_Suite_Posting_Delivery::status( $request );
 intake_check( 200 === $status->status && [] === $status->data['jobs'] && [] === $status->data['discovery'], 'Disabled unconfigured installation returns empty status without a schema.' );
 intake_check( 0 === Nova_Bridge_Suite_Posting_Jobs::$installs && 0 === Nova_Bridge_Suite_Posting_Jobs::$reads && null === $status->data['next_scheduled'], 'Disabled status does not install or query missing journals; no delivery cron remains.' );

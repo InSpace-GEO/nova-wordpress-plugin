@@ -57,18 +57,16 @@ metadata keep their existing retry behavior.
 Draft or scheduled originals published later outside delivery processing may need
 an explicit catch-up. This change adds no general WordPress publication hook.
 
-If source-ready dependencies exceed the current worker batch, one signed,
-nonblocking request to the installation's existing ready endpoint continues the
-work. Only due, newly awakened dependencies qualify. There is no periodic cron,
-generic retry loop, or new endpoint. Failed local loopback requests leave the
-ready work intact for an explicit catch-up. Sites must permit local requests to
-their HTTPS REST endpoint for this automatic continuation.
+When source-ready dependencies exceed one batch, they are ordinary ready work
+for the existing continuation and WP-Cron backstop. The same connection, pause
+and batch limits apply.
 
 ## Rollout and verification
 
-This is a draft integration change, not a plugin release. Upgrade all WordPress
-installations receiving deliveries for the same NOVA site before enabling group
-metadata in the producer. Older strict delivery schemas reject unknown fields.
+Upgrade all WordPress installations receiving deliveries for the same NOVA site
+before deploying the backend producer with automatic URL-family emission.
+Older strict delivery schemas reject this field. There is no per-domain toggle
+in the automatic producer.
 No existing delivery is rewritten during upgrade.
 
 Local tests use the production family/linking implementation with in-memory

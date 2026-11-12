@@ -1,6 +1,7 @@
 <?php
 /** Local native-document capture and creation blueprints. This adapter never writes CMS content. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 require_once dirname( __DIR__, 3 ) . '/includes/editorial-post-types.php';
 
 final class Nova_Bridge_Suite_Document_Mapping {
@@ -377,7 +378,7 @@ final class Nova_Bridge_Suite_Document_Mapping {
         foreach ( (array) ( $resource['fields'] ?? [] ) as $field ) {
             $native = $field['path'] ?? ''; if ( ! is_string( $native ) || ! preg_match( '#^/meta(?:_all)?/([^/]+)(?:/.*)?$#D', $native, $match ) ) { continue; }
             $key = str_replace( [ '~1', '~0' ], [ '/', '~' ], $match[1] );
-            if ( ! self::safe_key( $key ) || ! isset( $registered[ $key ] ) || empty( $registered[ $key ]['single'] ) || ! current_user_can( $term ? 'edit_term_meta' : 'edit_post_meta', $id, $key ) ) { continue; }
+            if ( ! self::safe_key( $key ) || ! isset( $registered[ $key ] ) || empty( $registered[ $key ]['single'] ) || ! Nova_WordPress_Meta_Permission::can_edit( $term ? 'term' : 'post', $id, $key ) ) { continue; }
             $value = $term ? get_term_meta( $id, $key, true ) : get_post_meta( $id, $key, true );
             if ( ! self::no_secrets( $value ) ) { $warnings[] = 'A credential-like registered metadata value was excluded from editorial mapping fields.'; continue; }
             self::json( $value ); $structure['meta'][ $key ] = $value;
@@ -412,7 +413,7 @@ final class Nova_Bridge_Suite_Document_Mapping {
         foreach ( $approved as $descriptor ) {
             $native = $descriptor['path'] ?? ''; if ( ! is_string( $native ) || ! preg_match( '#^/acf/([^/]+)$#D', $native, $match ) || empty( $descriptor['acf_field_key'] ) ) { continue; }
             $name = str_replace( [ '~1', '~0' ], [ '/', '~' ], $match[1] );
-            if ( ! self::safe_key( $name ) || ! current_user_can( $term ? 'edit_term_meta' : 'edit_post_meta', $id, $name ) ) { continue; }
+            if ( ! self::safe_key( $name ) || ! Nova_WordPress_Meta_Permission::can_edit( $term ? 'term' : 'post', $id, $name ) ) { continue; }
             $definition = get_field_object( $descriptor['acf_field_key'], $acf_id, false, false );
             if ( ! is_array( $definition ) || ( $definition['name'] ?? '' ) !== $name || in_array( $definition['type'] ?? '', [ 'password', 'clone' ], true ) ) { continue; }
             $value = get_field( $descriptor['acf_field_key'], $acf_id, false );
@@ -449,7 +450,7 @@ final class Nova_Bridge_Suite_Document_Mapping {
         $structure['suite_template'] = self::suite_template( $model );
         foreach ( $keys as $key ) {
             if ( ! isset( $registered[ $key ] ) || empty( $registered[ $key ]['single'] ) ) { continue; }
-            if ( $id && ! current_user_can( 'edit_post_meta', $id, $key ) ) { self::fail( 'A native dedicated-template metadata field is not readable with target-edit permission; no partial document was returned.' ); }
+            if ( $id && ! Nova_WordPress_Meta_Permission::can_edit( 'post', $id, $key ) ) { self::fail( 'A native dedicated-template metadata field is not readable with target-edit permission; no partial document was returned.' ); }
             $registration = $registered[ $key ]; $schema = self::meta_schema( $registration );
             $value = $id ? get_post_meta( $id, $key, true ) : self::schema_empty( $schema );
             if ( ! self::no_secrets( $value ) ) { self::fail( 'The dedicated native template contains sensitive metadata; no partial document was returned.' ); }

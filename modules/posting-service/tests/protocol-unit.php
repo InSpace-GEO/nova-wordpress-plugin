@@ -57,6 +57,13 @@ foreach ( [ 'received_complete', 'publication_succeeded', 'publication_failed', 
     else { unset( $bad['extra'], $bad['reason'] ); }
     protocol_check( is_wp_error( Nova_Bridge_Suite_Posting_Protocol::event_input( $bad ) ), 'Missing or forbidden conditional evidence rejected.' );
     $accepted['status'] = 'applied'; $ack['raw_body'] = json_encode( $accepted ); protocol_check( is_wp_error( Nova_Bridge_Suite_Posting_Protocol::accepted( $ack, $event ) ), 'Acceptance cannot claim backend applied.' );
+    $reported = $event; $reported['publication'] = [ 'url' => 'https://native.fixture.invalid/2026/service/', 'url_status' => 'final' ];
+    protocol_check( ( 'publication_succeeded' === $kind ) === ( true === Nova_Bridge_Suite_Posting_Protocol::event_input( $reported ) ), 'Only success may carry the optional URL report: ' . $kind );
+}
+$event = nova_contract_fixture_event( $fixture, 'publication_succeeded' );
+foreach ( [ [ 'url' => '/relative/' ], [ 'url' => 'https://user:pw@native.fixture.invalid/' ], [ 'url' => 'https://native.fixture.invalid/#top' ], [ 'url_status' => 'live' ], [ 'native' => [ 'system' => 'wordpress' ] ], [ 'extra' => true ] ] as $patch ) {
+    $bad = $event; $bad['publication'] = array_merge( [ 'url' => 'https://native.fixture.invalid/service/', 'url_status' => 'final' ], $patch );
+    protocol_check( is_wp_error( Nova_Bridge_Suite_Posting_Protocol::event_input( $bad ) ), 'Malformed URL report rejected: ' . json_encode( $patch ) );
 }
 $event = nova_contract_fixture_event( $fixture ); $accepted = nova_contract_fixture_event_accept( json_encode( $event ) );
 foreach ( [ 'event_id', 'delivery_id', 'site_id', 'attempt_id', 'kind' ] as $key ) { $bad = $accepted; $bad[$key] = 'kind' === $key ? 'publication_failed' : '00000000-0000-4000-8000-000000000099'; protocol_check( is_wp_error( Nova_Bridge_Suite_Posting_Protocol::accepted( [ 'status' => 202, 'raw_body' => json_encode( $bad ) ], $event ) ), 'Echo identity mismatch rejected: ' . $key ); }

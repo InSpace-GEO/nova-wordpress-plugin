@@ -31,10 +31,18 @@
                 var jobs = result.jobs || [];
                 if ( ! jobs.length ) { host.appendChild( node( 'p', 'No delivery jobs yet.' ) ); return; }
                 var table = node( 'table' ); table.className = 'widefat striped'; var head = node( 'tr' );
-                [ 'Delivery', 'State / phase', 'Last issue', 'Action' ].forEach( function ( label ) { head.appendChild( node( 'th', label ) ); } ); table.appendChild( head );
+                [ 'Delivery', 'Received', 'Intended URL', 'State / phase', 'Last issue', 'Action' ].forEach( function ( label ) { head.appendChild( node( 'th', label ) ); } ); table.appendChild( head );
                 jobs.forEach( function ( job ) {
                     var current = job.protocol === 'nova.delivery-snapshot/v1';
-                    var row = node( 'tr' ); row.appendChild( node( 'td', current ? job.content_id : 'Historical content ' + job.content_id + ' / ' + job.version ) ); row.appendChild( node( 'td', current ? [ job.state, job.phase ].filter( Boolean ).join( ' / ' ).replace( /_/g, ' ' ) : 'Historical protocol: manual review required' ) ); row.appendChild( node( 'td', typeof job.last_error === 'string' ? job.last_error : '' ) );
+                    var row = node( 'tr' ); row.appendChild( node( 'td', current ? job.content_id : 'Historical content ' + job.content_id + ' / ' + job.version ) ); var receivedCell = node( 'td' ), received = node( 'time', job.received_at_label || '\u2014' );
+                    if ( job.received_at ) { received.setAttribute( 'datetime', job.received_at ); }
+                    received.title = 'First recorded by this WordPress site, in the site timezone.'; receivedCell.appendChild( received ); row.appendChild( receivedCell );
+                    var urlCell = node( 'td' ), intended = typeof job.intended_url === 'string' ? job.intended_url : '';
+                    urlCell.style.overflowWrap = 'anywhere';
+                    if ( /^https?:\/\//i.test( intended ) ) { var link = node( 'a', intended ); link.href = intended; link.target = '_blank'; link.rel = 'noopener noreferrer'; urlCell.appendChild( link ); }
+                    else { urlCell.textContent = intended || '\u2014'; }
+                    row.appendChild( urlCell );
+                    row.appendChild( node( 'td', current ? [ job.state, job.phase ].filter( Boolean ).join( ' / ' ).replace( /_/g, ' ' ) : 'Historical protocol: manual review required' ) ); var issue = typeof job.last_error === 'string' ? job.last_error : ''; if ( issue && typeof job.last_error_detail === 'string' && job.last_error_detail ) { issue += ': ' + job.last_error_detail; } row.appendChild( node( 'td', issue ) );
                     var action = node( 'td' );
                     if ( current && 'blocked' === job.state ) { action.appendChild( button( 'Resume safely', async function () {
                         if ( busy ) { return; } busy = true;
@@ -42,7 +50,7 @@
                         catch ( error ) { busy = false; var failure = node( 'p', error.message ); failure.setAttribute( 'role', 'alert' ); host.prepend( failure ); }
                     } ) ); }
                     row.appendChild( action ); table.appendChild( row );
-                } ); host.appendChild( table );
+                } ); var tableFrame = node( 'div' ); tableFrame.style.overflowX = 'auto'; tableFrame.appendChild( table ); host.appendChild( tableFrame );
             } catch ( error ) { host.replaceChildren( node( 'p', error.message ), button( 'Retry publishing status', load ) ); }
             finally { busy = false; host.setAttribute( 'aria-busy', 'false' ); }
         }

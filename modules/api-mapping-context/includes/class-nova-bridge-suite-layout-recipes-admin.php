@@ -2,6 +2,8 @@
 /** Code-free recipe onboarding; the API owns validation, storage and native writes. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
+
 final class Nova_Bridge_Suite_Layout_Recipes_Admin {
     private static $bootstrapped = false;
 
@@ -22,6 +24,7 @@ final class Nova_Bridge_Suite_Layout_Recipes_Admin {
         wp_localize_script( 'nova-layout-recipes', 'NovaLayoutRecipes', [
             'url' => esc_url_raw( rest_url( 'nova-bridge/v1/mapping/layout-recipes' ) ),
             'nonce' => wp_create_nonce( 'wp_rest' ),
+            'environment' => Nova_WordPress_Environment::identity(),
             'resourceId' => is_string( $_GET['resource_id'] ?? null ) && preg_match( '/^(?:post_type|taxonomy):[a-z0-9_-]{1,32}$/D', $_GET['resource_id'] ) ? $_GET['resource_id'] : '',
             'profileId' => is_string( $_GET['recipe_id'] ?? null ) && preg_match( '/^[a-zA-Z0-9:_-]{1,200}$/D', $_GET['recipe_id'] ) ? $_GET['recipe_id'] : '',
             'newSetup' => '1' === ( $_GET['new'] ?? '' ),

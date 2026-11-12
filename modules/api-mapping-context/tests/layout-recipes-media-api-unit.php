@@ -46,4 +46,17 @@ check( get_post_thumbnail_id( $id ) === 9876 && $writes === $before, 'Manual fea
 $thumbnails[$id] = 0; $posts[$id]->post_content = 'Human edited body';
 rejected( route( 'draft', 'GET', [ 'operation_id' => $manual['operation_id'] ] ), 409, 'Recovery must not replace a human body change' );
 check( $posts[$id]->post_content === 'Human edited body' && get_post_thumbnail_id($id) === 0, 'Manual body change blocks media application' );
+// Excerpts shown by a template must survive image application and guard interrupted recovery.
+$excerpt_recipe = $recipe;
+$excerpt_recipe['bindings'][] = [ 'target' => '/native_post/excerpt', 'source' => '/summary', 'format' => 'text', 'required' => false ];
+$excerpt_content = $content; $excerpt_content['summary'] = "Article's mapped summary";
+$excerpt_saved = data( route( 'save', 'POST', [], save_body( $design, $excerpt_recipe, $excerpt_content, 'post_type:post' ) ) );
+$excerpt_request = draft_body( $excerpt_saved, $excerpt_content ); image_witness( $excerpt_request['operation_id'], $content['article_image'], 9005 );
+$excerpt_draft = data( route( 'draft', 'POST', [], $excerpt_request ) );
+check( $posts[$excerpt_draft['id']]->post_excerpt === $excerpt_content['summary'] && get_post_thumbnail_id( $excerpt_draft['id'] ) === 9005, 'Featured image application lost the mapped native excerpt' );
+$excerpt_interrupted = draft_body( $excerpt_saved, $excerpt_content ); image_witness( $excerpt_interrupted['operation_id'], $content['article_image'], 9006 ); $thumbnail_save_failure = true;
+rejected( route( 'draft', 'POST', [], $excerpt_interrupted ), 409, 'Prepare interrupted featured-image assignment with mapped excerpt' ); $thumbnail_save_failure = false;
+$excerpt_id = max( array_keys( $posts ) ); $posts[$excerpt_id]->post_excerpt = 'Manually revised summary'; $before = $writes;
+rejected( route( 'draft', 'GET', [ 'operation_id' => $excerpt_interrupted['operation_id'] ] ), 409, 'Recovery applied an image after the mapped excerpt was manually edited' );
+check( $writes === $before && $posts[$excerpt_id]->post_excerpt === 'Manually revised summary' && get_post_thumbnail_id( $excerpt_id ) === 0, 'Excerpt conflict changed the draft or continued pending image writes' );
 echo "PASS UI native-media capture/save/draft/recovery ($checks total isolated assertions).\n";

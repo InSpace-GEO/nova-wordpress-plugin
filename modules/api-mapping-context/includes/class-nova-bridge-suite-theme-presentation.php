@@ -1,6 +1,7 @@
 <?php
 /** Explicit, source-free presentation selections from registered WordPress metadata. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 final class Nova_Bridge_Suite_Theme_Presentation {
     public const FORMAT = 'nova.theme-presentation/v2';
     public const CANDIDATES_FORMAT = 'nova.theme-presentation-candidates/v1';
@@ -121,7 +122,7 @@ final class Nova_Bridge_Suite_Theme_Presentation {
         $fields = [];
         foreach ( self::registrations( $type ) as $key => $registration ) {
             if ( count( $fields ) >= self::MAX_FIELDS ) { break; }
-            if ( ! self::safe_key( $key ) || ! is_array( $registration ) || ! current_user_can( 'edit_post_meta', $id, $key ) || ! ( $schema = self::schema( $registration ) ) || ! ( $entry = self::entry( $id, $key, $schema ) ) ) { continue; }
+            if ( ! self::safe_key( $key ) || ! is_array( $registration ) || ! Nova_WordPress_Meta_Permission::can_edit( 'post', $id, $key ) || ! ( $schema = self::schema( $registration ) ) || ! ( $entry = self::entry( $id, $key, $schema ) ) ) { continue; }
             $label = $registration['label'] ?? $registration['description'] ?? '';
             $label = is_string( $label ) && '' !== trim( $label ) ? trim( strip_tags( $label ) ) : ucwords( str_replace( [ '_', '-' ], ' ', trim( $key, '_' ) ) );
             $fields[$key] = [ 'label' => substr( $label, 0, 200 ), 'template_setting' => self::template_setting( $theme, $key, $registration, $entry ) ] + $entry;
@@ -172,7 +173,7 @@ final class Nova_Bridge_Suite_Theme_Presentation {
         if ( $id <= 0 || get_post_type( $id ) !== $snapshot['post_type'] || ! current_user_can( 'edit_post', $id ) ) { return self::error( 'The selected presentation belongs to another page type or cannot be inspected.' ); }
         $actual = $snapshot; $actual['meta'] = [];
         foreach ( $snapshot['meta'] as $key => $entry ) {
-            if ( ! current_user_can( 'edit_post_meta', $id, $key ) ) { return self::error( 'The publishing actor cannot access the selected setting ' . $key . '.' ); }
+            if ( ! Nova_WordPress_Meta_Permission::can_edit( 'post', $id, $key ) ) { return self::error( 'The publishing actor cannot access the selected setting ' . $key . '.' ); }
             $stored = self::entry( $id, $key, $entry['schema'] ); if ( ! $stored ) { return self::error( 'The current setting ' . $key . ' is not valid for its schema.' ); } $actual['meta'][$key] = $stored;
         }
         return $actual;

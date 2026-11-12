@@ -1,6 +1,7 @@
 <?php
 /** Validation of the pinned delivery OpenAPI and byte-preserving snapshot intake. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-layout-page-types.php';
 
 final class Nova_Bridge_Suite_Posting_Protocol {
     // Local journal markers, not members to add to the service's wire objects.
@@ -164,7 +165,7 @@ final class Nova_Bridge_Suite_Posting_Protocol {
         $remote = $snapshot['configuration'] ?? null;
         if ( null === $remote || array_key_exists( 'definition', $remote ) ) { return $snapshot; }
         $template = $profile['template'] ?? null;
-        if ( ! self::configuration_matches( $remote, $template ) || ( $snapshot['site_id'] ?? null ) !== ( $profile['site_id'] ?? null ) || ( $snapshot['page_type_frontend'] ?? null ) !== ( $template['page_type'] ?? null ) ) { return self::error( 'configuration_projection', 'The public delivery differs from its approved local template revision or scope.' ); }
+        if ( ! self::configuration_matches( $remote, $template ) || ( $snapshot['site_id'] ?? null ) !== ( $profile['site_id'] ?? null ) || ! Nova_Bridge_Suite_Layout_Page_Types::accepts( $profile, $snapshot['page_type_frontend'] ?? null ) ) { return self::error( 'configuration_projection', 'The public delivery differs from its approved local template revision or scope.' ); }
         $view = $snapshot; $view['configuration'] = $template;
         if ( 3 === $template['definition']['version'] ) {
             $allowed = array_column( $template['definition']['fields'], 'id' );
@@ -201,7 +202,7 @@ final class Nova_Bridge_Suite_Posting_Protocol {
         $value = (array) $event;
         $success = 'publication_succeeded' === $value['kind'];
         $failure = in_array( $value['kind'], [ 'pull_failed', 'publication_failed' ], true );
-        if ( ! self::decimal_id( $value['content_item_version_id'] ) || $value['version_number'] > 2147483647 || $failure !== array_key_exists( 'reason', $value ) || $success !== array_key_exists( 'published_at', $value ) || $success !== array_key_exists( 'publication_ref', $value ) ) { return self::error( 'event_evidence', 'The connector event does not contain exactly the evidence required for its outcome.' ); }
+        if ( ! self::decimal_id( $value['content_item_version_id'] ) || $value['version_number'] > 2147483647 || $failure !== array_key_exists( 'reason', $value ) || $success !== array_key_exists( 'published_at', $value ) || $success !== array_key_exists( 'publication_ref', $value ) || ( ! $success && array_key_exists( 'publication', $value ) ) ) { return self::error( 'event_evidence', 'The connector event does not contain exactly the evidence required for its outcome.' ); }
         return true;
     }
 

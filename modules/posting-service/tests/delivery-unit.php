@@ -19,7 +19,10 @@ function wp_generate_uuid4() { static $n = 100; return '11111111-1111-4111-8111-
 function get_current_user_id() { return $GLOBALS['actor'] ?? 0; }
 function wp_set_current_user( $id ) { $GLOBALS['actor'] = $id; }
 require_once __DIR__ . '/posting-actor-worker-fixture.php';
-function get_post_status( $id ) { return 'publish'; }
+function get_post_status( $id ) { return class_exists( 'Contract_Test_Writer', false ) ? Contract_Test_Writer::$status : 'publish'; }
+function get_post_type( $id ) { return 'post'; }
+function get_permalink( $id ) { return $GLOBALS['fixture_permalink'] ?? 'https://native.fixture.invalid/2026/11/06/post-' . $id . '/'; }
+function get_sample_permalink( $id ) { return [ 'https://native.fixture.invalid/2026/11/06/%postname%/', 'post-' . $id ]; }
 foreach ( [ 'posting-client', 'posting-protocol', 'receipt-json', 'posting-discovery', 'posting-worker' ] as $file ) { require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-' . $file . '.php'; }
 require __DIR__ . '/contract-fixture.php';
 $checks = 0;
@@ -38,7 +41,8 @@ class Contract_Test_Store {
 class Contract_Test_Writer {
     public static $apply = 0; public static $recover = 0; public static $finish = 0; public static $crash = false; public static $plan_error = false; public static $apply_error = null; public static $verify_error = null; public static $recover_value = null; public static $status = 'publish'; public static $context;
     public static function reset() { self::$apply = self::$recover = self::$finish = 0; self::$crash = self::$plan_error = false; self::$apply_error = self::$verify_error = self::$recover_value = null; self::$status = 'publish'; }
-    public static function plan( $snapshot, $config, $context ) { self::$context = $context; return self::$plan_error ? new WP_Error( 'fixture_plan_failed' ) : [ 'context' => $context ]; }
+    public static function plan( $snapshot, $config, $context ) { self::$context = $context; return self::$plan_error ? new WP_Error( 'fixture_plan_failed', "The <b>native</b>
+ permalink   check failed." ) : [ 'context' => $context ]; }
     public static function result( $plan ) { return [ 'post_id' => $plan['context']['target_post_id'], 'cms_post_status' => self::$status ]; }
     public static function apply( $plan, $operation ) { ++self::$apply; if ( self::$crash ) { throw new RuntimeException( 'Process lost after commit' ); } return self::$apply_error ?? self::result( $plan ); }
     public static function recover( $plan, $operation ) { ++self::$recover; return self::$recover_value ?? self::result( $plan ); }
@@ -144,6 +148,9 @@ foreach ( [ 'draft', 'future', 'pending', 'private', 'publish' ] as $saved_statu
     delivery_check( 'complete' === $result['state'] && 'committed' === $result['phase'] && 1 === Contract_Test_Writer::$apply, $saved_status . ' completes after one verified native save.' );
     delivery_check( $saved_status === $result['payload']['result']['cms_post_status'] && [ 'received_complete', 'publication_succeeded' ] === array_column( $events, 'kind' ), 'Success attests application while retaining the actual native status.' );
     delivery_check( ! empty( $events[1]['published_at'] ) && false !== strpos( $events[1]['publication_ref'], ';operation:' . $job['operation_id'] ), 'Existing success contract retains the verification timestamp and native operation reference.' );
+    $report = $events[1]['publication'] ?? [];
+    delivery_check( 'https://native.fixture.invalid/2026/11/06/post-77/' === ( $report['url'] ?? null ) && ( 'publish' === $saved_status ? 'final' : 'provisional' ) === $report['url_status'] && $saved_status === $report['cms_status'], 'Success reports the URL WordPress actually gave the item: ' . $saved_status );
+    delivery_check( [ 'system' => 'wordpress', 'type' => 'post', 'id' => '77' ] == $report['native'] && 'https://native.fixture.invalid/service/' === $report['intended_url'] && 'en' === $report['language'] && ! isset( $events[0]['publication'] ), 'The URL report carries the delivery URL, language and native identity on success only.' );
 }
 [ $job, $store, $server, $worker ] = delivery_fixture(); Contract_Test_Writer::$status = 'draft'; Contract_Test_Writer::$verify_error = new WP_Error( 'fixture_verification_failed' );
 $result = $worker->process( $job );
@@ -156,12 +163,23 @@ delivery_check( 'complete' === $result['state'] && 1 === Contract_Test_Writer::$
 [ $job, $store, $server, $worker ] = delivery_fixture(); Contract_Test_Writer::$plan_error = true;
 $result = $worker->process( $job );
 delivery_check( 'complete' === $result['state'] && 0 === Contract_Test_Writer::$apply && json_decode( $server->posts[1], true )['kind'] === 'publication_failed', 'Proven pre-write failure is reported separately from receipt.' );
+delivery_check( 'The native permalink check failed.' === ( $result['payload']['failure_message'] ?? null ) && ! array_key_exists( 'message', json_decode( $server->posts[1], true ) ), 'A pre-write failure keeps its WordPress message locally without changing the event.' );
 $failed = $result; $failed['phase'] = 'attempt_check'; $server->attempt = '00000000-0000-4000-8000-000000000099'; Contract_Test_Writer::$plan_error = false;
 $result = $worker->process( delivery_resume( $failed ) );
 delivery_check( 'complete' === $result['state'] && 1 === Contract_Test_Writer::$apply && count( $result['payload']['prior_attempts'] ) === 1, 'Operator-issued new attempt proceeds only after retained no-native-write proof.' );
 $result['phase'] = 'attempt_check'; $server->attempt = '00000000-0000-4000-8000-000000000098';
 $result = $worker->process( delivery_resume( $result ) );
 delivery_check( 'complete' === $result['state'] && 1 === Contract_Test_Writer::$apply && count( $result['payload']['prior_attempts'] ) === 2, 'A replacement attempt attests the already verified frozen write without duplicating it.' );
+
+[ $job, $store, $server, $worker ] = delivery_fixture();
+Contract_Test_Writer::$apply_error = new WP_Error( 'nova_layout_writer_native', "<b>Salient header</b>\n differs after saving." );
+Contract_Test_Writer::$recover_value = [ 'state'=>'not_committed', 'no_native_commit'=>false, 'safe_to_apply'=>true, 'post_id'=>77 ];
+$pending = $worker->process( $job );
+delivery_check( 'native_commit_reconciliation' === $pending['last_error'] && 'nova_layout_writer_native: Salient header differs after saving.' === $pending['payload']['native_error_detail'], 'Reserved pages retain their real native error alongside reconciliation, with plain text details.' );
+delivery_check( count( $server->posts ) === 1 && ! isset( $pending['payload']['failure_code'] ), 'An uncertain commit is not reported as failed or successful.' );
+Contract_Test_Writer::$apply_error = null; Contract_Test_Writer::$recover_value = null;
+$reconciled = $worker->process( delivery_resume( $pending ) );
+delivery_check( 'complete' === $reconciled['state'] && '' === $reconciled['last_error'] && '' === $reconciled['payload']['native_error_detail'] && 1 === Contract_Test_Writer::$apply, 'Successful reconciliation clears stale issue details and does not repeat the write.' );
 
 // An actor can leave between the native commit, verification, and the final acknowledgement.
 [ $job, $store, $server, $worker ] = delivery_fixture();
