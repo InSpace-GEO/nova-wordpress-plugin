@@ -61,6 +61,7 @@ function is_admin() { return false; }
 function is_preview() { return false; }
 function is_feed() { return false; }
 function is_singular() { return true; }
+function is_tax( $taxonomy ) { return in_array( $GLOBALS['test_taxonomy'] ?? '', (array) $taxonomy, true ); }
 function wp_doing_ajax() { return false; }
 function get_queried_object_id() { return 41; }
 function wp_generate_uuid4() { static $i = 0; return 'mock-uuid-' . ++$i; }

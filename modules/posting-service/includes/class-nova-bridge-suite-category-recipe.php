@@ -6,6 +6,11 @@ require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-b
 final class Nova_Bridge_Suite_Category_Recipe {
     public const FORMAT = 'nova.category-recipe/v1';
 
+    public static function taxonomy( array $record ): string {
+        $resource = $record['resource_id'] ?? '';
+        return in_array( $resource, [ 'taxonomy:product_cat', 'taxonomy:product_tag' ], true ) ? substr( $resource, 9 ) : '';
+    }
+
     private static function checked( $value ) {
         if ( is_wp_error( $value ) ) { throw new InvalidArgumentException( $value->get_error_message() ); }
         return $value;
@@ -14,10 +19,11 @@ final class Nova_Bridge_Suite_Category_Recipe {
     public static function project( array $record ) {
         try {
             $recipe = $record['recipe'] ?? [];
-            if ( ( $record['resource_id'] ?? '' ) !== 'taxonomy:product_cat' || ( $record['builder'] ?? '' ) !== 'core'
+            $taxonomy = self::taxonomy( $record );
+            if ( '' === $taxonomy || ( $record['builder'] ?? '' ) !== 'core'
                 || ( $record['mode'] ?? '' ) !== 'static' || ( $recipe['mode'] ?? '' ) !== 'static'
                 || ( $recipe['builder'] ?? '' ) !== 'core' || ! empty( $recipe['regions'] )
-                || ( $recipe['blueprint']['taxonomy'] ?? '' ) !== 'product_cat' ) {
+                || ( $recipe['blueprint']['taxonomy'] ?? '' ) !== $taxonomy ) {
                 throw new InvalidArgumentException( 'Category publishing requires fixed WordPress category fields with scalar ACF companions.' );
             }
             self::checked( Nova_Bridge_Suite_Recipe_Engine::validate( $recipe ) );
@@ -43,7 +49,7 @@ final class Nova_Bridge_Suite_Category_Recipe {
                 $target = '/document/' . $field['name'];
                 $binding = null;
                 foreach ( $recipe['custom_fields']['bindings'] as $candidate ) { if ( $candidate['target'] === $target ) { $binding = $candidate; break; } }
-                if ( null === $binding || ( $recipe['custom_fields']['blueprint']['taxonomy'] ?? '' ) !== 'product_cat' ) { throw new InvalidArgumentException( 'The ACF companion must belong to this category taxonomy.' ); }
+                if ( null === $binding || ( $recipe['custom_fields']['blueprint']['taxonomy'] ?? '' ) !== $taxonomy ) { throw new InvalidArgumentException( 'The ACF companion must belong to this category taxonomy.' ); }
                 self::checked( Nova_Bridge_Suite_Recipe_Engine::validate( $recipe['custom_fields'] ) );
                 self::add_field( $draft, $bindings, $binding, [ 'writable' => true, 'label' => $field['label'] ], 'acf', $path );
             }

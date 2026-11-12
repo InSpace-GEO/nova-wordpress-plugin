@@ -6,6 +6,7 @@ require_once __DIR__ . '/class-nova-bridge-suite-posting-actor.php';
 require_once __DIR__ . '/class-nova-bridge-suite-publication-policy.php';
 require_once __DIR__ . '/class-nova-bridge-suite-translation-writer.php';
 require_once __DIR__ . '/class-nova-bridge-suite-translation-source.php';
+require_once __DIR__ . '/class-nova-bridge-suite-term-translation-writer.php';
 
 final class Nova_Bridge_Suite_Posting_Worker {
     private const WRITERS = [
@@ -14,6 +15,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
         'stored_layout_v3' => 'Nova_Bridge_Suite_Stored_Layout_Writer',
         'owned_cpt_v3' => 'Nova_Bridge_Suite_Owned_CPT_Writer',
         'dictionary_translation' => 'Nova_Bridge_Suite_Translation_Writer',
+        'dictionary_term_translation' => 'Nova_Bridge_Suite_Term_Translation_Writer',
         'fixed_mapping' => 'Nova_Bridge_Suite_Mapped_Writer',
     ];
     private $connection;
@@ -300,7 +302,8 @@ final class Nova_Bridge_Suite_Posting_Worker {
         if ( $this->default_dispatch && '' !== $retained_writer && 'fixed_mapping' !== $retained_writer ) {
             $writer = self::WRITERS[$retained_writer] ?? null;
             $mode = $job['payload']['configuration']['mode'] ?? '';
-            $matches = 'dictionary_translation' === $retained_writer ? in_array( $mode, [ 'stored_layout_v3', 'owned_cpt_v3' ], true ) : $mode === $retained_writer;
+            $matches = 'dictionary_translation' === $retained_writer ? in_array( $mode, [ 'stored_layout_v3', 'owned_cpt_v3' ], true )
+                : ( 'dictionary_term_translation' === $retained_writer ? 'static_recipe_v1' === $mode : $mode === $retained_writer );
             if ( ! $writer || ! $matches || ( isset( $job['payload']['plan'] ) && ( $job['payload']['plan']['format'] ?? '' ) !== $writer::FORMAT ) ) { return $this->block( $job, 'native_writer_identity' ); }
             $this->writer = $writer;
         }
@@ -381,7 +384,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $retained_layout = ( $job['payload']['configuration']['mode'] ?? '' ) === 'stored_layout_v3' && isset( $job['payload']['selected_policy'], $job['payload']['context'] );
                 // A fresh authenticated attempt can clear a previously selected writer before planning.
                 $retained_writer = $job['payload']['native_writer'] ?? '';
-                $retained_translation = 'dictionary_translation' === $retained_writer;
+                $retained_translation = in_array( $retained_writer, [ 'dictionary_translation', 'dictionary_term_translation' ], true );
                 $configuration = $retained_local || $retained_translation || $retained_layout ? $job['payload']['configuration'] : call_user_func( $this->configuration, $snapshot, $job['site_id'] );
                 if ( is_wp_error( $configuration ) ) { return $this->native_failure( $job, $snapshot, $configuration->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $configuration->get_error_message() ); }
                 $native_snapshot = Nova_Bridge_Suite_Posting_Protocol::writer_snapshot( $snapshot, $configuration );
@@ -400,9 +403,8 @@ final class Nova_Bridge_Suite_Posting_Worker {
                     $provider = Nova_Bridge_Suite_Translation_Writer::provider( $snapshot['language'] );
                     if ( is_wp_error( $provider ) ) { return $this->native_failure( $job, $snapshot, $provider->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $provider->get_error_message() ); }
                     if ( $retained_translation || null !== $provider ) {
-                        // Fixed references, local rules and term writers edit the shared original.
-                        if ( ! $stored_layout && ! $owned_cpt ) { return $this->native_failure( $job, $snapshot, 'nova_translation_mapping_unsupported', [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
-                        $writer_name = 'dictionary_translation';
+                        if ( ! $stored_layout && ! $owned_cpt && ! $static_term ) { return $this->native_failure( $job, $snapshot, 'nova_translation_mapping_unsupported', [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
+                        $writer_name = $static_term ? 'dictionary_term_translation' : 'dictionary_translation';
                         if ( ! $retained_translation ) {
                             $job = $this->save_payload( $job, [ 'configuration' => $configuration, 'native_writer' => $writer_name ], 'received' );
                             if ( is_wp_error( $job ) ) { return $job; }
@@ -410,12 +412,12 @@ final class Nova_Bridge_Suite_Posting_Worker {
                     }
                 }
                 if ( $this->default_dispatch ) { $this->writer = self::WRITERS[$writer_name]; }
-                if ( Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && 'dictionary_translation' === $writer_name ) {
+                if ( Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && in_array( $writer_name, [ 'dictionary_translation', 'dictionary_term_translation' ], true ) ) {
                     $error = Nova_Bridge_Suite_Publication_Policy::unsupported();
                     return $this->native_failure( $job, $snapshot, $error->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $error->get_error_message() );
                 }
-                if ( 'dictionary_translation' === $writer_name ) {
-                    $selected = Nova_Bridge_Suite_Translation_Writer::policy( $snapshot, $configuration );
+                if ( in_array( $writer_name, [ 'dictionary_translation', 'dictionary_term_translation' ], true ) ) {
+                    $selected = call_user_func( [ $this->writer, 'policy' ], $snapshot, $configuration );
                 } else {
                     $selected = ( $retained_local || $retained_layout ) && isset( $job['payload']['selected_policy'] ) ? $job['payload']['selected_policy'] : call_user_func( $this->policy, $this->client, $snapshot, $configuration );
                 }
@@ -438,7 +440,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( is_wp_error( $plan ) && 'nova_translation_source_pending' === $plan->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
                 if ( is_wp_error( $plan ) ) { return $this->native_failure( $job, $snapshot, $plan->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $plan->get_error_message() ); }
                 if ( ! is_array( $plan ) ) { return $this->block( $job, 'plan_invalid' ); }
-                if ( 'dictionary_translation' === $writer_name ) {
+                if ( in_array( $writer_name, [ 'dictionary_translation', 'dictionary_term_translation' ], true ) ) {
                     $owns = Nova_Bridge_Suite_Posting_Url_Scope::owns( $this->connection, $plan['target']['target_url'], $snapshot['language'] );
                     if ( is_wp_error( $owns ) ) { return $this->block( $job, $owns->get_error_code() ); }
                     if ( ! $owns ) { return $this->native_failure( $job, $snapshot, 'nova_translation_url_scope', [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], 'The resolved localized URL is outside this installation\'s publishing scope.' ); }
@@ -447,7 +449,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( is_wp_error( $job ) ) { return $job; }
             }
             if ( ! in_array( $job['phase'], [ 'planned', 'applying', 'committed' ], true ) ) { return $this->block( $job, 'journal_phase_invalid' ); }
-            $static_term = ( $job['payload']['native_writer'] ?? '' ) === 'static_recipe_v1';
+            $static_term = in_array( $job['payload']['native_writer'] ?? '', [ 'static_recipe_v1', 'dictionary_term_translation' ], true );
             if ( ! $static_term && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && ( $job['payload']['plan']['desired_status'] ?? $job['payload']['plan']['context']['desired_status'] ?? '' ) !== 'draft' ) {
                 return $this->block( $job, 'test_delivery_requires_draft_plan' );
             }
@@ -538,10 +540,17 @@ final class Nova_Bridge_Suite_Posting_Worker {
     private static function publication_report( array $snapshot, array $verified, bool $static_term, string $writer = '', array $plan = [] ): ?array {
         try {
             if ( $static_term ) {
-                $term = get_term( (int) ( $verified['term_id'] ?? 0 ) );
+                $term_id = (int) ( $verified['term_id'] ?? 0 );
+                $taxonomy = $plan['provider']['taxonomy'] ?? ( Nova_Bridge_Suite_Category_Recipe::taxonomy( $plan['configuration']['record'] ?? [] ) ?: 'product_cat' );
+                $term = Nova_Bridge_Suite_Term_Content::with_language( $taxonomy, $term_id, static function () use ( $term_id ) { return get_term( $term_id ); } );
                 if ( ! is_object( $term ) || is_wp_error( $term ) ) { return null; }
                 $url = get_term_link( $term ); $cms_status = 'publish';
                 $native = [ 'system' => 'wordpress', 'type' => (string) $term->taxonomy, 'id' => (string) $term->term_id ];
+                if ( 'dictionary_term_translation' === $writer ) {
+                    if ( ! is_array( $plan['provider'] ?? null ) || ! is_string( $url ) ) { return null; }
+                    $localized = Nova_Bridge_Suite_Translation_Writer::translated_url( $plan['provider'], $url );
+                    $url = is_array( $localized ) ? ( $localized['identity'] ?? null ) : null;
+                }
             } else {
                 $id = (int) ( $verified['post_id'] ?? 0 ); $cms_status = get_post_status( $id );
                 // get_permalink() gives the ?p= form for unpublished posts. Build their future URL the way the editor does.

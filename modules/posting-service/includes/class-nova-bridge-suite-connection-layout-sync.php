@@ -16,7 +16,7 @@ final class Nova_Bridge_Suite_Connection_Layout_Sync {
             $layout = Nova_Bridge_Suite_Layout_Recipes::default_metadata( $resource );
             if ( ! is_array( $layout ) || empty( $layout['posting_support']['supported'] ) ) { continue; }
             $status = $layout['posting_sync'] ?? null;
-            if ( 'taxonomy:product_cat' === $resource ) {
+            if ( in_array( $resource, [ 'taxonomy:product_cat', 'taxonomy:product_tag' ], true ) ) {
                 if ( ! is_callable( [ 'Nova_Bridge_Suite_Static_Recipe_Adapter', 'saved_status' ] ) ) { continue; }
                 $status = Nova_Bridge_Suite_Static_Recipe_Adapter::saved_status( $connection, $identity['id'], $identity['revision'] );
                 if ( $verify_category && ( null === $status || 'unknown' === ( $status['status'] ?? '' ) ) ) { $status = Nova_Bridge_Suite_Static_Recipe_Adapter::confirm_status( $connection, $identity['id'], $identity['revision'] ); }

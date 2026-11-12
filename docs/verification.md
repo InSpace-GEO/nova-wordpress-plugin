@@ -1,5 +1,15 @@
 # Release verification
 
+## 1.4.11
+
+All 159 local PHP and Node suites passed. Coverage includes category and product-tag mapping, the Category fitting contract, localized native/custom/SEO fields, exact original-URL resolution, native WPML term identity, and recovery after interrupted acknowledgements.
+
+Eight staging combinations covered categories and product tags with Weglot, TranslatePress, WPML and Polylang on WordPress 7.1.4 and PHP 8.1.34. The real plugin worker and native writers stored the mapped fields. HTTP checks verified the localized output. Each combination also verified retained product assignments, original-language content, higher-version updates and recovery after a lost receipt. Posting-service responses were simulated and the delivery journal was an in-memory fixture.
+
+Earlier published originals without a new-writer association were resolved by the authenticated URL group's exact primary URL. Staging checks verified that source inspection preserved the original post and metadata. Unit checks cover mismatched URLs, types, ownership and unfinished native publications.
+
+The staging sites' existing WPML/ACF warnings remained visible. Test fixtures were removed and the original plugin and active-plugin configuration were restored. Live client deliveries remain a post-installation check.
+
 ## 1.4.0
 
 All 147 local PHP and Node suites passed with the combined changes on top of 1.3.4. The delivery schema is extracted from posting-service v0.11.0. Direct and adapted deliveries, with and without URL-family metadata, retain their exact payloads through intake.

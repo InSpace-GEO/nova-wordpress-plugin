@@ -8,14 +8,24 @@ final class Nova_WordPress_Localized_Fields {
     private $seen = [];
     private $attributes = [];
     private $reading_bulk = false;
+    private $meta_type;
+    private $taxonomy;
 
-    public function __construct( int $id, array $fields ) {
+    public function __construct( int $id, array $fields, string $meta_type = 'post', string $taxonomy = 'product_cat' ) {
         $this->id = $id;
         $this->fields = $fields;
+        $this->meta_type = $meta_type;
+        $this->taxonomy = $taxonomy;
     }
 
     public static function on_request(): void {
-        if ( is_admin() || ! is_singular() || is_feed() || is_preview() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) { return; }
+        if ( is_admin() || is_feed() || is_preview() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) { return; }
+        if ( is_tax( [ 'product_cat', 'product_tag' ] ) ) {
+            require_once __DIR__ . '/class-nova-wordpress-localized-terms.php';
+            Nova_WordPress_Localized_Terms::on_request();
+            return;
+        }
+        if ( ! is_singular() ) { return; }
         $trp = class_exists( 'TRP_Translate_Press' );
         $language = $trp ? (string) ( $GLOBALS['TRP_LANGUAGE'] ?? '' ) : ( new Nova_WordPress_Weglot() )->get_current_code();
         $provider = Nova_Bridge_Suite_Translation_Writer::provider( $language );
@@ -49,8 +59,11 @@ final class Nova_WordPress_Localized_Fields {
             }
         }
         if ( ! $fields ) { return; }
-        $renderer = new self( $id, $fields );
-        add_filter( 'get_post_metadata', [ $renderer, 'meta' ], 30, 4 );
+        self::attach( new self( $id, $fields ), $trp );
+    }
+
+    public static function attach( self $renderer, bool $trp ): void {
+        add_filter( 'get_' . $renderer->meta_type . '_metadata', [ $renderer, 'meta' ], 30, 4 );
         add_filter( 'acf/pre_load_value', [ $renderer, 'acf' ], 30, 3 );
         // A cached Elementor widget may otherwise skip the field read or cache the secondary language on the original.
         if ( did_action( 'elementor/loaded' ) ) {
@@ -67,7 +80,10 @@ final class Nova_WordPress_Localized_Fields {
         if ( '' === $name ) {
             // get_post_custom() exposes the complete, serialized cache map, even for unrelated arrays/objects.
             $this->reading_bulk = true;
-            try { $all = null === $previous ? get_post_meta( $id ) : ( $single ? ( $previous[0] ?? $previous ) : $previous ); }
+            try {
+                $stored = null === $previous ? ( 'term' === $this->meta_type ? get_term_meta( $id ) : get_post_meta( $id ) ) : null;
+                $all = null === $previous ? $stored : ( $single ? ( $previous[0] ?? $previous ) : $previous );
+            }
             finally { $this->reading_bulk = false; }
             if ( ! is_array( $all ) ) { return $previous; }
             foreach ( array_keys( $this->fields ) as $key ) { $all[$key] = [ maybe_serialize( $this->value( $key ) ) ]; }
@@ -81,13 +97,15 @@ final class Nova_WordPress_Localized_Fields {
 
     public function acf( $previous, $id, $definition ) {
         // ACF also calls this filter for terms, users and its options pages.
-        if ( ! ctype_digit( (string) $id ) || (int) $id !== $this->id ) { return $previous; }
+        if ( 'term' === $this->meta_type ) {
+            if ( ! in_array( (string) $id, [ 'term_' . $this->id, $this->taxonomy . '_' . $this->id ], true ) ) { return $previous; }
+        } elseif ( ! ctype_digit( (string) $id ) || (int) $id !== $this->id ) { return $previous; }
         $name = $definition['name'] ?? ''; $field = $this->fields[$name] ?? [];
         if ( ( $field['provider'] ?? '' ) !== 'acf' || $field['key'] !== ( $definition['key'] ?? '' ) || $field['type'] !== ( $definition['type'] ?? '' ) ) { return $previous; }
         return $this->value( $name );
     }
 
-    private function value( string $name ): string {
+    public function value( string $name ): string {
         $value = $this->fields[$name]['value'];
         if ( ! isset( $this->seen[$name] ) ) {
             $this->seen[$name] = [];

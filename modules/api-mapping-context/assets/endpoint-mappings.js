@@ -21,7 +21,7 @@
 		var result = [ ( types.length > 1 ? 'NOVA content types: ' : confirmed && scoped ? 'URL route ' + sync.route_prefix + ' for NOVA page type: ' : 'Default for NOVA page type: ' ) + label + ' → ' + resource.label + '.' ];
 		if ( confirmed ) { result.push( types.length > 1 ? 'Posting-service routing confirmed for all selected content types when saved or synchronized.' : scoped ? 'Posting-service URL route confirmed when saved or synchronized.' : 'Posting-service default confirmed when saved or synchronized.' ); }
 		else if ( sync && sync.status === 'failed' && sync.recipe_revision === recipe.revision && sync.page_type === type ) { result.push( 'Saved locally · posting-service default not confirmed. ' + ( typeof sync.message === 'string' ? sync.message : 'Open the layout to retry synchronization.' ) ); }
-		else { result.push( resource.id === 'taxonomy:product_cat' && ! sync ? 'Saved locally · last posting-service confirmation is unavailable.' : 'Saved locally · posting-service default not confirmed.' ); if ( recipe.posting_support && recipe.posting_support.supported === false && recipe.posting_support.reason ) { result.push( recipe.posting_support.reason ); } }
+		else { result.push( [ 'taxonomy:product_cat', 'taxonomy:product_tag' ].includes( resource.id ) && ! sync ? 'Saved locally · last posting-service confirmation is unavailable.' : 'Saved locally · posting-service default not confirmed.' ); if ( recipe.posting_support && recipe.posting_support.supported === false && recipe.posting_support.reason ) { result.push( recipe.posting_support.reason ); } }
 		return result;
 	}
 	function referenceType( resource ) { return resource.type === 'taxonomy' || resource.kind === 'term' ? 'term' : 'post'; }

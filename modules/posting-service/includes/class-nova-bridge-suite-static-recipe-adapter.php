@@ -85,7 +85,7 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     /** Create the first category default, or update the existing locally approved template. */
     private static function sync_editor_record( $client, string $key, array $saved, $pending ) {
         $record = Nova_Bridge_Suite_Layout_Recipes::delivery_record( $saved['id'], $saved['revision'] ); if ( is_wp_error( $record ) ) { return $record; }
-        $default = Nova_Bridge_Suite_Layout_Recipes::defaults()['taxonomy:product_cat'] ?? [];
+        $default = Nova_Bridge_Suite_Layout_Recipes::defaults()[$record['resource_id']] ?? [];
         if ( ( $default['id'] ?? null ) !== $record['id'] || ( $default['revision'] ?? null ) !== $record['revision'] ) { return self::error( 'default_changed', 'Reload the current category creation default before synchronizing.' ); }
         $projection = self::project_record( $record ); if ( is_wp_error( $projection ) ) { return $projection; }
         $reply = $client->site_request( 'GET', '/template-defaults' ); if ( is_wp_error( $reply ) ) { return $reply; }
@@ -175,7 +175,7 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     /** The UI stores semantic role IDs independently of editable labels and source names. */
     public static function project_record( array $record, string $page_type = 'category' ) {
         $legacy = self::legacy_projection( $record, $page_type );
-        if ( ! is_wp_error( $legacy ) || ( $record['recipe']['blueprint']['taxonomy'] ?? '' ) !== 'product_cat' ) { return $legacy; }
+        if ( ! is_wp_error( $legacy ) || ! in_array( $record['recipe']['blueprint']['taxonomy'] ?? '', [ 'product_cat', 'product_tag' ], true ) ) { return $legacy; }
         return Nova_Bridge_Suite_Category_Recipe::project( $record );
     }
     private static function enable_fitting( string $site, array $template ) {
@@ -260,24 +260,27 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
         if ( self::digest( $record ) !== self::digest( $profile['record'] ) ) { return self::error( 'recipe_changed', 'The approved immutable local recipe changed.' ); }
         return true;
     }
-    public static function creation_target( string $url, ?string $language ) {
+    public static function creation_target( string $url, ?string $language, string $taxonomy = 'product_cat' ) {
         $url = Nova_Bridge_Suite_Posting_Url_Scope::canonical_site_url( $url, $language ?? '' );
-        return Nova_Bridge_Suite_Mapped_Content_Target::creation( 'taxonomy:product_cat', $url, $language );
+        return Nova_Bridge_Suite_Mapped_Content_Target::creation( 'taxonomy:' . $taxonomy, $url, $language );
     }
     public static function policy( array $snapshot, array $profile ) {
         $valid = self::validate_profile( $snapshot, $profile ); if ( is_wp_error( $valid ) ) { return $valid; }
         if ( ! is_string( $snapshot['url'] ?? null ) ) { return self::error( 'target_url', 'A category delivery requires its planned site URL.' ); }
         if ( ( $profile['projection']['format'] ?? '' ) === Nova_Bridge_Suite_Category_Recipe::FORMAT ) {
+            $taxonomy = Nova_Bridge_Suite_Category_Recipe::taxonomy( $profile['record'] );
             $url = Nova_Bridge_Suite_Posting_Url_Scope::canonical_site_url( $snapshot['url'], $snapshot['language'] ?? '' );
-            $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url, 'taxonomy:product_cat', $snapshot['language'] ?? null );
+            $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url, 'taxonomy:' . $taxonomy, $snapshot['language'] ?? null );
             if ( ! is_wp_error( $found ) ) {
-                $id = $found['reference_id']; $term = get_term( $id, 'product_cat' );
+                $id = $found['reference_id'];
+                $term = Nova_Bridge_Suite_Term_Content::with_language( $taxonomy, $id, static function () use ( $id, $taxonomy ) { return get_term( $id, $taxonomy ); } );
+                if ( is_wp_error( $term ) ) { return $term; }
                 return [ 'reference' => [ 'reference_type' => 'term', 'reference_id' => $id ], 'routing' => [ 'operation' => 'update', 'publication' => 'publish' ],
                     'target' => [ 'slug' => $term->slug, 'parent' => (int) $term->parent, 'target_url' => $found['requested_url'] ] ];
             }
             if ( $found->get_error_code() !== 'nova_mapped_target_not_found' ) { return $found; }
         }
-        $target = self::creation_target( $snapshot['url'], $snapshot['language'] ?? null ); if ( is_wp_error( $target ) ) { return $target; }
+        $target = self::creation_target( $snapshot['url'], $snapshot['language'] ?? null, Nova_Bridge_Suite_Category_Recipe::taxonomy( $profile['record'] ) ?: 'product_cat' ); if ( is_wp_error( $target ) ) { return $target; }
         return [ 'reference' => [ 'reference_type' => 'term', 'reference_id' => 0 ], 'routing' => [ 'operation' => 'create', 'publication' => 'publish' ], 'target' => $target ];
     }
 }

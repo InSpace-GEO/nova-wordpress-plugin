@@ -40,9 +40,20 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         $term = 'term' === $kind; $name = substr( $resource, strpos( $resource, ':' ) + 1 ); $url = $term ? get_term_link( $id, $name ) : get_permalink( $id );
         if ( is_wp_error( $url ) || ! is_string( $url ) ) { return self::error( 'native_url', 'The native item has no canonical URL.' ); }
         if ( ! function_exists( 'pll_get_post_language' ) && function_exists( 'has_filter' ) && ( has_filter( 'wpml_element_language_details' ) || defined( 'ICL_SITEPRESS_VERSION' ) ) ) {
-            $object = $term ? get_term( $id, $name ) : null; $element = $term ? (int) ( $object->term_taxonomy_id ?? 0 ) : $id; $details = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $element, 'element_type' => ( $term ? 'tax_' : 'post_' ) . $name ] );
+            $object = $term ? WP_Term::get_instance( $id, $name ) : null; $element = $term ? (int) ( $object->term_taxonomy_id ?? 0 ) : $id; $details = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $element, 'element_type' => ( $term ? 'tax_' : 'post_' ) . $name ] );
             $language = is_object( $details ) ? ( $details->language_code ?? '' ) : ( $details['language_code'] ?? '' );
             if ( ! is_string( $language ) || '' === $language ) { return false === apply_filters( $term ? 'wpml_is_translated_taxonomy' : 'wpml_is_translated_post_type', null, $name ) ? $url : self::error( 'native_language', 'The native item language could not be verified.' ); }
+            if ( $term ) {
+                $previous = apply_filters( 'wpml_current_language', null );
+                try {
+                    do_action( 'wpml_switch_language', $language );
+                    if ( apply_filters( 'wpml_current_language', null ) !== $language ) {
+                        return self::error( 'native_language', 'The native term language could not be activated.' );
+                    }
+                    $url = get_term_link( $object, $name );
+                } finally { do_action( 'wpml_switch_language', $previous ); }
+                if ( is_wp_error( $url ) || ! is_string( $url ) ) { return self::error( 'native_url', 'The native term has no canonical URL.' ); }
+            }
             $url = apply_filters( 'wpml_permalink', $url, $language, true ); if ( ! is_string( $url ) ) { return self::error( 'native_url', 'The native language URL could not be verified.' ); }
         }
         return $url;
@@ -171,7 +182,7 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         foreach ( $resources as $resource ) {
             $term = 'taxonomy' === $resource['type']; $name = $resource[$term ? 'taxonomy' : 'post_type'];
             for ( $offset = 0; ; $offset += self::BATCH ) {
-                $ids = $term ? get_terms( [ 'taxonomy' => $name, 'hide_empty' => false, 'fields' => 'ids', 'number' => self::BATCH, 'offset' => $offset, 'orderby' => 'term_id', 'order' => 'ASC', 'suppress_filter' => true, 'lang' => '' ] ) : get_posts( [ 'post_type' => $name, 'post_status' => [ 'publish', 'draft', 'private', 'pending', 'future' ], 'fields' => 'ids', 'numberposts' => self::BATCH, 'posts_per_page' => self::BATCH, 'offset' => $offset, 'orderby' => 'ID', 'order' => 'ASC', 'suppress_filters' => true, 'no_found_rows' => true ] );
+                $ids = $term ? get_terms( [ 'taxonomy' => $name, 'hide_empty' => false, 'fields' => 'ids', 'number' => self::BATCH, 'offset' => $offset, 'orderby' => 'term_id', 'order' => 'ASC', 'suppress_filter' => true, 'wpml_skip_filters' => true, 'lang' => '' ] ) : get_posts( [ 'post_type' => $name, 'post_status' => [ 'publish', 'draft', 'private', 'pending', 'future' ], 'fields' => 'ids', 'numberposts' => self::BATCH, 'posts_per_page' => self::BATCH, 'offset' => $offset, 'orderby' => 'ID', 'order' => 'ASC', 'suppress_filters' => true, 'no_found_rows' => true ] );
                 if ( is_wp_error( $ids ) || ! is_array( $ids ) ) { return self::error( 'target_scan', 'Native URL candidates could not be inspected.', 503 ); }
                 foreach ( $ids as $id ) {
                     if ( ++$inspected > self::MAX_OBJECTS ) { return self::error( 'target_scan_limit', 'Exact URL ownership could not be proven within the bounded native inventory.', 503 ); }
@@ -202,12 +213,12 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
             $translated = $source === $code ? $id : (int) ( $term ? pll_get_term( $id, $code ) : pll_get_post( $id, $code ) );
             if ( $translated < 1 || ( $term ? pll_get_term_language( $translated, 'slug' ) : pll_get_post_language( $translated, 'slug' ) ) !== $code || (int) ( $term ? pll_get_term( $translated, $source ) : pll_get_post( $translated, $source ) ) !== $id ) { return self::error( 'target_translation_missing', 'No verified native translation exists for this URL and language.', 409 ); }
         } elseif ( function_exists( 'has_filter' ) && ( has_filter( 'wpml_element_language_details' ) || defined( 'ICL_SITEPRESS_VERSION' ) ) ) {
-            $element = $term ? get_term( $id, $name ) : null; $elementId = $term ? (int) ( $element->term_taxonomy_id ?? 0 ) : $id; $type = ( $term ? 'tax_' : 'post_' ) . $name;
+            $element = $term ? WP_Term::get_instance( $id, $name ) : null; $elementId = $term ? (int) ( $element->term_taxonomy_id ?? 0 ) : $id; $type = ( $term ? 'tax_' : 'post_' ) . $name;
             $details = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $elementId, 'element_type' => $type ] ); $source = is_object( $details ) ? ( $details->language_code ?? '' ) : ( $details['language_code'] ?? '' ); $code = null;
             foreach ( (array) apply_filters( 'wpml_active_languages', null, [ 'skip_missing' => 0 ] ) as $candidate => $data ) { if ( in_array( $requested, [ strtolower( (string) $candidate ), strtolower( str_replace( '_', '-', (string) ( $data['default_locale'] ?? '' ) ) ) ], true ) ) { $code = (string) $candidate; } }
             if ( ! is_string( $source ) || '' === $source || null === $code ) { return self::error( 'target_language_unavailable', 'The requested language cannot be verified by the installed multilingual provider.', 409 ); }
             $translated = $source === $code ? $id : (int) apply_filters( 'wpml_object_id', $id, $name, false, $code );
-            $translatedObject = $term && $translated ? get_term( $translated, $name ) : null; $translatedElement = $term ? (int) ( $translatedObject->term_taxonomy_id ?? 0 ) : $translated;
+            $translatedObject = $term && $translated ? WP_Term::get_instance( $translated, $name ) : null; $translatedElement = $term ? (int) ( $translatedObject->term_taxonomy_id ?? 0 ) : $translated;
             $translatedDetails = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $translatedElement, 'element_type' => $type ] ); $actualCode = is_object( $translatedDetails ) ? ( $translatedDetails->language_code ?? '' ) : ( $translatedDetails['language_code'] ?? '' );
             if ( $translated < 1 || $actualCode !== $code || (int) apply_filters( 'wpml_object_id', $translated, $name, false, $source ) !== $id ) { return self::error( 'target_translation_missing', 'No verified native translation exists for this URL and language.', 409 ); }
         } else {

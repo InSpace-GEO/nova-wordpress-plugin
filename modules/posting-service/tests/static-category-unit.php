@@ -51,6 +51,7 @@ class Nova_Bridge_Suite_Mapped_Content_Target {
     static function with_creation_language( $target, $callback ) { return $callback(); }
 }
 class Nova_Bridge_Suite_Term_Content {
+    static function with_language( $taxonomy, $id, $work ) { return $work(); }
     static function apply( $taxonomy, $id, $payload, $context ) {
         foreach ( $payload as $field => $value ) { if ( $GLOBALS['partial_write'] && 'content_below_products' === $field ) { return new WP_Error( 'fixture_partial_save' ); } $GLOBALS['terms'][$id]->{ 'content_below_products' === $field ? 'bottom' : $field } = $value; }
         if ( $GLOBALS['crash_write'] ) { throw new RuntimeException( 'Process lost after native save' ); } return true;
