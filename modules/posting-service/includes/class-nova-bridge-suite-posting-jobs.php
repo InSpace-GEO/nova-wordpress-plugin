@@ -387,6 +387,25 @@ class Nova_Bridge_Suite_Posting_Jobs {
         return 1 === $changed ? true : new WP_Error( 'nova_posting_resume_conflict', 'Only a blocked delivery for this installation can be resumed.', [ 'status' => 409 ] );
     }
 
+    /** Called after a verified original commit or the waiter's source-readiness recheck. */
+    public function wake_translation_dependents( array $original ) {
+        if ( ! Nova_Bridge_Suite_Translation_Source::is_provider_original( $original ) ) { return 0; }
+        $rows = $this->db->get_results( $this->db->prepare( "SELECT * FROM {$this->table} WHERE site_id=%s AND protocol=%s AND identity_conflict=0 AND state='blocked' AND phase='received' AND last_error='nova_translation_source_pending' AND lease_until=0", $original['site_id'], self::PROTOCOL ), ARRAY_A );
+        if ( ! is_array( $rows ) || ! empty( $this->db->last_error ) ) { return $this->error(); }
+        $count = 0;
+        foreach ( $rows as $row ) {
+            $job = $this->decode( $row );
+            if ( is_wp_error( $job ) ) { return $job; }
+            $snapshot = $job['payload']['content'] ?? null;
+            if ( ! is_array( $snapshot ) || isset( $job['payload']['plan'] ) || ( $job['payload']['native_writer'] ?? null ) !== 'dictionary_translation' ||
+                ! Nova_Bridge_Suite_Translation_Source::depends_on( $snapshot, $original ) ) { continue; }
+            $changed = $this->db->query( $this->db->prepare( "UPDATE {$this->table} SET state='ready',attempts=0,next_attempt=0,last_error='nova_translation_source_ready',updated_at=%d,journal_revision=journal_revision+1 WHERE id=%d AND site_id=%s AND protocol=%s AND identity_conflict=0 AND state='blocked' AND phase='received' AND last_error='nova_translation_source_pending' AND lease_until=0 AND journal_revision=%d", time(), $job['id'], $original['site_id'], self::PROTOCOL, (int) ( $job['journal_revision'] ?? 0 ) ) );
+            if ( false === $changed ) { return $this->error(); }
+            $count += (int) $changed;
+        }
+        return $count;
+    }
+
     public function storage_exists() {
         $exists = $this->db->get_var( $this->db->prepare( 'SHOW TABLES LIKE %s', $this->db->esc_like( $this->table ) ) );
         return ! empty( $this->db->last_error ) ? $this->error() : $exists === $this->table;

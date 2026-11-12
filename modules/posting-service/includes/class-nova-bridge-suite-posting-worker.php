@@ -118,6 +118,23 @@ final class Nova_Bridge_Suite_Posting_Worker {
         return $this->jobs->save( $job, [ 'state' => 'ready', 'next_attempt' => time() + 300, 'attempts' => 0, 'last_error' => 'paused' ] );
     }
 
+    private function wait_for_original( array $job, array $snapshot ) {
+        if ( ! isset( $snapshot['url_family'] ) ) { return $this->retry( $job, 'nova_translation_source_pending' ); }
+        // A dependency is not a failed publication attempt. A verified original commit
+        // wakes only this dependency; normal retries and unrelated blocked work keep their rules.
+        $waiting = $this->jobs->save( $job, [ 'state' => 'blocked', 'attempts' => 0, 'next_attempt' => 0, 'last_error' => 'nova_translation_source_pending' ] );
+        if ( is_wp_error( $waiting ) ) { return $waiting; }
+        // A frozen pre-upgrade original does not hold a group lock. Recheck after
+        // registering the dependency so its simultaneous commit cannot lose this wake.
+        $ready = Nova_Bridge_Suite_Translation_Writer::policy( $snapshot, $job['payload']['configuration'] );
+        if ( is_array( $ready ) ) {
+            $original = array_replace( $snapshot, [ 'url_id' => $snapshot['url_family']['primary_url_id'], 'url' => $snapshot['url_family']['primary_url'], 'language' => $snapshot['url_family']['primary_language'] ] );
+            $woken = $this->jobs->wake_translation_dependents( $original );
+            if ( is_wp_error( $woken ) ) { return $woken; }
+        }
+        return $waiting;
+    }
+
     private function remote_error( array $job, WP_Error $error ) {
         $data = $error->get_error_data(); $status = (int) ( $data['status'] ?? 0 );
         if ( 401 === $status || 403 === $status ) {
@@ -397,7 +414,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 } else {
                     $selected = ( $retained_local || $retained_layout ) && isset( $job['payload']['selected_policy'] ) ? $job['payload']['selected_policy'] : call_user_func( $this->policy, $this->client, $snapshot, $configuration );
                 }
-                if ( is_wp_error( $selected ) && 'nova_translation_source_pending' === $selected->get_error_code() ) { return $this->retry( $job, $selected->get_error_code() ); }
+                if ( is_wp_error( $selected ) && 'nova_translation_source_pending' === $selected->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
                 if ( is_wp_error( $selected ) ) { return $this->native_failure( $job, $snapshot, $selected->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $selected->get_error_message() ); }
                 $reference = $selected['reference'] ?? []; $routing = $selected['routing'] ?? [];
                 $operation = $routing['operation'] ?? null; $target = $reference['reference_id'] ?? 0;
@@ -411,7 +428,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $job = $this->save_payload( $job, [ 'configuration' => $configuration, 'selected_policy' => $selected, 'context' => $context, 'native_writer' => $writer_name ], 'received' );
                 if ( is_wp_error( $job ) ) { return $job; }
                 $plan = call_user_func( [ $this->writer, 'plan' ], $snapshot, $configuration, $context );
-                if ( is_wp_error( $plan ) && 'nova_translation_source_pending' === $plan->get_error_code() ) { return $this->retry( $job, $plan->get_error_code() ); }
+                if ( is_wp_error( $plan ) && 'nova_translation_source_pending' === $plan->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
                 if ( is_wp_error( $plan ) ) { return $this->native_failure( $job, $snapshot, $plan->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $plan->get_error_message() ); }
                 if ( ! is_array( $plan ) ) { return $this->block( $job, 'plan_invalid' ); }
                 $job = $this->save_payload( $job, [ 'plan' => $plan ], 'planned', [ 'target_id' => $target ] );
@@ -473,6 +490,10 @@ final class Nova_Bridge_Suite_Posting_Worker {
             if ( is_wp_error( $verified ) ) { $saved = $this->retain_native_error( $job, $verified ); return is_wp_error( $saved ) ? $saved : $this->retry( $saved, $verified->get_error_code() ); }
             if ( ! is_array( $verified ) || (int) ( $verified[$native_id_key] ?? 0 ) !== (int) $result[$native_id_key] || ! in_array( $verified['cms_post_status'] ?? null, [ 'draft', 'publish', 'future', 'private', 'pending' ], true ) ) { return $this->block( $job, 'verification_result_invalid' ); }
             if ( ! $actor_eligible && ( ! empty( $verified['derived_pending'] ) || 'complete' !== ( $verified['state'] ?? 'complete' ) ) ) { return $this->block( $job, 'publishing_user_unavailable' ); }
+            if ( 'publish' === $verified['cms_post_status'] && Nova_Bridge_Suite_Translation_Source::is_provider_original( $snapshot ) && method_exists( $this->jobs, 'wake_translation_dependents' ) ) {
+                $woken = $this->jobs->wake_translation_dependents( $snapshot );
+                if ( is_wp_error( $woken ) ) { return $this->retry( $job, $woken->get_error_code() ); }
+            }
             // In the initial webhook scope, success attests the verified native save,
             // including a draft or scheduled post. It does not attest public visibility.
             $job = $this->save_payload( $job, [ 'result' => $verified ], 'committed' );

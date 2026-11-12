@@ -8,8 +8,11 @@ if ( ! isset( $argv[1] ) ) {
     return;
 }
 $provider = $argv[1];
-define( 'ABSPATH', __DIR__ . '/' );
 $core = getenv( 'NOVA_WP_CORE_FIXTURE' );
+define( 'ABSPATH', dirname( $core ) . '/' );
+define( 'WPINC', basename( $core ) );
+// The core HTML decoder uses its mbstring polyfills when the test runs with php -n.
+require_once $core . '/compat.php';
 require_once $core . '/class-wp-token-map.php';
 foreach ( [ 'html5-named-character-references', 'class-wp-html-attribute-token', 'class-wp-html-span', 'class-wp-html-text-replacement', 'class-wp-html-decoder', 'class-wp-html-tag-processor' ] as $dependency ) {
     require_once $core . '/html-api/' . $dependency . '.php';
@@ -30,14 +33,13 @@ function wp_cache_delete( ...$unused ) {}
 function wp_allowed_protocols() { return [ 'https', 'http', 'mailto' ]; }
 // WP 6.9's real tag processor uses both UTF-8 validation and the noncharacter check.
 if ( is_file( $core . '/utf8.php' ) ) {
-    function _wp_can_use_pcre_u() { return true; }
     require_once $core . '/compat-utf8.php';
     require_once $core . '/utf8.php';
 } else {
     function wp_is_valid_utf8( $s ) { return true; }
 }
 function is_utf8_charset( $s = null ) { return true; }
-function get_option( $key, $fallback = false ) { return 'active_plugins' === $key ? ( $GLOBALS['seo_plugins'] ?? [] ) : ( 'blog_charset' === $key ? 'UTF-8' : ( 'home' === $key ? home_url() : $fallback ) ); }
+function get_option( $key, $fallback = false ) { return 'active_plugins' === $key ? ( $GLOBALS['seo_plugins'] ?? [] ) : ( 'blog_charset' === $key ? 'UTF-8' : ( 'home' === $key ? home_url() : ( $GLOBALS['associations'][$key] ?? $fallback ) ) ); }
 function home_url( $path = '' ) { return 'https://lang.test' . $path; }
 function get_post( $id ) { return $GLOBALS['post']; }
 function get_permalink( $id ) { return home_url( '/entry/' ); }
@@ -63,11 +65,15 @@ function wp_doing_ajax() { return false; }
 function get_queried_object_id() { return 41; }
 function wp_generate_uuid4() { static $i = 0; return 'mock-uuid-' . ++$i; }
 function acf_flush_value_cache( $id, $name ) { unset( $GLOBALS['acf_formatted']["$id:$name"] ); }
-class Nova_Bridge_Suite_Stored_Layout_Language { public static function provider() { return 'core'; } }
+if ( empty( $grouped_source ) ) {
+    class Nova_Bridge_Suite_Stored_Layout_Language { public static function provider() { return 'core'; } }
+} else { require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-language.php'; }
 class Nova_Bridge_Suite_Stored_Layout {
     public static function compile( $draft, $values, $seed ) { return [ 'builder'=>'elementor', 'post_fields'=>['title'=>'Unmapped sample title'], 'writer_payload'=>[], 'custom_fields'=>$values ]; }
 }
-class Nova_Bridge_Suite_Translation_Source { public static function post_id( ...$unused ) { return 41; } }
+if ( empty( $grouped_source ) ) {
+    class Nova_Bridge_Suite_Translation_Source { public static function post_id( ...$unused ) { return 41; } }
+} else { require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-translation-source.php'; }
 class Nova_Bridge_Suite_Posting_Protocol { public static function uuid( $s ) { return true; } }
 class Nova_Bridge_Suite_Writing_Adapter {
     public static function canonical_json( $v ) { return json_encode( $v ); }
@@ -126,6 +132,10 @@ function publish_locale( $locale, $version, $fields ) {
     global $config, $hooks; $hooks = []; // Delivery and frontend are separate WP requests.
     $content = [ 'site_id'=>'site', 'url_id'=>'url', 'url'=>'/' . substr( $locale, 0, 2 ) . '/entry/', 'language'=>$locale,
         'version_number'=>$version, 'configuration'=>$config['template'], 'content_item_id'=>'item', 'destination_values'=>$fields ];
+    if ( ! empty( $GLOBALS['grouped_source'] ) ) {
+        $content['url_id'] = $locale === 'de_DE' ? '200' : '300';
+        $content['url_family'] = [ 'url_group_id'=>'50', 'primary_url_id'=>'100', 'primary_url'=>home_url( '/entry/' ), 'primary_language'=>'en-US' ];
+    }
     $op = $locale . $version; $plan = success( Writer::plan( $content, $config, ['target_post_id'=>41,'desired_status'=>'publish','operation_id'=>$op] ) );
     verify( ! isset( $plan['fields']['title'], $plan['fields']['content'] ) && ! isset( $plan['fields']['meta'] ), 'Protected template content entered the localized plan' );
     success( Writer::apply( $plan, $op ) );
@@ -135,6 +145,9 @@ function publish_locale( $locale, $version, $fields ) {
 $checks = 0; $hooks = [];
 $wpdb = new class { public $posts = 'posts'; public function get_var( $q ) { return '1'; } public function prepare( $q, $name ) { return $q; } };
 $post = (object) [ 'ID'=>41,'post_type'=>'page','post_status'=>'publish','post_password'=>'','post_title'=>'Source','post_excerpt'=>'','post_content'=>'Original Elementor' ];
+if ( ! empty( $grouped_source ) ) {
+    $associations['nova_layout_page_' . hash( 'sha256', 'site:100:en-us' )] = [ 'site_id'=>'site', 'url_id'=>'100', 'language'=>'en-US', 'post_id'=>41, 'state'=>'committed' ];
+}
 $data = [ 41=>[ 'caption'=>['Source caption'], '_caption'=>['field_caption'], 'link'=>['https://lang.test/en'], '_link'=>['field_link'], 'summary'=>['Original'], '_elementor_data'=>['original structure'], 'other_meta'=>['a:1:{i:0;s:3:"foo";}', 'another raw row'] ],
     42=>['caption'=>['Another page']] ];
 $initial = $data[41];
