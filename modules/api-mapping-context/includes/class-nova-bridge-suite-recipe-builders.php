@@ -598,7 +598,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             $display_value = $this->node_example( $node );
             $items[] = [ 'index' => $index, 'label' => $label . ( $display_value ? ' — ' . $display_value : '' ), 'native_type' => $native_tag ];
             $node_context = $context . ( $context ? ' > ' : '' ) . $label . ' ' . ( $index + 1 );
-            $add = function ( string $target, string $format, string $kind = 'text', $semantic_value = null ) use ( &$result, $label, $node_protected, $node_context, $nodes, $prefix, $node, $path ) {
+            $add = function ( string $target, string $format, string $kind = 'text', $semantic_value = null, bool $field_connected = false ) use ( &$result, $label, $node_protected, $node_context, $nodes, $prefix, $node, $path ) {
                 $value = Nova_Bridge_Suite_Recipe_Engine::get( $nodes, substr( $target, strlen( $prefix ) ) );
                 $native_value = $value;
                 if ( null !== $semantic_value ) { $value = $semantic_value; }
@@ -606,7 +606,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 if ( 'divi5' === $this->builder && is_string( $native_value ) && false !== strpos( $native_value, '@ET-DC@' ) ) { $sensitive_markup = true; }
                 $control = basename( $target );
                 // Themer retains empty connection entries for ordinary editable controls.
-                $connected = 'beaver' === $this->builder && ! empty( $node['settings']['connections'][$control] );
+                $connected = $field_connected || ( 'beaver' === $this->builder && ! empty( $node['settings']['connections'][$control] ) );
                 $writable = ! $node_protected && ! $sensitive_markup && ! $connected && is_string( $value );
                 $result['fields'][] = [ 'target' => $target, 'label' => $label . ' · ' . ucwords( str_replace( '_', ' ', $kind ) ), 'format' => $format, 'kind' => $kind, 'value' => $value,
                     'context' => $node_context, 'writable' => $writable, 'protected' => ! $writable, 'reason' => $writable ? '' : ( $connected ? 'This Beaver field has an active field connection. Edit or map its source instead.' : 'This native value belongs to a protected, dynamic or interactive region.' ) ] + $this->provenance( $node, $path, $target );
@@ -687,6 +687,17 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                     foreach ( [ 'heading', 'text', 'label', 'link', 'caption', 'alt' ] as $key ) { if ( isset( $settings[ $key ] ) && is_string( $settings[ $key ] ) ) { $add( $path . '/settings/' . $key, 'text' === $key ? 'html' : ( 'link' === $key ? 'url' : 'text' ), $key ); } }
                     if ( 'photo' === ( $settings['type'] ?? '' ) && 'url' === ( $settings['photo_source'] ?? '' ) && isset( $settings['photo_url'] ) && is_string( $settings['photo_url'] ) ) { $add( $path . '/settings/photo_url', 'url', 'image_url' ); }
                     if ( in_array( $settings['type'] ?? '', [ 'accordion', 'tabs' ], true ) && is_array( $settings['items'] ?? null ) ) { $this->walk_inventory( $settings['items'], $path . '/settings/items', $result, $node_protected, $node_context . ' > FAQ items', [ 'node' => $node, 'path' => $path ] ); }
+                    if ( 'pp-infolist' === ( $settings['type'] ?? '' ) && ( empty( $settings['data_source'] ) || 'manual' === $settings['data_source'] ) && is_array( $settings['list_items'] ?? null ) ) {
+                        foreach ( $settings['list_items'] as $index => $item ) {
+                            if ( ! is_int( $index ) || ! is_array( $item ) ) { continue; }
+                            foreach ( [ 'title' => [ 'text', 'heading' ], 'description' => [ 'html', 'body' ] ] as $key => $spec ) {
+                                if ( ! isset( $item[$key] ) || ! is_string( $item[$key] ) ) { continue; }
+                                $connected = ! empty( $settings['connections']['list_items'] ) || ! empty( $item['connections'][$key] );
+                                $add( $path . '/settings/list_items/' . $index . '/' . $key, $spec[0], $spec[1], null, $connected );
+                                $result['fields'][count( $result['fields'] ) - 1]['label'] = 'PowerPack Info List · Item ' . ( $index + 1 ) . ' · ' . ucfirst( $key );
+                            }
+                        }
+                    }
                 }
                 $children = $node['children'] ?? []; $child_path = $path . '/children';
             } else {
