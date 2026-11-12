@@ -278,5 +278,42 @@ $bad_seo = $seo_record; $bad_seo['recipe']['seo_fields'][$seo_path]['field'] = '
 check( is_wp_error( Layout::from_recipe( $bad_seo ) ), 'Unselected SEO controls cannot be smuggled into native writes' );
 $changed_seo = $seo_draft; $changed_seo['seo_fields'][$seo_path]['provider'] = 'rank_math';
 check( is_wp_error( Layout::compile( $changed_seo, fitted( [ '/title'=>'Heading' ] ), 'changed-seo' ) ), 'Frozen SEO destination identity cannot be changed by a delivery' );
+// Legacy Beaver captures duplicate every native setting inside the original node.
+$beaver_settings = [ 'type' => 'rich-text', 'text' => '<p>Example body</p>', 'custom_css' => str_repeat( '.retained { color: #123456; }\n', 10000 ) ];
+$beaver_blueprint = [ 'template' => '', 'meta' => [], 'document' => [ [
+    'node_id' => 'abc123', 'type' => 'module', 'settings' => $beaver_settings, 'children' => [],
+    'orig' => [ 'node' => 'abc123', 'type' => 'module', 'parent' => null, 'position' => 0,
+        'settings' => $beaver_settings, 'extension_data' => [ 'enabled' => false, 'weight' => 1.25 ] ],
+] ] ];
+$beaver_path = '/document/0/settings/text';
+$beaver_record = record( 'beaver', 'page', $beaver_blueprint, [ binding( $beaver_path, 'html', 'Use the complete article body.' ) ] );
+$beaver_before = Writing::canonical_json( $beaver_record );
+check( strlen( wp_json_encode( $beaver_blueprint ) ) > 524288, 'The regression fixture reproduces the former 512 KiB rejection' );
+$beaver_draft = good( Layout::from_recipe( $beaver_record ), 'An older oversized Beaver capture projects with compact native settings' );
+check( strlen( wp_json_encode( $beaver_draft ) ) < 524288, 'The complete mapping fits the existing journal limit after removing duplicated settings' );
+check( Writing::canonical_json( $beaver_record ) === $beaver_before, 'Projection does not mutate the saved source revision' );
+$beaver_compact = $beaver_draft['stored_layout']['blueprint'];
+check( $beaver_compact['document'][0]['settings'] === $beaver_settings, 'Compaction preserves every native design setting' );
+check( $beaver_compact['document'][0]['orig'] === [ 'extension_data' => [ 'enabled' => false, 'weight' => 1.25 ] ], 'Unknown provider properties survive compaction' );
+$beaver_adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( 'beaver' );
+check( $beaver_adapter->compact_blueprint( $beaver_compact ) === $beaver_compact, 'Repeated compaction is stable' );
+$legacy_native = good( $beaver_adapter->finalize( $beaver_blueprint, 'same-native-document', [] ), 'Compile original native data' );
+$compact_native = good( $beaver_adapter->finalize( $beaver_compact, 'same-native-document', [] ), 'Compile compact native data' );
+check( Writing::canonical_json( $legacy_native['writer_payload'] ) === Writing::canonical_json( $compact_native['writer_payload'] ), 'Original and compact captures produce identical native documents' );
+$beaver_output = good( Layout::compile( $beaver_draft, fitted( [ '/title' => 'New page', $beaver_path => '<p>New body</p>' ] ), 'beaver-compact' ), 'Compile a compact saved Beaver mapping' );
+$beaver_node = reset( $beaver_output['writer_payload']['layout']['nodes'] );
+check( $beaver_node['settings']['text'] === '<p>New body</p>' && $beaver_node['settings']['custom_css'] === $beaver_settings['custom_css'], 'New content replaces only the mapped body while native CSS survives' );
+$still_large = $beaver_record;
+$still_large['recipe']['blueprint']['document'][0]['settings']['custom_css'] = str_repeat( 'x', 524288 );
+check( is_wp_error( Layout::from_recipe( $still_large ) ), 'Layouts exceeding the real size limit remain rejected without truncating design settings' );
+
+// Existing sealed profiles keep their original representation and digest for replay.
+$legacy_profile = $beaver_draft;
+$legacy_profile['stored_layout']['blueprint'] = $beaver_blueprint;
+$legacy_profile['stored_layout']['blueprint']['document'][0]['settings']['custom_css'] = '';
+$legacy_profile['stored_layout']['blueprint']['document'][0]['orig']['settings']['custom_css'] = '';
+unset( $legacy_profile['stored_layout']['digest'] );
+$legacy_profile['stored_layout']['digest'] = Nova_Bridge_Suite_Recipe_Engine::digest( $legacy_profile['stored_layout'] );
+check( good( Layout::validate( $legacy_profile ), 'Validate an existing sealed profile' ) === $legacy_profile['stored_layout'], 'Older profile digests remain valid without rewriting the layout' );
 check( $live_io_attempts === 0, 'No source or query-result reads, writes, or HTTP requests occurred; the only lookups allowed were for the declared local Loop Item' );
 echo 'PASS ' . $checks . " generic stored-recipe layout assertions\n";

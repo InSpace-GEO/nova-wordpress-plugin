@@ -105,6 +105,24 @@ function nova_mapping_bb_get_layout_nodes( $post_id ) {
     return $data;
 }
 
+/** Keep provider extensions, without duplicating fields reconstructed from the tree. */
+function nova_mapping_bb_compact_tree( array $nodes ): array {
+    foreach ( $nodes as &$node ) {
+        if ( ! is_array( $node ) ) { continue; }
+        $original = $node['orig'] ?? null;
+        if ( is_object( $original ) || is_array( $original ) ) {
+            $original = (array) $original;
+            unset( $original['node'], $original['type'], $original['parent'], $original['position'], $original['settings'] );
+            $node['orig'] = $original ?: null;
+        }
+        if ( is_array( $node['children'] ?? null ) ) {
+            $node['children'] = nova_mapping_bb_compact_tree( $node['children'] );
+        }
+    }
+    unset( $node );
+    return $nodes;
+}
+
 function nova_mapping_bb_normalize_incoming_nodes( $nodes ) {
     if ( empty( $nodes ) || ! is_array( $nodes ) ) {
         return array();

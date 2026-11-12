@@ -213,6 +213,14 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         return is_wp_error( $checked ) ? $checked : $this->envelope( $checked );
     }
 
+    public function compact_blueprint( array $blueprint ): array {
+        if ( 'beaver' === $this->builder && is_array( $blueprint['document'] ?? null ) ) {
+            $this->helpers();
+            $blueprint['document'] = nova_mapping_bb_compact_tree( $blueprint['document'] );
+        }
+        return $blueprint;
+    }
+
     private function available( string $post_type = 'page' ): bool {
         switch ( $this->builder ) {
             case 'gutenberg': return function_exists( 'parse_blocks' );
@@ -299,7 +307,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 }
             } elseif ( 'beaver' === $this->builder ) {
                 if ( ! function_exists( 'nova_mapping_bb_get_layout_nodes' ) || ! get_post_meta( $post_id, '_fl_builder_enabled', true ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'The selected item does not contain an active Beaver layout.' ); }
-                $blueprint['document'] = self::arrays( nova_mapping_bb_flat_to_tree( nova_mapping_bb_get_layout_nodes( $post_id ) ) );
+                $blueprint['document'] = self::arrays( nova_mapping_bb_compact_tree( nova_mapping_bb_flat_to_tree( nova_mapping_bb_get_layout_nodes( $post_id ) ) ) );
             } elseif ( 'breakdance' === $this->builder ) {
                 if ( ! class_exists( 'Nova_Mapping_Breakdance_Document' ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'provider', 'Breakdance is unavailable.' ); }
                 $wrapper = Nova_Mapping_Breakdance_Document::decode_breakdance_tree( Nova_Mapping_Breakdance_Document::get_raw_breakdance_data( $post_id ) );
