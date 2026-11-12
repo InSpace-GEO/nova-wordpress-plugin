@@ -108,6 +108,13 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         return is_wp_error( $context ) ? $context : $context['home'];
     }
 
+    /** Compare configured language slots, including native code/locale aliases. */
+    public static function same_language_slot( string $first, string $second ): bool {
+        if ( 'core' === self::provider() ) { return self::locale( $first ) === self::locale( $second ); }
+        $a = self::context( $first ); $b = self::context( $second );
+        return is_array( $a ) && is_array( $b ) && $a['code'] === $b['code'];
+    }
+
     /** A site's registered permastruct can be shared when its native languages use the same path and CPT base. */
     public static function same_route_for_languages( string $post_type, string $base ): bool {
         $provider = self::provider();

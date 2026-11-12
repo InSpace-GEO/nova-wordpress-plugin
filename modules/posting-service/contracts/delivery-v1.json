@@ -1,6 +1,6 @@
 {
-  "source_commit": "c81e5d37d1892406f5d0919cd446a17d77bc028d",
-  "openapi_sha256": "c0e183ad1de390a0e0f5cdf79784e73dab681870ca433cac2b1c81547dd6050d",
+  "source_commit": "966808db3cc3b63782db97d2d4bb218d91da5ceb",
+  "openapi_sha256": "1135b9b5f78b5abeceff807cf479864186db4b96bc653c0375b67e29823017bf",
   "schemas": {
     "Delivery": {
       "description": "Delivery identity, content and saved publishing configuration. Content uses destination field IDs when configured, or canonical source names without a template. Missing replacement values are omitted; original empty strings and arrays are preserved.",
@@ -23,6 +23,9 @@
         "content"
       ],
       "properties": {
+        "url_family": {
+          "$ref": "#/components/schemas/PublishingUrlFamily"
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -102,6 +105,38 @@
               }
             ]
           }
+        }
+      }
+    },
+    "PublishingUrlFamily": {
+      "description": "Frozen CMS relationship context for independently localized URLs. Does not replace this item's URL, language, content or ownership. Only emit after every receiving connector for the site supports this optional field.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url_group_id",
+        "primary_url_id",
+        "primary_url",
+        "primary_language"
+      ],
+      "properties": {
+        "url_group_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "primary_url_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "primary_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "primary_language": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
         }
       }
     },
@@ -269,6 +304,9 @@
         "content"
       ],
       "properties": {
+        "url_family": {
+          "$ref": "#/components/schemas/PublishingUrlFamily"
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -1057,6 +1095,9 @@
         "destination_values"
       ],
       "properties": {
+        "url_family": {
+          "$ref": "#/components/schemas/PublishingUrlFamily"
+        },
         "schema_version": {
           "type": "integer",
           "enum": [

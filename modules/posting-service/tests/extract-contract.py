@@ -9,8 +9,8 @@ import pathlib
 import sys
 import yaml
 
-COMMIT = "c81e5d37d1892406f5d0919cd446a17d77bc028d"
-SHA256 = "c0e183ad1de390a0e0f5cdf79784e73dab681870ca433cac2b1c81547dd6050d"
+COMMIT = "966808db3cc3b63782db97d2d4bb218d91da5ceb"
+SHA256 = "1135b9b5f78b5abeceff807cf479864186db4b96bc653c0375b67e29823017bf"
 raw = pathlib.Path(sys.argv[1]).read_bytes().replace(b"\r\n", b"\n")
 assert hashlib.sha256(raw).hexdigest() == SHA256, "Review and pin the new API release first"
 class Loader(yaml.SafeLoader):
