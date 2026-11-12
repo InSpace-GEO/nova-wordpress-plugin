@@ -319,6 +319,7 @@
 				}
 				state.id = result.id; state.revision = result.revision; state.catalog.defaults = state.catalog.defaults || {};
 				state.catalog.defaults[ state.resourceId ] = { id: result.id, revision: result.revision };
+                if ( result.locale_preservation_status ) { state.design.locale_preservation = copy( result.locale_preservation_status ); }
 				state.baseline = signature;
 				syncFeedback( result );
 			}, true ); },
@@ -452,6 +453,16 @@
 			if ( binding && nativeField.element_type === 'heading' && /\/settings\/title$/.test( nativeField.target ) && fieldFormats( nativeField ).includes( 'text' ) && fieldFormats( nativeField ).includes( 'html' ) ) { inspector.append( field( 'Heading text format', select( [ { value: 'text', label: 'Plain text (recommended)' }, { value: 'html', label: 'Inline HTML' } ], binding.format, function ( value ) { controller.edit( function () { binding.format = value; } ); } ), 'Plain text accepts NOVA titles while preserving the heading’s styling. Keep inline HTML when this field needs formatting within its text.' ) ); }
 			if ( binding ) { if ( role === 'custom' ) { inspector.append( field( 'Name this custom purpose', input( binding.label, function ( value ) { controller.edit( function () { binding.label = value.trim(); }, false ); } ), 'For example: Customer promise or Installation advice.' ) ); } var customPurpose = role === 'custom', fieldContext = node( customPurpose ? 'div' : 'details' ); if ( ! customPurpose ) { fieldContext.append( node( 'summary', 'Extra Field Context' ) ); } fieldContext.append( field( customPurpose ? 'Guidance for this custom purpose (required)' : 'Optional context for this field', input( binding.instructions || '', function ( value ) { controller.edit( function () { binding.instructions = value; }, false ); }, true ), customPurpose ? 'Explain what NOVA should write for this purpose.' : 'Add guidance only when the field needs clarification. NOVA still chooses the page’s topic.' ) ); inspector.append( fieldContext ); var requiredControl = check( 'Require a supplied value for this field', binding.required === true || nativeField.required === true, function ( enabled ) { controller.edit( function () { binding.required = nativeField.required === true || enabled; }, false ); }, nativeField.required === true ? 'The site’s field definition requires a value. Its validation rules remain active.' : 'Require the writer to supply this field. Optional fields can be left out; empty content is accepted only where the site’s field definition permits it. In a fixed builder layout, an element whose optional fields are all left empty is removed from that page, along with a section left with nothing to show. In ACF layouts, the same applies to repeater and flexible-content rows, as far as the field’s minimum number of rows allows.' ); if ( nativeField.required === true && requiredControl.querySelectorAll ) { requiredControl.querySelectorAll( 'input' ).forEach( function ( control ) { control.disabled = true; } ); } inspector.append( requiredControl ); }
 			else if ( ! omitted ) { inspector.append( help( 'This field keeps its current content. Assign a purpose when you want generated content to replace it.' + ( removable ? ' Or remove the whole element from new pages.' : '' ) ) ); }
+            if ( ! binding && ! omitted && key === 'main:fixed' ) {
+                var localeInfo = controller.state.design.locale_preservation;
+                if ( localeInfo && [ 'translatepress', 'weglot' ].includes( localeInfo.provider ) ) {
+                    inspector.append( help( 'Existing translations of this content are managed by ' + ( localeInfo.provider === 'weglot' ? 'Weglot' : 'TranslatePress' ) + ' when the localized page is rendered.' ) );
+                } else if ( localeInfo && [ 'polylang', 'wpml' ].includes( localeInfo.provider ) ) {
+                    var locales = localeInfo.fields && localeInfo.fields[ nativeField.target ] || [];
+                    inspector.append( help( locales.length ? ( localeInfo.saved ? 'Saved localized values: ' : 'Localized values will be saved for: ' ) + locales.join( ', ' ) + '. Other locales use the captured reference value.' : 'No matching localized value is saved for this field. It uses the captured reference value. Saving refreshes values from linked locale references.' ) );
+                    ( localeInfo.unavailable || [] ).forEach( function ( entry ) { inspector.append( help( entry.locale + ': ' + entry.reason ) ); } );
+                }
+            }
 			wrap.append( inspector, help( ( owner.bindings || [] ).length + ' selected content fields. Design settings stay protected.' ) ); return wrap;
 		}
 		function canOmit( nativeField, key ) {

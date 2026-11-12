@@ -180,7 +180,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 foreach ( [ 'url', 'page_type_frontend', 'language' ] as $name ) { $sources[$name] = $content[$name] ?? null; }
                 $values = []; foreach ( $configuration['template']['mapping']['fields'] as $binding ) { if ( array_key_exists( $binding['source_field'], $sources ) && null !== $sources[$binding['source_field']] ) { $values[$binding['field_id']] = $sources[$binding['source_field']]; } }
             }
-            $compiled = self::checked( Nova_Bridge_Suite_Stored_Layout::compile( Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $local ), $values, $content['site_id'] . ':' . $content['url_id'] ) );
+            $compiled = self::checked( Nova_Bridge_Suite_Stored_Layout::compile( Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $local ), $values, $content['site_id'] . ':' . $content['url_id'], $content['language'] ) );
             $builder = $compiled['builder'] ?? '';
             $type = $compiled['post_type']; $resolved = self::target( $content, $configuration, $type );
             $target_id = $resolved['post_id']; $association = $resolved['association']; $target = $resolved['target'];

@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.4
+Stable tag: 1.4.5
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.5 =
+* Save localized values for preserved fields from linked Polylang and WPML reference pages and select them for the delivery locale.
+* Show saved locale availability and reference fallbacks in the mapping editor. TranslatePress and Weglot retain their provider-managed translations.
+* Refresh the updated Beaver page's generated CSS and JavaScript, including draft and preview assets.
 
 = 1.4.4 =
 * Allow local delivery journals up to 4 MiB so large existing-page layout updates retain their complete recovery state.

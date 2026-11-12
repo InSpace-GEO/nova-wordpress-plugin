@@ -167,10 +167,10 @@ final class Nova_Bridge_Suite_Stored_Layout {
     }
 
     /** Fill frozen destinations and rebase native identities, without reading the source page. */
-    public static function compile( array $draft, array $destination_values, string $seed ) {
+    public static function compile( array $draft, array $destination_values, string $seed, string $locale = '' ) {
         if ( ( $draft['stored_layout']['format'] ?? '' ) === 'nova.stored-recipe/v1' ) {
             require_once __DIR__ . '/class-nova-bridge-suite-stored-recipe-layout.php';
-            return Nova_Bridge_Suite_Stored_Recipe_Layout::compile( $draft, $destination_values, $seed );
+            return Nova_Bridge_Suite_Stored_Recipe_Layout::compile( $draft, $destination_values, $seed, $locale );
         }
         return self::guard( static function () use ( $draft, $destination_values, $seed ) {
             if ( '' === $seed ) { self::fail( 'A retained operation identity is required for fresh native element IDs.' ); }

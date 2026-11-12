@@ -35,6 +35,36 @@ function canvasEvent(t,type,extra={}){const frame=t.host.all().find(item=>item.t
 function categoryDesign(){const original=visualDesign(),source_reference={...original.source_reference,resource_id:'taxonomy:product_cat',reference_type:'term',reference_id:18,title:'Floor categories',builder:'core',url:'https://site.example/product-category/floors/'};const fields=[{target:'/document/title',label:'Category title',format:'text',kind:'heading',value:'Floor categories',control:'name'},{target:'/document/description',label:'Top category content',format:'html',kind:'category_body',value:'<p>Original top content.</p>',control:'description'},{target:'/document/bottom_content',label:'Bottom category content',format:'html',kind:'category_body',value:'<h2>Original bottom heading</h2><p>Bottom body.</p>',control:'bottom_content'}].map((field,index)=>({...field,field_id:'category_'+index,writable:true,context:'taxonomy',current_value:field.value,example:field.value.replace(/<[^>]+>/g,''),locator:{strategy:'core',reference_id:18,reference_type:'term',control_path:[field.control]}})),blueprint={document:{title:fields[0].value,description:fields[1].value,bottom_content:fields[2].value}};return {...original,builder:'core',fields,blueprint,source_reference,preview_fields:clone(fields),visual_preview:{...original.visual_preview,reference_id:18,reference_type:'term',url:source_reference.url+'?nova_recipe_canvas=test'},recipe_preset:{format:'nova-layout-recipe/v1',builder:'core',mode:'mixed',blueprint:clone(blueprint),bindings:[],regions:[],instructions:''},excluded_fields:[],declared_term_fields:{}};}
 async function categoryMounted(settings={}){const current=categoryDesign(),choices=clone(catalog);choices.resources[1].targets=[{reference_id:18,title:current.source_reference.title,url:current.source_reference.url}];return mounted({config:{resourceId:'taxonomy:product_cat',...(settings.config||{})},request:async(path,payload)=>{if(settings.request){const value=await settings.request(path,payload,current,choices);if(value!==undefined)return value;}if(path==='/catalog')return clone(choices);if(path==='/design')return clone(current);if(path==='/save')return {id:'category',revision:payload.expected_revision+1,resource_id:payload.resource_id,posting_page_type:payload.posting_page_type,default_saved:true,recipe:clone(payload.recipe)};throw Error('Unexpected '+path);}});}
 (async()=>{
+ await test('kept fields explain saved locale variants and provider-managed translations', async () => {
+  for (const provider of ['polylang', 'wpml', 'translatepress', 'weglot']) {
+   const t = await visualMounted({request: async (path, payload, current) => {
+    if (path !== '/design') return;
+    current.locale_preservation = {provider, source_locale: 'nl-NL', saved: true, fields: {'/document/0/settings/title': ['it-IT', 'de-DE']}, unavailable: []};
+    return current;
+   }});
+   t.controller.selectMode('static');
+   t.controller.next();
+   await t.controller.capture(42);
+   nativeControl(t.host, 'Page heading').events.click();
+   t.flushFrames();
+   assert(t.host.textContent.includes(['polylang', 'wpml'].includes(provider) ? 'Saved localized values: it-IT, de-DE' : 'Existing translations of this content are managed by'));
+   assert.equal(t.controller.state.recipe.bindings.length, 0);
+   if (provider === 'polylang') {
+    nativeControl(t.host, 'Intro text').events.click();
+    t.flushFrames();
+    assert(t.host.textContent.includes('No matching localized value is saved for this field'));
+   }
+  }
+  const status = {provider: 'polylang', source_locale: 'nl-NL', saved: true, fields: {'/document/0/settings/title': ['it-IT']}, unavailable: []};
+  const saved = await visualMounted({request: async (path, payload) => {
+   if (path === '/save') return {id: '00000000-0000-4000-8000-000000000188', revision: payload.expected_revision + 1, resource_id: payload.resource_id, posting_page_type: payload.posting_page_type, default_saved: true, recipe: clone(payload.recipe), locale_preservation_status: status};
+  }});
+  saved.controller.selectMode('static');
+  saved.controller.next();
+  await saved.controller.capture(42);
+  await saved.controller.save();
+  assert.deepEqual(saved.controller.state.design.locale_preservation, status);
+ });
  await test('ambiguous active builders open the provider chooser and explicit retry captures the chosen page',async()=>{
   const calls=[],choices=clone(catalog);choices.builders.push({id:'beaver',label:'Beaver Builder',available:true,capture:true,modes:['static','mixed','rules']});
   choices.resources[0].targets=[{reference_id:42,title:'Real sample page'}];

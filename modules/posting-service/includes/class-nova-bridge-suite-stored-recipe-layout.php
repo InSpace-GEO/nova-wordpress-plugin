@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-layout-page-types.php';
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-layout-custom-fields.php';
 require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-wordpress-layout-seo.php';
+require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-layout-locales.php';
 
 final class Nova_Bridge_Suite_Stored_Recipe_Layout {
     public const FORMAT = 'nova.stored-recipe/v1';
@@ -52,7 +53,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
         $description = Nova_Bridge_Suite_Recipe_Native_Media::describe( $description, $resource );
         return array_column( $description['fields'] ?? [], null, 'target' );
     }
-    private static function seal( array $draft, string $builder, string $resource, array $blueprint, array $post_fields ): array {
+    private static function seal( array $draft, string $builder, string $resource, array $blueprint, array $post_fields, array $locale_snapshot = [] ): array {
         $type = self::post_type( $resource );
         if ( ( $draft['routing']['post_type'] ?? '' ) !== $type ) { self::fail( 'The saved destination differs from its approved native routing.' ); }
         if ( 'core' === $builder && ( ( $blueprint['type'] ?? '' ) !== 'post_type' || ( $blueprint['post_type'] ?? '' ) !== $type || ( $blueprint['resource_id'] ?? '' ) !== $resource ) ) { self::fail( 'The WordPress content blueprint belongs to a different native destination.' ); }
@@ -98,6 +99,12 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             $bindings[$path] = $binding;
         }
         $layout = [ 'format' => self::FORMAT, 'builder' => $builder, 'resource_id' => $resource, 'post_type' => $type, 'blueprint' => $blueprint, 'post_fields' => $post_fields, 'bindings' => $bindings ];
+        if ( ! empty( $locale_snapshot['variants'] ) ) {
+            $mapped = array_keys( array_filter( $bindings, static fn( $binding ) => 'protected' !== $binding['mode'] ) );
+            $mapped = array_merge( $mapped, (array) ( $draft['omissions'] ?? [] ) );
+            Nova_Bridge_Suite_Layout_Locales::validate( $locale_snapshot, $builder, $blueprint, $mapped );
+            $layout['locale_preservation'] = $locale_snapshot;
+        }
         if ( ! empty( $draft['omissions'] ) ) {
             // Older layouts have no key, which keeps their sealed digest unchanged.
             $targets = Nova_Bridge_Suite_Recipe_Engine::omission_targets( array_map( static function ( $target ) { return [ 'target' => $target ]; }, (array) $draft['omissions'] ) );
@@ -178,7 +185,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 $draft['source_hints'][$path] = [ $source ];
                 $draft['seo_fields'][$path] = $entry;
             }
-            $draft['stored_layout'] = self::seal( $draft, $builder, $resource, $recipe['blueprint'], [ 'title' => '', 'excerpt' => 'core' === $builder ? ( $recipe['blueprint']['document']['excerpt'] ?? '' ) : '' ] );
+            $draft['stored_layout'] = self::seal( $draft, $builder, $resource, $recipe['blueprint'], [ 'title' => '', 'excerpt' => 'core' === $builder ? ( $recipe['blueprint']['document']['excerpt'] ?? '' ) : '' ], $record['locale_preservation'] ?? [] );
             return $draft;
         } );
     }
@@ -188,18 +195,19 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             if ( ( $layout['format'] ?? '' ) !== self::FORMAT || ! is_string( $layout['builder'] ?? null ) || ! is_string( $layout['resource_id'] ?? null ) || ! is_array( $layout['blueprint'] ?? null ) || ! is_array( $layout['post_fields'] ?? null ) || ! is_array( $layout['bindings'] ?? null ) || ! is_string( $layout['digest'] ?? null ) ) { self::fail( 'Re-save the complete native creation layout before synchronizing.' ); }
             $unsigned = $layout; unset( $unsigned['digest'] );
             if ( ! hash_equals( Nova_Bridge_Suite_Recipe_Engine::digest( $unsigned ), $layout['digest'] ) ) { self::fail( 'The retained native layout changed after it was saved.' ); }
-            $sealed = self::seal( $draft, $layout['builder'], $layout['resource_id'], $layout['blueprint'], $layout['post_fields'] );
+            $sealed = self::seal( $draft, $layout['builder'], $layout['resource_id'], $layout['blueprint'], $layout['post_fields'], $layout['locale_preservation'] ?? [] );
             if ( ! hash_equals( $sealed['digest'], $layout['digest'] ) ) { self::fail( 'The mapping fields or native destination differ from the retained layout.' ); }
             return $layout;
         } );
     }
-    public static function compile( array $draft, array $destination_values, string $seed ) {
-        return self::guard( static function () use ( $draft, $destination_values, $seed ) {
+    public static function compile( array $draft, array $destination_values, string $seed, string $locale = '' ) {
+        return self::guard( static function () use ( $draft, $destination_values, $seed, $locale ) {
             if ( '' === $seed ) { self::fail( 'A retained operation identity is required for native layout compilation.' ); }
             $layout = self::checked( self::validate( $draft ) ); $effective = Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $draft );
             $values = self::checked( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $effective, $destination_values ) );
             $adapter = self::checked( Nova_Bridge_Suite_Recipe_Engine::adapter( $layout['builder'] ) );
             $blueprint = $layout['blueprint']; $post_fields = $layout['post_fields']; $media = []; $custom = []; $vacant = []; $kept = [];
+            if ( isset( $layout['locale_preservation'] ) ) { $blueprint = Nova_Bridge_Suite_Layout_Locales::apply( $layout['locale_preservation'], $locale, $blueprint, $adapter ); }
             foreach ( $layout['bindings'] as $path => $binding ) {
                 if ( in_array( $binding['kind'], [ 'recipe', 'media' ], true ) ) {
                     // An optional element the delivery left empty is dropped rather than published blank.

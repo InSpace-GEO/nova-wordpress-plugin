@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/class-nova-bridge-suite-layout-locales.php';
 require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
 require_once __DIR__ . '/class-nova-wordpress-layout-seo.php';
 /** Local versioned templates, sealed native blueprints and draft translation. */
@@ -85,6 +86,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $fallback = self::posting_page_type( (string) ( $record['resource_id'] ?? '' ) );
         if ( null === $fallback ) { return []; }
         $metadata = [ 'posting_page_type' => $record['posting_page_type'] ?? $fallback, 'posting_support' => self::posting_support( $record ), 'posting_page_types' => Nova_Bridge_Suite_Layout_Page_Types::selected( $record ) ];
+        if ( isset( $record['locale_preservation'] ) ) { $metadata['locale_preservation_status'] = Nova_Bridge_Suite_Layout_Locales::summary( $record['locale_preservation'], true ); }
         $supported = self::stored_recipe_supported( $record );
         if ( 'taxonomy:product_cat' !== ( $record['resource_id'] ?? '' ) && $metadata['posting_support']['supported'] && ! $supported ) { $metadata['posting_support'] = [ 'supported' => false, 'reason' => 'This saved recipe contains repeated regions or additional fields without a publishing provider.' ]; }
         if ( $supported && is_callable( [ 'Nova_Bridge_Suite_Stored_Recipe_Sync', 'saved_status' ] ) && class_exists( 'Nova_Bridge_Suite_Posting_Settings' ) ) {
@@ -281,6 +283,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( class_exists( 'Nova_Bridge_Suite_Recipe_Visual' ) ) { $design = Nova_Bridge_Suite_Recipe_Visual::enrich( $design, $resource, $id ); }
         $design = self::presentation_choices( $design, $resource, $id );
         $design = self::field_choices( $design, $resource['id'], $mode, $id );
+        $design['locale_preservation'] = Nova_Bridge_Suite_Layout_Locales::summary( Nova_Bridge_Suite_Layout_Locales::capture( $resource, $builder, $design['blueprint'], $id ) );
         return self::response( $design );
     }
     /** Expose registrations for selection without reading custom-field values from the example. */
@@ -483,6 +486,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( 'taxonomy:product_cat' === $resource['id'] && isset( $body['posting_page_type'] ) && 'category' !== $body['posting_page_type'] ) { return self::error( 'posting_page_type', 'WooCommerce product categories use the NOVA Category page type.' ); }
         if ( array_key_exists( 'posting_page_types', $body ) && ( ! Nova_Bridge_Suite_Layout_Page_Types::valid( $body['posting_page_types'] ) || ( 'taxonomy:product_cat' === $resource['id'] && $body['posting_page_types'] !== [ 'category' ] ) ) ) { return self::error( 'posting_page_types', 'Select at least one NOVA content type. WooCommerce categories accept Category only.' ); }
         $source = class_exists( 'Nova_Bridge_Suite_Recipe_Visual' ) ? Nova_Bridge_Suite_Recipe_Visual::validate_source( $body, $recipe, $resource ) : null; if ( is_wp_error( $source ) ) { return $source; }
+        $locale_snapshot = Nova_Bridge_Suite_Layout_Locales::retained( Nova_Bridge_Suite_Layout_Locales::capture( $resource, $recipe['builder'], $recipe['blueprint'], (int) ( $source['reference_id'] ?? 0 ) ), $recipe );
         if ( ! empty( $recipe['posting_fields'] ) ) {
             if ( 'static' !== $recipe['mode'] || empty( $resource['post_type'] ) || 'acf' === $recipe['builder'] ) { return self::error( 'posting_fields', 'Use fixed editorial custom fields on a native post layout.' ); }
             $registered = Nova_Bridge_Suite_Layout_Custom_Fields::verify_registration( $recipe, $resource['post_type'], (int) ( $source['reference_id'] ?? 0 ) );
@@ -505,7 +509,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         }
         $id = $body['id'] ?? wp_generate_uuid4(); $expected = $body['expected_revision'] ?? null; $label = $body['label'] ?? '';
         if ( ! self::uuid( $id ) || ! is_int( $expected ) || $expected < 0 || ! is_string( $label ) || '' === trim( $label ) || strlen( $label ) > 200 ) { return self::error( 'identity', 'Name the template and supply its saved revision.' ); }
-        $saved = self::mutate( Nova_WordPress_Environment::key( self::OPTION ), static function ( array $state ) use ( $body, $resource, $recipe, $schema, $content, $id, $expected, $label, $source ) {
+        $saved = self::mutate( Nova_WordPress_Environment::key( self::OPTION ), static function ( array $state ) use ( $body, $resource, $recipe, $schema, $content, $id, $expected, $label, $source, $locale_snapshot ) {
             $history = $state['profiles'][$id] ?? []; $latest = $history ? max( array_keys( $history ) ) : 0;
             $current_default = $state['defaults'][$resource['id']] ?? null; $expected_default = $body['expected_default'] ?? null;
             $identity = static function ( $entry ) { return is_array( $entry ) ? [ 'id' => $entry['id'] ?? '', 'revision' => $entry['revision'] ?? 0 ] : null; };
@@ -524,6 +528,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
                 $record['posting_page_types'] = $history[$latest]['posting_page_types'];
             }
             if ( $source ) { $record['source_reference'] = $source; $record['source_receipt'] = $body['source_receipt']; }
+            if ( 'core' !== $locale_snapshot['provider'] ) { $record['locale_preservation'] = $locale_snapshot; }
             $state['profiles'][$id][$record['revision']] = $record; $state['defaults'][$resource['id']] = array_intersect_key( $record, array_flip( [ 'id', 'revision', 'label', 'mode', 'builder' ] ) ); return [ 'state' => $state, 'result' => $record + [ 'default_saved' => true, 'local_only' => true ] ];
         } ); return is_wp_error( $saved ) ? $saved : $saved + self::posting_metadata( $saved );
     }
@@ -561,6 +566,11 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( ! empty( $record['source_reference']['reference_id'] ) && isset( $resource ) && ! is_wp_error( $resource ) && ( $record['design']['visual_preview']['status'] ?? '' ) === 'available' ) { $record['design'] = self::presentation_choices( $record['design'], $resource, $record['source_reference']['reference_id'] ); }
         if ( isset( $record['recipe']['custom_fields'] ) ) { $custom = $record['recipe']['custom_fields']; $record['custom_fields_design'] = self::decorate_design( 'acf', $custom['mode'], [ 'blueprint' => $custom['blueprint'] ] + Nova_Bridge_Suite_Recipe_ACF::describe( $custom['blueprint'] ) ); }
         $record['design'] = self::field_choices( $record['design'], $record['resource_id'], $record['mode'], 0 );
+        $resource = self::resource( $record['resource_id'] );
+        if ( ! is_wp_error( $resource ) ) {
+            $snapshot = $record['locale_preservation'] ?? Nova_Bridge_Suite_Layout_Locales::capture( $resource, $record['builder'], $record['recipe']['blueprint'], (int) ( $record['source_reference']['reference_id'] ?? 0 ) );
+            $record['design']['locale_preservation'] = Nova_Bridge_Suite_Layout_Locales::summary( $snapshot, isset( $record['locale_preservation'] ) );
+        }
         return $record;
     }
     public static function profile( $request ) { $record = self::record( (string) $request->get_param( 'id' ) ); return self::response( is_wp_error( $record ) ? $record : self::public_record( $record ) ); }
