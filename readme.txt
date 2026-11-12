@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.3
+Stable tag: 1.4.4
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.4 =
+* Allow local delivery journals up to 4 MiB so large existing-page layout updates retain their complete recovery state.
 
 = 1.4.3 =
 * Map individual text, link and image fields inside Beaver Builder HTML modules while preserving their surrounding markup.
@@ -155,7 +158,7 @@ Map a Cornerstone page or post from an existing example. Deliveries apply the sa
 
 = 1.0.6 =
 Save and sync directly from Content rules. Selecting the same example again can resume its mapping. New layouts select eligible page design settings by default, with bulk controls for changing the selection.
-The layout editor no longer offers a draft made from sample text. New editorial mappings omit the WordPress Footnotes block’s storage field.
+The layout editor no longer offers a draft made from sample text. New editorial mappings omit the WordPress Footnotes blockâ€™s storage field.
 
 = 1.0.5 =
 Select editorial ACF and registered WordPress text fields when mapping a fixed layout. Each language can receive its own field values with WPML, Polylang, TranslatePress and Weglot. WPML can link a single translation delivered before its original.
