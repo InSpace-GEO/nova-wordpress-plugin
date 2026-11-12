@@ -166,9 +166,13 @@ $wire['content'] = $snapshot['destination_values'];
 $worker_update = deliver_category( $wire, $connection );
 ensure( $worker_update['target_id'] === $id, 'Worker selected a different category.' );
 $wire['id'] = wp_generate_uuid4(); $wire['url_id'] = '99';
-$parent_slug = 'nova-test-' . strtolower( wp_generate_password( 8, false ) );
-$parent = ensure( wp_insert_term( 'NOVA test parent', 'product_cat', [ 'slug' => $parent_slug ] ) );
-$wire['url'] = trailingslashit( get_term_link( $parent['term_id'], 'product_cat' ) ) . 'lorem-ipsum-demo-category/';
+$parent = get_term_by( 'slug', 'lorem-ipsum-demo-category', 'product_cat' );
+if ( ! $parent ) {
+    $created_parent = ensure( wp_insert_term( 'NOVA demo category parent', 'product_cat', [ 'slug' => 'lorem-ipsum-demo-category' ] ) );
+    $parent = get_term( $created_parent['term_id'], 'product_cat' );
+}
+$child_slug = 'nova-test-' . strtolower( wp_generate_password( 8, false ) );
+$wire['url'] = trailingslashit( get_term_link( $parent, 'product_cat' ) ) . $child_slug . '/';
 $created = deliver_category( $wire, $connection, true );
 $new_id = $created['target_id'];
 ensure( $new_id !== $id && get_field( 'seo_text', 'product_cat_' . $new_id, false ) !== '', 'Created category lost ACF content.' );
