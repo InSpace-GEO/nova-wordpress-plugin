@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.8
+Stable tag: 1.4.9
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.9 =
+* Publish native WooCommerce category deliveries at application demo URLs, including category updates and retry recovery.
+* Keep application demo posts and pages in draft and retain the existing handling for shared translated views.
 
 = 1.4.8 =
 * Synchronize fixed WooCommerce category templates with selected native content, declared SEO metadata and scalar ACF/SCF companion fields.

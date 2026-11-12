@@ -1,5 +1,5 @@
 <?php
-/** Test pages from the application must stay out of public publication. */
+/** Application test URLs use drafts for native post destinations. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 final class Nova_Bridge_Suite_Publication_Policy {
@@ -14,6 +14,6 @@ final class Nova_Bridge_Suite_Publication_Policy {
     }
 
     public static function unsupported(): WP_Error {
-        return new WP_Error( 'nova_test_delivery_draft_unavailable', 'This test URL requires a draft. WordPress categories and shared translated views have no independent draft state, so this delivery was held before public content could change.', [ 'status' => 409 ] );
+        return new WP_Error( 'nova_test_delivery_draft_unavailable', 'This test URL requires a draft. Shared translated views have no independent draft state, so this delivery was held before public content could change.', [ 'status' => 409 ] );
     }
 }

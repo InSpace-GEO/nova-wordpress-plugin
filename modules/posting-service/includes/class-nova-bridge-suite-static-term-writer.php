@@ -16,7 +16,6 @@ final class Nova_Bridge_Suite_Static_Term_Writer {
     }
 
     public static function plan( array $snapshot, array $configuration, array $context ) {
-        if ( Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) ) { return Nova_Bridge_Suite_Publication_Policy::unsupported(); }
         try { return self::build_plan( $snapshot, $configuration, $context ); }
         catch ( Nova_Bridge_Suite_Recipe_Failure $error ) { return $error->error; }
         catch ( InvalidArgumentException $error ) { return self::error( 'content_shape', $error->getMessage() ); }

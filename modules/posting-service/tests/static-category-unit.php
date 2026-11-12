@@ -65,12 +65,12 @@ function static_record() {
     $bindings = []; foreach ( [ 'title' => '/document/title', 'top_content' => '/document/sections/0/body', 'bottom_content' => '/term_fields/values/t_bottom' ] as $role => $target ) { $bindings[] = [ 'id' => 'nova_role_' . $role . '_0123456789abcdef', 'target' => $target, 'source' => '/custom/' . $role, 'format' => 'title' === $role ? 'text' : 'html', 'required' => true, 'label' => $role ]; }
     return [ 'id' => '00000000-0000-4000-8000-000000000222', 'revision' => 2, 'resource_id' => 'taxonomy:product_cat', 'builder' => 'core', 'mode' => 'static', 'label' => 'Static category', 'content_schema' => [ 'type' => 'object', 'properties' => [ 'custom' => [ 'type' => 'object', 'properties' => [ 'title' => [ 'type' => 'string' ], 'top_content' => [ 'type' => 'string' ], 'bottom_content' => [ 'type' => 'string' ] ] ] ] ], 'recipe' => [ 'builder' => 'core', 'mode' => 'static', 'bindings' => $bindings, 'regions' => [], 'blueprint' => [ 'term_fields' => [ 'declarations' => [ 't_bottom' => [ 'key' => 'content_below_products', 'rest_key' => 'content_below_products', 'transport' => 'rest', 'schema' => [ 'type' => 'string' ] ] ] ] ] ] ];
 }
-function static_fixture( bool $optional_bottom = false, bool $missing_schema_leaf = false ) {
+function static_fixture( bool $optional_bottom = false, bool $missing_schema_leaf = false, string $slug = 'static-test' ) {
     $GLOBALS['options'] = $GLOBALS['terms'] = $GLOBALS['term_meta'] = $GLOBALS['hooks'] = []; $GLOBALS['insertions'] = 0; $GLOBALS['crash_insert'] = $GLOBALS['crash_write'] = $GLOBALS['partial_write'] = false; $GLOBALS['permissions'] = true;
     Nova_Bridge_Suite_Layout_Recipes::$record = static_record(); if ( $optional_bottom ) { Nova_Bridge_Suite_Layout_Recipes::$record['recipe']['bindings'][2]['required'] = false; } if ( $missing_schema_leaf ) { unset( Nova_Bridge_Suite_Layout_Recipes::$record['content_schema']['properties']['custom']['properties']['bottom_content'] ); } $f = nova_contract_fixture(); $client = new Static_Setup_Client( $f['connection'] );
     $approval = Nova_Bridge_Suite_Static_Recipe_Adapter::sync_and_approve( $f['connection'], static_record()['id'], 2, '5', '6', 'category', null, $client, new Contract_Test_Store() );
     delivery_check( ! is_wp_error( $approval ), 'Explicit setup approves an exact stock template without a native write.' );
-    $snapshot = $f['snapshot']; $snapshot['configuration'] = array_intersect_key( $client->remote, array_flip( [ 'id', 'name', 'page_type', 'definition', 'mapping', 'revision' ] ) ); $snapshot['page_type_frontend'] = 'category'; $snapshot['url'] = home_url( '/product-category/static-test/' ); $snapshot['content']['top_content'] = '<p>Separate top.</p>'; $snapshot['content']['bottom_content'] = '<p>Separate bottom.</p>';
+    $snapshot = $f['snapshot']; $snapshot['configuration'] = array_intersect_key( $client->remote, array_flip( [ 'id', 'name', 'page_type', 'definition', 'mapping', 'revision' ] ) ); $snapshot['page_type_frontend'] = 'category'; $snapshot['url'] = home_url( '/product-category/' . $slug . '/' ); $snapshot['content']['top_content'] = '<p>Separate top.</p>'; $snapshot['content']['bottom_content'] = '<p>Separate bottom.</p>';
     $f = nova_contract_fixture( [ 'content' => $snapshot ] ); $GLOBALS['server'] = $server = new Contract_Test_Server( $f ); $store = new Contract_Test_Store(); $worker = new Nova_Bridge_Suite_Posting_Worker( $f['connection'], $store, new Nova_Bridge_Suite_Posting_Client( $f['connection'] ) ); return [ $f, $store, $server, $worker ];
 }
 
@@ -100,4 +100,14 @@ $db = new Static_Query_DB(); $journal = new Nova_Bridge_Suite_Posting_Jobs( $db 
 $result = $worker->process( $f['job'] ); $GLOBALS['fixture_missing_bottom'] = false;
 delivery_check( $result['state'] === 'complete' && $insertions === 1 && ! isset( $result['payload']['plan']['payload']['content_below_products'] ), 'A compiled payload with an omitted missing field creates exactly one category.' );
 delivery_check( json_decode( $server->posts[1], true )['kind'] === 'publication_succeeded' && get_term( $result['target_id'] )->description === '<p>Separate top.</p>', 'Available fields are verified and publication succeeds despite the omitted field.' );
+foreach ( [ 'informative', 'service', 'category' ] as $kind ) {
+    [ $f, $store, $server, $worker ] = static_fixture( false, false, 'lorem-ipsum-demo-' . $kind );
+    $store->fail_phase = 'applying';
+    delivery_check( is_wp_error( $worker->process( $f['job'] ) ) && $store->saved['phase'] === 'planned' && $insertions === 0, 'A category test URL retains its plan before writing.' );
+    $store->fail_phase = '';
+    $result = $worker->process( delivery_resume( $store->saved ) );
+    delivery_check( $result['state'] === 'complete' && $insertions === 1 && $result['payload']['context']['desired_status'] === 'publish', 'A resumed native category test delivery publishes normally: ' . $kind );
+    delivery_check( json_decode( $server->posts[1], true )['kind'] === 'publication_succeeded', 'A category test URL receives a successful publication receipt.' );
+}
+
 echo 'PASS ' . $checks . " static category compatibility checks.\n";
