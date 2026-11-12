@@ -130,13 +130,14 @@ function request_locale( $locale ) {
 }
 function publish_locale( $locale, $version, $fields ) {
     global $config, $hooks; $hooks = []; // Delivery and frontend are separate WP requests.
-    $content = [ 'site_id'=>'site', 'url_id'=>'url', 'url'=>'/' . substr( $locale, 0, 2 ) . '/entry/', 'language'=>$locale,
+    $content = [ 'site_id'=>'site', 'url_id'=>'url', 'url'=>'/' . substr( $locale, 0, 2 ) . '/translated-entry/', 'language'=>$locale,
         'version_number'=>$version, 'configuration'=>$config['template'], 'content_item_id'=>'item', 'destination_values'=>$fields ];
     if ( ! empty( $GLOBALS['grouped_source'] ) ) {
         $content['url_id'] = $locale === 'de_DE' ? '200' : '300';
         $content['url_family'] = [ 'url_group_id'=>'50', 'primary_url_id'=>'100', 'primary_url'=>home_url( '/entry/' ), 'primary_language'=>'en-US' ];
     }
     $op = $locale . $version; $plan = success( Writer::plan( $content, $config, ['target_post_id'=>41,'desired_status'=>'publish','operation_id'=>$op] ) );
+    verify( $plan['target']['target_url'] === home_url( '/' . substr( $locale, 0, 2 ) . '/entry' ), 'The localized custom-field plan lost the provider destination' );
     verify( ! isset( $plan['fields']['title'], $plan['fields']['content'] ) && ! isset( $plan['fields']['meta'] ), 'Protected template content entered the localized plan' );
     success( Writer::apply( $plan, $op ) );
     verify( 'complete' === success( Writer::recover( $plan, $op ) )['state'], 'Saved localized custom fields could not be recovered' );

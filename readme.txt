@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.9
+Stable tag: 1.4.10
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.10 =
+* Publish Weglot and TranslatePress content at the verified original's provider-generated localized URL when its slug differs from NOVA's intended URL.
+* Retain the resolved URL throughout native writing and recovery, enforce the installation's publishing scope, and return the actual URL through the existing publication report.
 
 = 1.4.9 =
 * Publish native WooCommerce category deliveries at application demo URLs, including category updates and retry recovery.

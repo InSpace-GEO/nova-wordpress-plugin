@@ -43,10 +43,16 @@ match the provider's configured source language. The localized item keeps its
 own authored content and version; applying its fields does not overwrite the
 original's native content.
 
-The provider-generated translated permalink must already match the delivery
-destination. This change does not create translated slugs or arbitrary URL
-hierarchies in TranslatePress or Weglot. Existing builder and custom-field support
-is retained; URL-family metadata does not add support for other builder formats.
+The provider-generated translated permalink is retained as the native destination,
+including when its slug differs from the delivery's intended URL. Both URLs must
+belong to the configured language, and the resolved destination must satisfy this
+installation's publishing scope. Apply, recovery and verification require the
+provider to keep resolving the original to that retained destination.
+
+After the localized content is saved and verified, the existing `publication`
+object reports the provider URL and preserves the delivered `intended_url`.
+The frozen delivery bytes, source hash and ETag retain their original values.
+TranslatePress and Weglot manage translated slugs through their own settings.
 
 A grouped delivery arriving before its original is parked with
 `nova_translation_source_pending`, without consuming the publication retry limit.
@@ -76,3 +82,5 @@ primary lookup, wrong native URLs, site isolation, and the existing multilingual
 flow. They do not constitute live staging or end-to-end publishing verification.
 Dictionary-provider tests additionally exercise the actual grouped source lookup,
 write/replay and localized custom-field renderers with in-memory provider storage.
+They cover differing intended and resolved slugs, subdirectory and language-domain
+routes, URL drift after planning, excluded destinations, and success-report replay.

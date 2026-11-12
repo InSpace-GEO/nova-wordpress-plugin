@@ -136,9 +136,11 @@ final class Nova_Bridge_Suite_Translation_Writer {
         $url = self::delivery_url( $content['url'] ?? '', $content['language'] );
         if ( is_wp_error( $url ) ) { return $url; }
         $canonical = self::translated_url( $context, get_permalink( $post->ID ) );
-        if ( is_wp_error( $canonical ) || $canonical['identity'] !== $url ) {
-            return self::error( 'url', 'The localized permalink of the verified original differs from the delivery URL.' );
-        }
+        if ( is_wp_error( $canonical ) ) { return $canonical; }
+        // The verified original identifies the page. Keep its provider URL in the
+        // native plan; the immutable delivery URL remains available in the receipt.
+        $url = self::delivery_url( $canonical['identity'], $content['language'] );
+        if ( is_wp_error( $url ) ) { return $url; }
         return $context + [ 'post_id' => (int) $post->ID, 'post_type' => $type, 'url' => $url ];
     }
 
@@ -218,7 +220,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
             return self::error( 'permission', 'TranslatePress cannot publish a translation for this original.' );
         }
         $url = self::translated_url( $target, get_permalink( $post->ID ) );
-        return ! is_wp_error( $url ) && $url['identity'] === $target['url'] ? true : self::error( 'url', 'The provider no longer resolves this original to the delivery URL.' );
+        return ! is_wp_error( $url ) && $url['identity'] === $target['url'] ? true : self::error( 'url', 'The provider no longer resolves this original to the retained localized URL.' );
     }
 
     private static function evidence( array $plan, array $ids, array $mapped ) {

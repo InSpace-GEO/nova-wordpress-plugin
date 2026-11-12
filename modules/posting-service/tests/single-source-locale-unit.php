@@ -56,6 +56,7 @@ function weglot_create_url_object( $link ) {
         public function __construct( $url ) { $this->url = $url; }
         public function getForLanguage( $entry ) {
             if ( $entry->code === 'en' ) { return $this->url; }
+            if ( $entry->code === 'de' && str_ends_with( $this->url, '/stone/' ) && isset( $GLOBALS['provider_url_override'] ) ) { return $GLOBALS['provider_url_override']; }
             if ( ! empty( $GLOBALS['directories'] ) ) { return str_replace( 'https://lingua.test/sub', 'https://lingua.test/sub' . ( $entry->code === 'en' ? '' : '/' . $entry->code ), $this->url ); }
             return str_replace( 'https://lingua.test/sub', 'https://' . $entry->code . '.lingua.test/sub', $this->url );
         }
@@ -95,7 +96,7 @@ foreach ( [ '/title' => 'text', '/meta/blog_intro' => 'rich_text' ] as $path => 
 $local = [ 'routing' => [ 'post_type' => 'blog', 'publication' => 'publish' ], 'fields' => $fields ];
 $template = [ 'id' => 'template', 'definition' => [ 'version' => 3 ] ];
 $profile = [ 'site_id' => 'site', 'mode' => 'owned_cpt_v3', 'local' => $local, 'template' => $template, 'profile_digest' => hash( 'sha256', json_encode( $local ) ) ];
-$content = [ 'site_id' => 'site', 'url_id' => '31', 'content_item_id' => '29', 'version_number' => 1, 'language' => 'de-DE', 'configuration' => $template, 'url' => 'https://de.lingua.test/sub/stone/', 'destination_values' => array_combine( array_keys( $fields ), [ 'Stein', '<p>Ein Stein.</p>' ] ) ];
+$content = [ 'site_id' => 'site', 'url_id' => '31', 'content_item_id' => '29', 'version_number' => 1, 'language' => 'de-DE', 'configuration' => $template, 'url' => 'https://de.lingua.test/sub/stein/', 'destination_values' => array_combine( array_keys( $fields ), [ 'Stein', '<p>Ein Stein.</p>' ] ) ];
 if ( ! empty( $grouped_source ) ) {
     $content['url_family'] = [ 'url_group_id' => '90', 'primary_url_id' => '91', 'primary_url' => home_url( '/stone/' ), 'primary_language' => 'en-US' ];
     $associations['nova_cpt_url_' . hash( 'sha256', 'site:91:en-us' )] = [ 'site_id' => 'site', 'url_id' => '91', 'language' => 'en-US', 'post_id' => 41, 'state' => 'committed' ];
@@ -103,6 +104,7 @@ if ( ! empty( $grouped_source ) ) {
 $ctx = [ 'target_post_id' => 41, 'desired_status' => 'publish', 'operation_id' => 'op' ];
 $pinned = $profile; $pinned['local']['routing']['locale'] = 'nl_NL';
 check( Writer::policy( $content, $pinned )->get_error_code() === 'nova_translation_locale', 'Ignored explicit locale of approved mapping' );
+check( ! is_wp_error( Writer::policy( $content, $profile ) ), 'A verified source with a different localized slug was rejected' );
 $pinned['local']['routing']['locale'] = 'de_DE';
 check( ! is_wp_error( Writer::policy( $content, $pinned ) ), 'Equivalent locale spelling rejected' );
 check( Writer::provider( 'en-US' ) === null && Writer::provider( 'de_DE' )['language'] === 'de', 'Locale resolution' );
@@ -113,10 +115,31 @@ check( is_wp_error( Writer::delivery_url( 'https://foreign.test/sub/stone/', 'de
 $directories = true;
 check( is_wp_error( Writer::delivery_url( 'https://lingua.test/sub/de/stone/', 'en-US' ) ), 'Original claimed a translated path' );
 check( Writer::delivery_url( 'https://lingua.test/sub/de/stone/', 'de-DE' ) === 'https://lingua.test/sub/de/stone', 'Translation cannot own its configured path' );
+$directory_content = $content; $directory_content['url'] = '/sub/de/stein/';
+$directory_plan = ok( Writer::plan( $directory_content, $profile, $ctx ) );
+check( $directory_plan['target']['target_url'] === 'https://lingua.test/sub/de/stone', 'Subdirectory provider URL was not retained' );
+$provider_url_override = 'https://lingua.test/sub/fr/stone/';
+check( is_wp_error( Writer::plan( $directory_content, $profile, $ctx ) ), 'Provider URL in another language directory was accepted' );
+unset( $provider_url_override );
 $directories = false;
+foreach ( [ 'https://foreign.test/sub/stone/', 'https://fr.lingua.test/sub/stone/', 'https://de.lingua.test/another-installation/stone/', 'https://de.lingua.test/sub/?p=41', 'https://de.lingua.test/sub/stone/#fragment', 'http://de.lingua.test/sub/stone/', '' ] as $provider_url_override ) {
+    check( is_wp_error( Writer::plan( $content, $profile, $ctx ) ), 'Invalid provider destination was accepted: ' . $provider_url_override );
+}
+unset( $provider_url_override );
+$bad_destination = $content; $bad_destination['url'] = 'https://foreign.test/sub/stein/';
+check( is_wp_error( Writer::plan( $bad_destination, $profile, $ctx ) ), 'A foreign intended URL was accepted after resolving the source' );
 $pending = true; check( Writer::policy( $content, $profile )->get_error_code() === 'nova_translation_source_pending', 'Missing source retried as its own post' ); $pending = false;
 check( ok( Writer::policy( $content, $profile ) )['reference']['reference_id'] === 41, 'Incorrect source identity' );
 $plan = ok( Writer::plan( $content, $profile, $ctx ) );
+check( $plan['target']['target_url'] === 'https://de.lingua.test/sub/stone' && $plan['provider']['url'] === $plan['target']['target_url'], 'Plan did not pin the resolved provider URL' );
+check( $content['url'] === 'https://de.lingua.test/sub/stein/', 'Source delivery URL was changed' );
+$matching = $content; $matching['url'] = 'https://de.lingua.test/sub/stone/';
+check( ok( Writer::plan( $matching, $profile, $ctx ) ) === $plan, 'An existing matching-URL plan changed shape' );
+$provider_url_override = 'https://de.lingua.test/sub/new-stone/';
+check( Writer::apply( $plan, 'op' )->get_error_code() === 'nova_translation_url', 'A changed provider URL was followed during apply' );
+check( Writer::recover( $plan, 'op' )->get_error_code() === 'nova_translation_url', 'A changed provider URL was followed during recovery' );
+check( ! get_post_meta( 41, '_nova_weglot_i18n_de', true ), 'Provider URL drift wrote localized content' );
+unset( $provider_url_override );
 check( ok( Writer::recover( $plan, 'op' ) )['no_native_commit'], 'Empty journal treated as committed' );
 $busy=true; check(Writer::apply($plan,'op')->get_error_code()==='nova_translation_busy', 'Concurrent native write was permitted'); $busy=false;
 $deny = true; check( is_wp_error( Writer::apply( $plan, 'op' ) ), 'Write permission was bypassed' ); $deny = false;
@@ -129,6 +152,9 @@ $original->post_title = 'Stone';
 $done = ok( Writer::apply( $plan, 'op' ) );
 check( $done['url'] === 'https://de.lingua.test/sub/stone' && $done['post_id'] === 41, 'Wrong receipt target' );
 check( ok( Writer::recover( $plan, 'op' ) ) === $done && ok( Writer::apply( $plan, 'op' ) ) === $done, 'Retry failed' );
+$provider_url_override = 'https://de.lingua.test/sub/new-stone/';
+check( Writer::verify( $plan, $done )->get_error_code() === 'nova_translation_url', 'Verification followed a changed provider URL' );
+unset( $provider_url_override );
 check( $original->post_title === 'Stone' && ! get_post_meta( 41, 'blog_intro', true ), 'Translated fields leaked onto English post' );
 check( Nova_WordPress_Weglot::get( 41, 'de' )['title'] === 'Stein', 'Wrong language payload' );
 $visitor = 'de'; $wg = new Nova_WordPress_Weglot(); $renderer = new Nova_WordPress_Weglot_Renderer( $wg, $wg ); $renderer->resolve_payload();
