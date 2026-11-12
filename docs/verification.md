@@ -1,5 +1,15 @@
 # Release verification
 
+## 1.4.0
+
+All 147 local PHP and Node suites passed with the combined changes on top of 1.3.4. The delivery schema is extracted from posting-service v0.11.0. Direct and adapted deliveries, with and without URL-family metadata, retain their exact payloads through intake.
+
+Staging used WordPress 7.1.4 and PHP 8.1.34 with the actual worker, transport, native writers and provider APIs. Posting-service responses and receipt acknowledgements were simulated, and the delivery journal used an in-memory fixture. WPML and Polylang linked three native pages spanning two URL IDs and three language slots after the localized sibling arrived first. Each page kept its own URL and content, and updating one member kept its native ID and the other members' content. HTTP readback verified the rendered pages.
+
+TranslatePress and Weglot accepted a localized item before its original, parked it, then woke and published it after the original completed. The localized view used the original's native ID, rendered its independently authored content, and could be updated without changing the original. The tests validated publication receipts and lock release. TranslatePress used a request-scoped language configuration and its own table initialization. Weglot used the installed provider runtime with local project settings and cloud translation disabled. WPML's test request enabled the core editor field because that staging site's normal setup exposes only custom fields. These are provider integration simulations, with real WordPress writes and frontend rendering.
+
+Disposable posts and retained writer options were removed after each run. The existing queue-continuation, legacy multilingual, ownership, mapping and shared Elementor component regressions passed in the local suite.
+
 ## 1.3.4
 
 All 141 local suites passed, including new checks for kept-shared components in creation mappings: globals, saved templates, embedded template shortcodes and plain shortcodes are accepted; shortcodes inside a kept-shared template are not checked as page content; a global without a library ID, a template shortcode typed into text and an unpublished Loop Item are still refused; a component deleted after saving is left out of the written page while present ones keep their live references.

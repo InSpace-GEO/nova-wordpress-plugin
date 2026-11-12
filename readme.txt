@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.3.4
+Stable tag: 1.4.0
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.0 =
+* Link related localized pages across different NOVA URL IDs through WPML and Polylang, including translations on each URL.
+* Resolve the shared original for localized TranslatePress and Weglot content while retaining each delivery's authored content.
+* Resume waiting localized deliveries when their original has been published.
 
 = 1.3.4 =
 * Creation mappings can keep shared Elementor components (global widgets, saved templates, template shortcodes) linked instead of requiring an independent copy. New pages show the current library version.
