@@ -1,6 +1,7 @@
 <?php
 /** Declared, typed taxonomy editorial fields. Discovery and compilation never write CMS data. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Recipe_Term_Fields {
     private const MAX_DEPTH = 10;
@@ -211,7 +212,7 @@ final class Nova_Bridge_Suite_Recipe_Term_Fields {
     private static function saved_authority( string $taxonomy, array $authority ) {
         $id = $authority['profile_id'] ?? ''; $revision = $authority['revision'] ?? 0;
         if ( ! is_string( $id ) || ! is_int( $revision ) || $revision < 1 || ! function_exists( 'get_option' ) || ! function_exists( 'wp_salt' ) ) { return self::error( 'A verified saved mapping is required to initialize custom category fields.', 409 ); }
-        $state = get_option( 'nova_bridge_layout_recipes_v1', [] ); $record = is_array( $state ) ? ( $state['profiles'][$id][$revision] ?? null ) : null; $blueprint = $record['recipe']['blueprint'] ?? null;
+        $state = get_option( Nova_WordPress_Environment::key( 'nova_bridge_layout_recipes_v1' ), [] ); $record = is_array( $state ) ? ( $state['profiles'][$id][$revision] ?? null ) : null; $blueprint = $record['recipe']['blueprint'] ?? null;
         if ( ! is_array( $state ) || ( $state['format'] ?? '' ) !== 'nova-layout-recipes-store/v1' || ! is_array( $record ) || ( $record['id'] ?? '' ) !== $id || ( $record['revision'] ?? 0 ) !== $revision || ( $record['resource_id'] ?? '' ) !== 'taxonomy:' . $taxonomy || ( $record['builder'] ?? '' ) !== 'core' || ! is_array( $blueprint ) || ( $blueprint['taxonomy'] ?? '' ) !== $taxonomy || isset( $blueprint['term_fields']['local_authority'] ) || ! is_string( $record['seal'] ?? null ) || ! is_string( $authority['seal'] ?? null ) || ! hash_equals( $record['seal'], $authority['seal'] ) || ! hash_equals( hash_hmac( 'sha256', Nova_Bridge_Suite_Recipe_Engine::json( [ 'core', $blueprint ] ), wp_salt( 'auth' ) ), $record['seal'] ) ) { return self::error( 'The saved custom category field authority is missing, changed or belongs to another destination.', 409 ); }
         $checked = self::validate_blueprint( $blueprint ); if ( is_wp_error( $checked ) ) { return $checked; } return $record;
     }

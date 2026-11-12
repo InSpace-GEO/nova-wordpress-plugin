@@ -81,7 +81,11 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         return 0 === strpos( $resource, 'post_type:' ) ? ( 'post_type:post' === $resource ? 'informative' : 'service' ) : null;
     }
     private static function posting_support( array $record ): array {
-        if ( 'taxonomy:product_cat' === ( $record['resource_id'] ?? '' ) ) { return [ 'supported' => true, 'reason' => '' ]; }
+        if ( 'taxonomy:product_cat' === ( $record['resource_id'] ?? '' ) ) {
+            if ( ! is_callable( [ 'Nova_Bridge_Suite_Static_Recipe_Adapter', 'project_record' ] ) ) { return [ 'supported' => false, 'reason' => 'The category publishing adapter is unavailable.' ]; }
+            $projection = Nova_Bridge_Suite_Static_Recipe_Adapter::project_record( $record );
+            return [ 'supported' => ! is_wp_error( $projection ), 'reason' => is_wp_error( $projection ) ? $projection->get_error_message() : '' ];
+        }
         return is_callable( [ 'Nova_Bridge_Suite_Stored_Layout', 'publishing_support' ] )
             ? Nova_Bridge_Suite_Stored_Layout::publishing_support( (string) ( $record['resource_id'] ?? '' ), (string) ( $record['builder'] ?? $record['recipe']['builder'] ?? '' ), (string) ( $record['mode'] ?? $record['recipe']['mode'] ?? '' ) )
             : [ 'supported' => false, 'reason' => 'The saved-layout publishing adapter is unavailable.' ];
@@ -94,6 +98,10 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         if ( null === $fallback ) { return []; }
         $metadata = [ 'posting_page_type' => $record['posting_page_type'] ?? $fallback, 'posting_support' => self::posting_support( $record ), 'posting_page_types' => Nova_Bridge_Suite_Layout_Page_Types::selected( $record ) ];
         if ( isset( $record['locale_preservation'] ) ) { $metadata['locale_preservation_status'] = Nova_Bridge_Suite_Layout_Locales::summary( $record['locale_preservation'], true ); }
+        if ( 'taxonomy:product_cat' === ( $record['resource_id'] ?? '' ) && is_callable( [ 'Nova_Bridge_Suite_Static_Recipe_Adapter', 'saved_status' ] ) && class_exists( 'Nova_Bridge_Suite_Posting_Settings' ) ) {
+            $status = Nova_Bridge_Suite_Static_Recipe_Adapter::saved_status( Nova_Bridge_Suite_Posting_Settings::connection(), $record['id'], $record['revision'] );
+            if ( $status ) { $metadata['posting_sync'] = $status; }
+        }
         $supported = self::stored_recipe_supported( $record );
         if ( 'taxonomy:product_cat' !== ( $record['resource_id'] ?? '' ) && $metadata['posting_support']['supported'] && ! $supported ) { $metadata['posting_support'] = [ 'supported' => false, 'reason' => 'This saved recipe contains repeated regions or additional fields without a publishing provider.' ]; }
         if ( $supported && is_callable( [ 'Nova_Bridge_Suite_Stored_Recipe_Sync', 'saved_status' ] ) && class_exists( 'Nova_Bridge_Suite_Posting_Settings' ) ) {
