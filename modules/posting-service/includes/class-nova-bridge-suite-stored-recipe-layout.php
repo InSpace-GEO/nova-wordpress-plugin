@@ -111,7 +111,10 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
         }
         $layout['digest'] = Nova_Bridge_Suite_Recipe_Engine::digest( $layout );
         $bounded = $draft; $bounded['stored_layout'] = $layout;
-        if ( strlen( (string) wp_json_encode( $bounded ) ) > 524288 ) { self::fail( 'The saved creation mapping exceeds 512 KiB. Reduce the captured layout before synchronizing.' ); }
+        $limit = 'beaver' === $builder ? 1048576 : 524288;
+        if ( strlen( (string) wp_json_encode( $bounded ) ) > $limit ) {
+            self::fail( 'The saved creation mapping exceeds ' . ( 'beaver' === $builder ? '1 MiB' : '512 KiB' ) . '. Reduce the captured layout before synchronizing.' );
+        }
         return $layout;
     }
     public static function from_recipe( array $record ) {

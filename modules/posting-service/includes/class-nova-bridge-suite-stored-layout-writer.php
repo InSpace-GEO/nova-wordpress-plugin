@@ -221,7 +221,8 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 $plan['custom_before'] = $target_id ? self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::snapshot( $target_id, $plan['custom_fields'], true ) ) : [];
             }
             self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, $target_id ) );
-            if ( strlen( wp_json_encode( $plan ) ) > 786432 ) { self::fail( 'plan_size', 'This layout exceeds the recoverable native journal size.' ); }
+            $plan_limit = 'beaver' === $builder ? 1572864 : 786432;
+            if ( strlen( wp_json_encode( $plan ) ) > $plan_limit ) { self::fail( 'plan_size', 'This layout exceeds the recoverable native journal size.' ); }
             $plan['plan_digest'] = self::digest( $plan ); return $plan;
         } );
     }

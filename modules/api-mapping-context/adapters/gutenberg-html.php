@@ -54,7 +54,7 @@ final class Nova_Mapping_Gutenberg_HTML {
         return [ 'strategy' => 'custom_html', 'marker' => self::marker( $m[1], $block['innerHTML'], $m[2] ?? 'block' ), 'precision' => isset( $m[2] ) ? 'field' : 'region' ];
     }
 
-    private static function marker( string $path, string $html, string $key ): string {
+    public static function marker( string $path, string $html, string $key ): string {
         return substr( hash( 'sha256', $path . ':' . hash( 'sha256', $html ) . ':' . $key ), 0, 32 );
     }
 

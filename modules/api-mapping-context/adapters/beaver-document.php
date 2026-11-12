@@ -123,7 +123,7 @@ function nova_mapping_bb_compact_tree( array $nodes ): array {
     return $nodes;
 }
 
-function nova_mapping_bb_normalize_incoming_nodes( $nodes ) {
+function nova_mapping_bb_normalize_incoming_nodes( $nodes, array $array_paths = [] ) {
     if ( empty( $nodes ) || ! is_array( $nodes ) ) {
         return array();
     }
@@ -131,8 +131,55 @@ function nova_mapping_bb_normalize_incoming_nodes( $nodes ) {
     $out = array();
     foreach ( $nodes as $key => $node ) {
         $out[ $key ] = nova_mapping_bb_settings_from_json( $node );
+        if ( ! empty( $array_paths[$key] ) ) {
+            $out[$key] = nova_mapping_bb_restore_arrays( $out[$key], array_fill_keys( $array_paths[$key], true ) );
+        }
     }
     return $out;
+}
+
+/** JSON cannot distinguish native associative arrays from setting objects. */
+function nova_mapping_bb_array_paths( $value, string $path = '' ): array {
+    $paths = [];
+    if ( is_array( $value ) && $value && array_keys( $value ) !== range( 0, count( $value ) - 1 ) ) { $paths[] = $path; }
+    if ( is_array( $value ) || is_object( $value ) ) {
+        foreach ( $value as $key => $child ) {
+            $part = str_replace( [ '~', '/' ], [ '~0', '~1' ], (string) $key );
+            $paths = array_merge( $paths, nova_mapping_bb_array_paths( $child, $path . '/' . $part ) );
+        }
+    }
+    return $paths;
+}
+
+function nova_mapping_bb_capture_arrays( array $nodes ): array {
+    foreach ( $nodes as &$node ) {
+        $paths = nova_mapping_bb_array_paths( $node['orig'] ?? null );
+        if ( $paths ) { $node['array_paths'] = $paths; }
+        if ( ! empty( $node['children'] ) ) { $node['children'] = nova_mapping_bb_capture_arrays( $node['children'] ); }
+    }
+    unset( $node );
+    return $nodes;
+}
+
+function nova_mapping_bb_restore_arrays( $value, array $paths, string $path = '' ) {
+    if ( is_array( $value ) || is_object( $value ) ) {
+        foreach ( $value as $key => $child ) {
+            $part = str_replace( [ '~', '/' ], [ '~0', '~1' ], (string) $key );
+            $child = nova_mapping_bb_restore_arrays( $child, $paths, $path . '/' . $part );
+            if ( is_object( $value ) ) { $value->$key = $child; } else { $value[$key] = $child; }
+        }
+        if ( isset( $paths[$path] ) && is_object( $value ) ) { $value = get_object_vars( $value ); }
+    }
+    return $value;
+}
+
+function nova_mapping_bb_compiled_array_paths( array $nodes ): array {
+    $paths = [];
+    foreach ( $nodes as $node ) {
+        if ( ! empty( $node['array_paths'] ) ) { $paths[$node['node_id']] = $node['array_paths']; }
+        $paths += nova_mapping_bb_compiled_array_paths( $node['children'] ?? [] );
+    }
+    return $paths;
 }
 
 function nova_mapping_bb_tree_to_flat( $tree, $regenerate_ids = false ) {

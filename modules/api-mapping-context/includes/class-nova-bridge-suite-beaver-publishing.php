@@ -40,11 +40,12 @@ final class Nova_Bridge_Suite_Beaver_Publishing {
                 return self::error( 'The compiled Beaver layout contains an invalid native node.' );
             }
         }
-        $tree = nova_mapping_bb_flat_to_tree( nova_mapping_bb_normalize_incoming_nodes( $nodes ) );
+        $native_nodes = nova_mapping_bb_normalize_incoming_nodes( $nodes, $payload['layout']['array_paths'] ?? [] );
+        $tree = nova_mapping_bb_flat_to_tree( $native_nodes );
         $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( 'beaver' );
         $valid = $adapter->validate_blueprint( [ 'document' => self::arrays( $tree ), 'meta' => $meta ] );
         if ( is_wp_error( $valid ) ) { return $valid; }
-        return [ 'nodes' => nova_mapping_bb_normalize_incoming_nodes( $nodes ), 'content' => nova_mapping_bb_tree_to_fallback_html( $tree ), 'meta' => $meta ];
+        return [ 'nodes' => $native_nodes, 'content' => nova_mapping_bb_tree_to_fallback_html( $tree ), 'meta' => $meta ];
     }
 
     public static function probe( string $type, array $payload, string $status ) {

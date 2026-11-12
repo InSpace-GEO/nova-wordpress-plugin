@@ -304,7 +304,12 @@ $beaver_output = good( Layout::compile( $beaver_draft, fitted( [ '/title' => 'Ne
 $beaver_node = reset( $beaver_output['writer_payload']['layout']['nodes'] );
 check( $beaver_node['settings']['text'] === '<p>New body</p>' && $beaver_node['settings']['custom_css'] === $beaver_settings['custom_css'], 'New content replaces only the mapped body while native CSS survives' );
 $still_large = $beaver_record;
-$still_large['recipe']['blueprint']['document'][0]['settings']['custom_css'] = str_repeat( 'x', 524288 );
+$still_large['recipe']['blueprint']['document'][0]['settings']['custom_css'] = str_repeat( 'x', 650000 );
+$larger_beaver = good( Layout::from_recipe( $still_large ), 'A complete Beaver layout above 512 KiB fits its bounded 1 MiB allowance' );
+check( strlen( wp_json_encode( $larger_beaver ) ) > 524288, 'The larger fixture exercises the former limit' );
+$larger_wire = good( Writing::template_input( $larger_beaver ), 'Large Beaver layouts keep the existing posting-service contract' );
+check( strlen( wp_json_encode( $larger_wire ) ) < 16384 && ! isset( $larger_wire['stored_layout'] ), 'The posting-service request contains field definitions rather than the large native layout' );
+$still_large['recipe']['blueprint']['document'][0]['settings']['custom_css'] = str_repeat( 'x', 1048576 );
 check( is_wp_error( Layout::from_recipe( $still_large ) ), 'Layouts exceeding the real size limit remain rejected without truncating design settings' );
 
 // Existing sealed profiles keep their original representation and digest for replay.
