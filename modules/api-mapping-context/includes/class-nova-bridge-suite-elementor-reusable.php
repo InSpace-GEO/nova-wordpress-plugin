@@ -40,6 +40,33 @@ final class Nova_Bridge_Suite_Elementor_Reusable {
         $settings = get_post_meta( $ref['id'], '_elementor_page_settings', true );
         return [ 'nodes' => $nodes, 'label' => $post->post_title ?: $label, 'kind' => $kind, 'custom_css' => is_string( $settings['custom_css'] ?? null ) ? $settings['custom_css'] : '' ];
     }
+    /** Scan copy where each kept-shared component is one opaque, already verified node. */
+    public static function shallow_blueprint( array $blueprint ): array {
+        $walk = static function ( array $nodes ) use ( &$walk ): array {
+            foreach ( $nodes as &$node ) {
+                if ( ! is_array( $node ) ) { continue; }
+                $ref = self::reference( $node );
+                if ( $ref && $ref['id'] < 1 ) { self::fail( ( 'global' === $ref['kind'] ? 'A global widget' : 'An Elementor template widget' ) . ' has no library component selected. Choose one in Elementor or remove the widget.' ); }
+                if ( $ref ) { $node = [ 'id' => $node['id'] ?? '', 'elType' => 'widget', 'widgetType' => 'nova-verified-shared', 'settings' => [], 'elements' => [] ]; }
+                elseif ( is_array( $node['elements'] ?? null ) ) { $node['elements'] = $walk( $node['elements'] ); }
+            } unset( $node ); return $nodes;
+        };
+        if ( is_array( $blueprint['document'] ?? null ) ) { $blueprint['document'] = $walk( $blueprint['document'] ); }
+        return $blueprint;
+    }
+    /** Leave out kept-shared components that were deleted or unpublished since the mapping was saved. */
+    public static function without_missing( array $nodes, array &$removed ): array {
+        $kept = [];
+        foreach ( $nodes as $node ) {
+            if ( ! is_array( $node ) ) { $kept[] = $node; continue; }
+            $ref = self::reference( $node );
+            if ( $ref && ! isset( $node[self::COPY] ) ) {
+                try { self::library( $ref ); } catch ( InvalidArgumentException $e ) { $removed[] = self::name( $ref ); continue; }
+            } elseif ( is_array( $node['elements'] ?? null ) ) { $node['elements'] = self::without_missing( $node['elements'], $removed ); }
+            $kept[] = $node;
+        }
+        return $kept;
+    }
     /** Validate dependencies while keeping the persisted blueprint unchanged. */
     public static function validation_blueprint( array $blueprint ): array {
         $count = 0;
