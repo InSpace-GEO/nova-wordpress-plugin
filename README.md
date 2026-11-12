@@ -136,6 +136,8 @@ The plugin derives from NOVA Bridge Suite commit `7e124d48d914b805a31bee340eb6f7
 
 ## Manual releases
 
+Keep public release notes and PR descriptions product-focused. Use synthetic examples in committed tests and exclude client identities, private notes and source exports.
+
 Merging a PR puts the change on `main`. Publishing a GitHub release makes the update available to WordPress installations. Documentation-only changes need no plugin release.
 
 1. Before release, use a PR to set the same new version in the plugin header and `NOVA_BRIDGE_SUITE_VERSION` in `nova-wordpress-plugin.php`, and in the `Stable tag` in `readme.txt`. Add the user-facing changes to the changelog in `readme.txt`. This can be part of the feature or hotfix PR.

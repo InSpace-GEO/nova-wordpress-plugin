@@ -21,20 +21,20 @@ foreach ( [ 'woocommerce/woocommerce.php', 'advanced-custom-fields/acf.php', 'wp
 // Load newly activated plugins on this first CLI run as well.
 foreach ( [ 'woocommerce/woocommerce.php', 'advanced-custom-fields/acf.php', 'wp-seopress/seopress.php' ] as $plugin ) { require_once WP_PLUGIN_DIR . '/' . $plugin; }
 if ( ! taxonomy_exists( 'product_cat' ) ) { WC_Post_Types::register_taxonomies(); }
-acf_add_local_field_group( [ 'key' => 'group_grail_category', 'title' => 'Grail category content', 'fields' => [
-    [ 'key' => 'field_grail_seo_text', 'name' => 'seo_text', 'label' => 'SEO Text', 'type' => 'wysiwyg' ],
-    [ 'key' => 'field_grail_protected', 'name' => 'protected_copy', 'label' => 'Protected Copy', 'type' => 'text' ],
+acf_add_local_field_group( [ 'key' => 'group_category_fixture', 'title' => 'Example category fields', 'fields' => [
+    [ 'key' => 'field_category_fixture_seo_text', 'name' => 'seo_text', 'label' => 'SEO Text', 'type' => 'wysiwyg' ],
+    [ 'key' => 'field_category_fixture_protected', 'name' => 'protected_copy', 'label' => 'Protected Copy', 'type' => 'text' ],
 ], 'location' => [ [ [ 'param' => 'taxonomy', 'operator' => '==', 'value' => 'product_cat' ] ] ] ] );
 update_option( 'woocommerce_permalinks', [ 'category_base' => 'shop' ] );
 global $wp_taxonomies; $wp_taxonomies['product_cat']->rewrite['slug'] = 'shop';
 update_option( 'permalink_structure', '/%postname%/' );
-$term = get_term_by( 'slug', 'omega-3-supplements', 'product_cat' );
-if ( ! $term ) { $created = ensure( wp_insert_term( 'Omega 3 Supplements', 'product_cat', [ 'slug' => 'omega-3-supplements' ] ) ); $term = get_term( $created['term_id'], 'product_cat' ); }
+$term = get_term_by( 'slug', 'example-products', 'product_cat' );
+if ( ! $term ) { $created = ensure( wp_insert_term( 'Example Products', 'product_cat', [ 'slug' => 'example-products' ] ) ); $term = get_term( $created['term_id'], 'product_cat' ); }
 $id = $term->term_id;
-ensure( wp_update_term( $id, 'product_cat', [ 'name' => 'Omega 3 Supplements', 'description' => '<p>Shop premium omega 3 supplements with EPA and DHA.</p>' ] ) );
-update_field( 'field_grail_seo_text', '<h2>What matters most when buying omega 3</h2><p>Existing lower content.</p>', 'product_cat_' . $id );
-update_field( 'field_grail_protected', 'Protected ACF content', 'product_cat_' . $id );
-foreach ( [ '_seopress_titles_title' => 'Omega 3 Supplements | Premium Fish Oil', '_seopress_titles_desc' => 'Premium omega 3 with clear EPA and DHA dosages.', 'wpseo_title' => 'Protected legacy SEO', '_nova_weglot_languages' => [ 'de' ], '_nova_weglot_i18n_de' => [ 'name' => 'Geschützter Inhalt', 'source_term_id' => $id ] ] as $key => $value ) { update_term_meta( $id, $key, $value ); }
+ensure( wp_update_term( $id, 'product_cat', [ 'name' => 'Example Products', 'description' => '<p>Example upper category content.</p>' ] ) );
+update_field( 'field_category_fixture_seo_text', '<h2>Example category heading</h2><p>Existing lower content.</p>', 'product_cat_' . $id );
+update_field( 'field_category_fixture_protected', 'Protected ACF content', 'product_cat_' . $id );
+foreach ( [ '_seopress_titles_title' => 'Example Products | Test Store', '_seopress_titles_desc' => 'Example SEO description.', 'wpseo_title' => 'Protected legacy SEO', '_nova_weglot_languages' => [ 'de' ], '_nova_weglot_i18n_de' => [ 'name' => 'Geschützter Inhalt', 'source_term_id' => $id ] ] as $key => $value ) { update_term_meta( $id, $key, $value ); }
 function api( string $action, array $body ): array {
     $r = new WP_REST_Request( 'POST', '/nova-bridge/v1/mapping/layout-recipes/' . $action );
     $r->set_header( 'content-type', 'application/json' ); $r->set_body( wp_json_encode( $body ) );
@@ -59,7 +59,7 @@ $recipe['custom_fields']['bindings'] = array_values( array_filter( $recipe['cust
 ensure( count( $recipe['custom_fields']['bindings'] ) === 1, 'Expected SEO Text ACF companion.' );
 $recipe['custom_fields']['bindings'][0]['required'] = false;
 $content = array_replace_recursive( $d['sample'], $d['custom_fields_design']['sample'] );
-$saved = api( 'save', [ 'recipe' => $recipe, 'seal' => $d['seal'], 'acf_seal' => $d['custom_fields_design']['seal'], 'resource_id' => 'taxonomy:product_cat', 'expected_revision' => 0, 'expected_default' => Nova_Bridge_Suite_Layout_Recipes::defaults()['taxonomy:product_cat'] ?? null, 'label' => 'Grail Formula category', 'content' => $content ] );
+$saved = api( 'save', [ 'recipe' => $recipe, 'seal' => $d['seal'], 'acf_seal' => $d['custom_fields_design']['seal'], 'resource_id' => 'taxonomy:product_cat', 'expected_revision' => 0, 'expected_default' => Nova_Bridge_Suite_Layout_Recipes::defaults()['taxonomy:product_cat'] ?? null, 'label' => 'Example category', 'content' => $content ] );
 $record = ensure( Nova_Bridge_Suite_Layout_Recipes::delivery_record( $saved['id'], $saved['revision'] ) );
 $projection = ensure( Nova_Bridge_Suite_Static_Recipe_Adapter::project_record( $record ) );
 ensure( count( $projection['input']['definition']['fields'] ) === 5, 'Expected five selected V3 destinations.' );
@@ -88,7 +88,7 @@ ensure( ( $sync['posting_sync']['status'] ?? '' ) === 'synced', wp_json_encode( 
 $again = Nova_Bridge_Suite_Static_Recipe_Adapter::sync_editor( $connection, static function () use ( $saved ) { return $saved; }, false, $client );
 ensure( count( array_filter( $client->requests, static function ( $r ) { return $r[0] === 'POST'; } ) ) === 1, 'Sync retry duplicated template.' );
 echo "Template sync and idempotent retry passed.\n";
-$saved = api( 'save', [ 'id' => $saved['id'], 'recipe' => $recipe, 'seal' => $d['seal'], 'acf_seal' => $d['custom_fields_design']['seal'], 'resource_id' => 'taxonomy:product_cat', 'expected_revision' => $saved['revision'], 'expected_default' => Nova_Bridge_Suite_Layout_Recipes::defaults()['taxonomy:product_cat'], 'label' => 'Grail Formula category revision 2', 'content' => $content ] );
+$saved = api( 'save', [ 'id' => $saved['id'], 'recipe' => $recipe, 'seal' => $d['seal'], 'acf_seal' => $d['custom_fields_design']['seal'], 'resource_id' => 'taxonomy:product_cat', 'expected_revision' => $saved['revision'], 'expected_default' => Nova_Bridge_Suite_Layout_Recipes::defaults()['taxonomy:product_cat'], 'label' => 'Example category revision 2', 'content' => $content ] );
 $sync = Nova_Bridge_Suite_Static_Recipe_Adapter::sync_editor( $connection, static function () use ( $saved ) { return $saved; }, false, $client );
 ensure( ( $sync['posting_sync']['status'] ?? '' ) === 'synced' && $sync['posting_sync']['recipe_revision'] === 2 && $sync['posting_sync']['template_revision'] === 2, 'Saved revision 2 failed to sync.' );
 $record = ensure( Nova_Bridge_Suite_Layout_Recipes::delivery_record( $saved['id'], $saved['revision'] ) );
@@ -102,7 +102,7 @@ $snapshot['url'] = get_term_link( $id, 'product_cat' ); $snapshot['page_type_fro
 $profile = ensure( Nova_Bridge_Suite_Static_Recipe_Adapter::configuration_for_snapshot( $snapshot, $connection['site_id'] ) );
 $snapshot['kind'] = 'adaptation.delivery'; $snapshot['schema_version'] = 2; $snapshot['destination_values'] = [];
 foreach ( $projection['bindings'] as $path => $spec ) {
-    $value = $spec['scope'] === 'acf' ? '<h2>Choosing omega 3</h2><p>New bottom category content.</p>' : ( $path === '/document/title' ? 'Omega 3 Supplements' : ( $path === '/document/sections/0/body' ? '<h2>Premium omega 3</h2><p>New top category content.</p>' : ( strpos( $record['recipe']['blueprint']['term_fields']['declarations'][basename( $path )]['key'] ?? '', '_desc' ) !== false ? 'New omega 3 SEO description.' : 'New Omega 3 SEO Title' ) ) );
+    $value = $spec['scope'] === 'acf' ? '<h2>Updated category heading</h2><p>New bottom category content.</p>' : ( $path === '/document/title' ? 'Example Products' : ( $path === '/document/sections/0/body' ? '<h2>Updated category introduction</h2><p>New top category content.</p>' : ( strpos( $record['recipe']['blueprint']['term_fields']['declarations'][basename( $path )]['key'] ?? '', '_desc' ) !== false ? 'Updated SEO description.' : 'Updated SEO title' ) ) );
     $snapshot['destination_values'][Nova_Bridge_Suite_Writing_Adapter::field_id( $path )] = $value;
 }
 $context = [ 'operation_id' => wp_generate_uuid4(), 'site_id' => $connection['site_id'], 'operation' => 'update', 'desired_status' => 'publish', 'target_post_id' => $id ];
@@ -176,7 +176,7 @@ $wire['url'] = trailingslashit( get_term_link( $parent, 'product_cat' ) ) . $chi
 $created = deliver_category( $wire, $connection, true );
 $new_id = $created['target_id'];
 ensure( $new_id !== $id && get_field( 'seo_text', 'product_cat_' . $new_id, false ) !== '', 'Created category lost ACF content.' );
-ensure( get_term_meta( $new_id, '_seopress_titles_title', true ) === 'New Omega 3 SEO Title', 'Created category lost SEO title.' );
+ensure( get_term_meta( $new_id, '_seopress_titles_title', true ) === 'Updated SEO title', 'Created category lost SEO title.' );
 ensure( ! metadata_exists( 'term', $new_id, 'protected_copy' ) && ! metadata_exists( 'term', $new_id, '_nova_weglot_languages' ), 'New category copied protected example values.' );
 echo "Public delivery worker update, creation and lost-receipt recovery passed.\n";
 $wire['id'] = wp_generate_uuid4();
@@ -187,13 +187,13 @@ echo "Category demo URL creation, update and retry published successfully.\n";
 // Another administrator changing a selected value after planning must win.
 $context['operation_id'] = wp_generate_uuid4();
 $concurrent = ensure( Nova_Bridge_Suite_Static_Term_Writer::plan( $snapshot, $profile, $context ) );
-update_field( 'field_grail_seo_text', '<p>Administrator edit</p>', 'product_cat_' . $id );
+update_field( 'field_category_fixture_seo_text', '<p>Administrator edit</p>', 'product_cat_' . $id );
 $rejected = Nova_Bridge_Suite_Static_Term_Writer::apply( $concurrent, $context['operation_id'] );
 ensure( is_wp_error( $rejected ) && $rejected->get_error_code() === 'nova_static_category_changed', 'Concurrent edit was overwritten.' );
 echo "Concurrent selected-field edit preserved.\n";
 $context['operation_id'] = wp_generate_uuid4();
 $unselected = ensure( Nova_Bridge_Suite_Static_Term_Writer::plan( $snapshot, $profile, $context ) );
-update_field( 'field_grail_protected', 'New unrelated administrator edit', 'product_cat_' . $id );
+update_field( 'field_category_fixture_protected', 'New unrelated administrator edit', 'product_cat_' . $id );
 ensure( Nova_Bridge_Suite_Static_Term_Writer::apply( $unselected, $context['operation_id'] ) );
 ensure( get_field( 'protected_copy', 'product_cat_' . $id, false ) === 'New unrelated administrator edit', 'Unselected concurrent change was lost.' );
 echo "Unselected concurrent field edit preserved during successful delivery.\n";
