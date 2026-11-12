@@ -65,6 +65,14 @@ $bad = $values; $bad[ $badge_id ] = null; destination_error( Nova_Bridge_Suite_W
 $optional = $values; $optional[ $body_id ] = null; destination_check( ! isset( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $draft, $optional )['/meta_all/steps_0_body'] ), 'Optional null skips native replacement.' );
 $empty = $values; $empty[ $badge_id ] = ''; destination_check( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $draft, $empty )['/badge'] === '', 'An explicit empty scalar remains distinct from omission.' );
 foreach ( [ '/url' => 'javascript:alert(1)', '/email' => 'invalid email' ] as $path => $bad_value ) { $bad = $values; $bad[ Nova_Bridge_Suite_Writing_Adapter::field_id( $path ) ] = $bad_value; destination_error( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $draft, $bad ), 'URL/email destination types reject malformed values.' ); }
+foreach ( [ '/contact-form-nl/', '/contact-form/', '/caf%C3%A9/booking?source=button#contact' ] as $url ) {
+    $relative = $values; $relative[ Nova_Bridge_Suite_Writing_Adapter::field_id( '/url' ) ] = $url;
+    destination_check( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $draft, $relative )['/url'] === $url, 'Safe root-relative fitted URLs retain their exact value.' );
+}
+foreach ( [ '//other.example/contact/', '/\\evil', '/%2Fevil', '/%5Cevil', '/bad%00', '/bad%ZZ', '/bad%FF', '/bad%20path', 'contact-form/', 'data:text/html,test' ] as $url ) {
+    $relative = $values; $relative[ Nova_Bridge_Suite_Writing_Adapter::field_id( '/url' ) ] = $url;
+    destination_error( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $draft, $relative ), 'Unsafe or ambiguous relative URLs fail fitted-value validation.' );
+}
 foreach ( [ 'image', 'list', 'link' ] as $type ) {
     $compound = $draft; $compound['fields']['/compound'] = destination_field( 'Described compound destination', $type, 'list' === $type ? [ 'min_items' => 1, 'max_items' => 3 ] : [] ); $compound['target_descriptors']['/compound'] = [ 'path' => '/compound' ];
     $compound_export = Nova_Bridge_Suite_Writing_Adapter::destination_description( $compound ); destination_check( ! is_wp_error( $compound_export ), 'Compound destination descriptions can be prepared without asserting native write support.' );
