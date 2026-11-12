@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.13
+Stable tag: 1.4.14
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.14 =
+* Preserve existing localized category and product-tag descriptions when the field is left unmapped.
+* Clarify destination-content preservation and hide internal metadata from the mapping editor.
 
 = 1.4.13 =
 * Protect localized category and product-tag fields inside Elementor product archive templates from secondary translation.
