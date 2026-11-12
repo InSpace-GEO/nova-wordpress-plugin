@@ -76,5 +76,9 @@ check( $info_output['settings']['list_items'][0]['title'] === 'Updated item head
 $expected_settings = json_decode( wp_json_encode( $info->settings ), true );
 $expected_settings['list_items'][0]['title'] = 'Updated item heading';
 check( $info_output['settings'] === $expected_settings, 'Updating the title preserves icons, typography, descriptions and other list items.' );
+$dynamic_info = $info_capture['blueprint'];
+$dynamic_info['document'][0]['settings']['data_source'] = 'acf';
+$dynamic_fields = ok( $adapter->describe( $dynamic_info ) )['fields'];
+check( ! in_array( $info_title['target'], array_column( $dynamic_fields, 'target' ), true ), 'An external data source does not expose inactive manual list items.' );
 
 echo 'Beaver HTML and Info List field checks: ' . ( $checks - $start_checks ) . " passed.\n";

@@ -687,7 +687,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                     foreach ( [ 'heading', 'text', 'label', 'link', 'caption', 'alt' ] as $key ) { if ( isset( $settings[ $key ] ) && is_string( $settings[ $key ] ) ) { $add( $path . '/settings/' . $key, 'text' === $key ? 'html' : ( 'link' === $key ? 'url' : 'text' ), $key ); } }
                     if ( 'photo' === ( $settings['type'] ?? '' ) && 'url' === ( $settings['photo_source'] ?? '' ) && isset( $settings['photo_url'] ) && is_string( $settings['photo_url'] ) ) { $add( $path . '/settings/photo_url', 'url', 'image_url' ); }
                     if ( in_array( $settings['type'] ?? '', [ 'accordion', 'tabs' ], true ) && is_array( $settings['items'] ?? null ) ) { $this->walk_inventory( $settings['items'], $path . '/settings/items', $result, $node_protected, $node_context . ' > FAQ items', [ 'node' => $node, 'path' => $path ] ); }
-                    if ( 'pp-infolist' === ( $settings['type'] ?? '' ) && is_array( $settings['list_items'] ?? null ) ) {
+                    if ( 'pp-infolist' === ( $settings['type'] ?? '' ) && ( empty( $settings['data_source'] ) || 'manual' === $settings['data_source'] ) && is_array( $settings['list_items'] ?? null ) ) {
                         foreach ( $settings['list_items'] as $index => $item ) {
                             if ( ! is_int( $index ) || ! is_array( $item ) ) { continue; }
                             foreach ( [ 'title' => [ 'text', 'heading' ], 'description' => [ 'html', 'body' ] ] as $key => $spec ) {
