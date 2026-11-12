@@ -279,6 +279,13 @@
 			if ( ! safeId.test( id ) ) { return null; }
 			var beaver = unique( document, '.fl-builder-content-' + config.referenceId ); if ( ! beaver ) { return null; }
 			owner = unique( beaver, '.fl-node-' + id ); if ( ! owner ) { return null; }
+			if ( locator.element_type === 'pp-infolist' ) {
+				var infoField = /^list_items\.(\d+)\.(title|description)$/.exec( control );
+				if ( ! infoField ) { return null; }
+				var infoItem = unique( owner, '.pp-list-item-' + infoField[1] ); if ( ! infoItem ) { return null; }
+				var infoNode = unique( infoItem, infoField[2] === 'title' ? '.pp-infolist-title-text' : '.pp-infolist-description' );
+				return infoNode ? { node: infoNode, owner: owner, precision: 'field' } : null;
+			}
 			selector = { heading: '.fl-heading-text', text: '.fl-rich-text', label: '.fl-button-text', caption: '.fl-photo-caption', alt: '.fl-photo-img' }[ control ];
 		} else if ( strategy === 'breakdance' ) {
 			// A server-verified concrete ID/class is required; never guess provider markup.

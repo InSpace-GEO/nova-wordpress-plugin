@@ -53,4 +53,28 @@ $GLOBALS['preview_post_id'] = 902;
 check( Nova_Bridge_Suite_Mapping_Preview::mark_beaver_html( $rendered, 'html', $native->settings, $module ) === $rendered, 'Other posts receive no preview markers.' );
 $canvas->setValue( null, null );
 check( Nova_Bridge_Suite_Mapping_Preview::mark_beaver_html( $rendered, 'html', $native->settings, $module ) === $rendered, 'Ordinary frontend rendering receives no preview markers.' );
-echo 'Beaver HTML field checks: ' . ( $checks - $start_checks ) . " passed.\n";
+$info = (object) [ 'node' => 'infolist123', 'type' => 'module', 'parent' => null, 'position' => 0,
+    'settings' => (object) [ 'type' => 'pp-infolist', 'title_tag' => 'h3', 'title_typography' => [ 'font_size' => [ 'length' => '30', 'unit' => 'px' ] ],
+        'list_items' => [
+            (object) [ 'title' => 'Original item heading', 'description' => '<p>Original description</p>', 'icon_type' => 'image', 'image_select' => '275', 'image_select_src' => '/icon.svg', 'connections' => (object) [ 'title' => '' ] ],
+            (object) [ 'title' => 'Connected item heading', 'description' => '', 'connections' => (object) [ 'title' => 'provider:field' ] ],
+        ] ] ];
+$meta[901]['_fl_builder_data'] = [ 'infolist123' => $info ];
+$info_capture = ok( $adapter->capture( 901 ) );
+$info_fields = array_column( $info_capture['fields'], null, 'value' );
+$info_title = $info_fields['Original item heading'];
+check( $info_title['writable'] && $info_title['format'] === 'text' && $info_title['kind'] === 'heading', 'PowerPack list titles are exposed as native heading fields.' );
+check( $info_fields['<p>Original description</p>']['format'] === 'html', 'PowerPack descriptions have their own rich-text field.' );
+check( ! $info_fields['Connected item heading']['writable'], 'An individual connected list field stays protected.' );
+check( $info_title['native_node_id'] === 'infolist123' && $info_title['control_path'] === [ 'settings', 'list_items', '0', 'title' ], 'Nested list fields retain their module identity and item position.' );
+$info_record = html_record( $info_capture['blueprint'], [ 'Original item heading' => 'Updated item heading' ], $info_fields );
+$info_record['builder'] = $info_record['recipe']['builder'] = 'beaver';
+$info_draft = ok( Nova_Bridge_Suite_Stored_Layout::from_recipe( $info_record ) );
+$info_compiled = ok( Nova_Bridge_Suite_Stored_Layout::compile( $info_draft, [ Nova_Bridge_Suite_Writing_Adapter::field_id( '/title' ) => 'New page', Nova_Bridge_Suite_Writing_Adapter::field_id( $info_title['target'] ) => 'Updated item heading' ], 'infolist-fixture' ) );
+$info_output = reset( $info_compiled['writer_payload']['layout']['nodes'] );
+check( $info_output['settings']['list_items'][0]['title'] === 'Updated item heading', 'The mapped title reaches the native PowerPack item.' );
+$expected_settings = json_decode( wp_json_encode( $info->settings ), true );
+$expected_settings['list_items'][0]['title'] = 'Updated item heading';
+check( $info_output['settings'] === $expected_settings, 'Updating the title preserves icons, typography, descriptions and other list items.' );
+
+echo 'Beaver HTML and Info List field checks: ' . ( $checks - $start_checks ) . " passed.\n";

@@ -95,4 +95,20 @@ check(normalized[0].omitted === true, 'Removed elements are marked in the canvas
   check(container.properties.height === '450px', 'The native slider height is retained');
   check(canvas.prepareStaticLayout(win, document) === 0, 'Preparing the slider twice changes nothing');
 }
+{
+  const beaver = element('div'), module = element('div'), first = element('li'), second = element('li');
+  const firstTitle = element('h3'), secondTitle = element('h3'), description = element('div');
+  const document = {querySelectorAll: selector => selector === '.fl-builder-content-12' ? [beaver] : []};
+  beaver.selectors.set('.fl-node-infolist123', [module]);
+  module.selectors.set('.pp-list-item-0', [first]); module.selectors.set('.pp-list-item-1', [second]);
+  first.selectors.set('.pp-infolist-title-text', [firstTitle]); second.selectors.set('.pp-infolist-title-text', [secondTitle]);
+  second.selectors.set('.pp-infolist-description', [description]);
+  const item = (index, field) => ({locator: {reference_id: 12, strategy: 'beaver', node_id: 'infolist123', element_type: 'pp-infolist', control_path: ['settings', 'list_items', String(index), field]}});
+  check(canvas.locate(document, item(0, 'title'), config).node === firstTitle, 'The first PowerPack item locates its exact heading');
+  check(canvas.locate(document, item(1, 'title'), config).node === secondTitle, 'Repeated list items retain independent heading targets');
+  check(canvas.locate(document, item(1, 'description'), config).node === description, 'The description locates its own element');
+  check(canvas.locate(document, item(2, 'title'), config) === null, 'A missing list item does not select the entire module');
+  second.selectors.set('.pp-infolist-title-text', [firstTitle, secondTitle]);
+  check(canvas.locate(document, item(1, 'title'), config) === null, 'An ambiguous list heading is not guessed');
+}
 console.log('PASS recipe canvas builder checks: ' + checks);
