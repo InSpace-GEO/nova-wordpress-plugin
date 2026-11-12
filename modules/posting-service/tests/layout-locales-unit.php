@@ -82,4 +82,32 @@ check( str_contains( wp_json_encode( $manual_compiled['writer_payload'] ), 'Titr
 $unknown = $manual_recipe; $unknown['locale_values'] = [ 'zz_ZZ' => [ $source_fields['Bewaarde titel']['target'] => 'Unknown' ] ];
 try { Nova_Bridge_Suite_Layout_Locales::with_manual( $snapshot, $unknown ); check( false, 'Unknown locale should fail' ); }
 catch ( InvalidArgumentException $error ) { check( true, 'Manual values cannot create unconfigured locales.' ); }
+// Core descriptors expose their values through the blueprint rather than a value property.
+foreach ( [ 910 => 'Dutch body', 911 => '<p>Corpo italiano &amp; contenuto</p>' ] as $id => $body ) {
+    $posts[$id]->post_title = 'Title ' . $id;
+    $posts[$id]->post_content = $body;
+    $meta[$id] = [];
+}
+$resource = [ 'id' => 'post_type:page', 'type' => 'post_type', 'post_type' => 'page' ];
+$core = ok( Nova_Bridge_Suite_Recipe_Core::design( $resource, 910, 'static' ) );
+$core_snapshot = Nova_Bridge_Suite_Layout_Locales::capture( $resource, 'core', $core['blueprint'], 910 );
+check( $core_snapshot['variants'][0]['values']['/document/sections/0/body']['value'] === $posts[911]->post_content, 'Core references capture values from the blueprint.' );
+$core_restored = Nova_Bridge_Suite_Layout_Locales::apply( $core_snapshot, 'it-IT', $core['blueprint'], Nova_Bridge_Suite_Recipe_Engine::adapter( 'core' ) );
+check( $core_restored['document']['sections'][0]['body'] === $posts[911]->post_content, 'Core locale content preserves its exact HTML.' );
+
+$elementor = Nova_Bridge_Suite_Recipe_Engine::adapter( 'elementor' );
+$elementor_blueprint = [ 'document' => [ [ 'id' => 'head123', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Contact' ], 'elements' => [] ] ], 'meta' => [], 'template' => '' ];
+$italian_heading = 'Contatti <em>oggi</em> &amp; domani';
+$native_snapshot = $locale_snapshot;
+$native_snapshot['variants'] = [ [ 'locale' => 'it-IT', 'code' => 'it', 'reference_id' => 911, 'values' => [
+    '/document/0/settings/title' => [ 'format' => 'text', 'value' => $italian_heading, 'native_value' => $italian_heading ],
+] ] ];
+$restored = Nova_Bridge_Suite_Layout_Locales::apply( $native_snapshot, 'it-IT', $elementor_blueprint, $elementor );
+check( $restored['document'][0]['settings']['title'] === $italian_heading, 'Captured Elementor inline markup and entities retain native encoding.' );
+$manual_snapshot = $native_snapshot;
+unset( $manual_snapshot['variants'][0]['values']['/document/0/settings/title']['native_value'] );
+$manual_snapshot['variants'][0]['values']['/document/0/settings/title']['source'] = 'manual';
+$restored = Nova_Bridge_Suite_Layout_Locales::apply( $manual_snapshot, 'it-IT', $elementor_blueprint, $elementor );
+check( $restored['document'][0]['settings']['title'] === htmlspecialchars( $italian_heading, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' ), 'Manual text continues through the normal text binding rules.' );
+
 echo 'Locale preservation checks: ' . ( $checks - $locale_start ) . " passed.\n";

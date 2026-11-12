@@ -12,7 +12,11 @@ final class Nova_Bridge_Suite_Layout_Locales {
         if ( is_wp_error( $description ) ) { return []; }
         $fields = [];
         foreach ( $description['fields'] ?? [] as $field ) {
-            if ( empty( $field['writable'] ) || ! is_string( $field['target'] ?? null ) || ! is_string( $field['value'] ?? null ) || ! empty( $field['native_post'] ) ) { continue; }
+            if ( empty( $field['writable'] ) || ! is_string( $field['target'] ?? null ) || ! empty( $field['native_post'] ) ) { continue; }
+            if ( ! array_key_exists( 'value', $field ) ) {
+                $field['value'] = Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $field['target'] );
+            }
+            if ( ! is_string( $field['value'] ) ) { continue; }
             $format = $field['format'] ?? '';
             if ( ! in_array( $format, [ 'text', 'html', 'url' ], true ) ) { continue; }
             $fields[$field['target']] = $field;
@@ -108,7 +112,11 @@ final class Nova_Bridge_Suite_Layout_Locales {
                 $match = count( $matches ) === 1 ? $matches[0] : ( $same_structure ? ( $translated[$path] ?? null ) : null );
                 if ( $match ) {
                     ++$matched;
-                    if ( $field['value'] !== $match['value'] ) { $values[$path] = [ 'format' => $field['format'], 'value' => $match['value'] ]; }
+                    if ( $field['value'] !== $match['value'] ) {
+                        $values[$path] = [ 'format' => $field['format'], 'value' => $match['value'] ];
+                        $native_value = Nova_Bridge_Suite_Recipe_Engine::get( $design['blueprint'], $match['target'] );
+                        if ( is_string( $native_value ) ) { $values[$path]['native_value'] = $native_value; }
+                    }
                     else { $unchanged[] = $path; }
                 }
             }
@@ -182,6 +190,7 @@ final class Nova_Bridge_Suite_Layout_Locales {
             foreach ( $variant['values'] as $path => $entry ) {
                 if ( ! isset( $fields[$path] ) || self::overlaps( $path, $mapped ) || ! is_array( $entry ) || ( $entry['format'] ?? '' ) !== $fields[$path]['format'] || ! is_string( $entry['value'] ?? null ) ) { throw new InvalidArgumentException( 'A saved locale value no longer matches a preserved native field.' ); }
                 if ( ! $variant['reference_id'] && ( $entry['source'] ?? '' ) !== 'manual' ) { throw new InvalidArgumentException( 'A reference locale value requires its captured page identity.' ); }
+                if ( array_key_exists( 'native_value', $entry ) && ( ! is_string( $entry['native_value'] ) || ( $entry['source'] ?? '' ) === 'manual' ) ) { throw new InvalidArgumentException( 'Only captured native fields can retain their stored representation.' ); }
             }
             if ( isset( $variant['unchanged'] ) && ! is_array( $variant['unchanged'] ) ) { throw new InvalidArgumentException( 'Saved reference field identities must be a list.' ); }
             foreach ( $variant['unchanged'] ?? [] as $path ) { if ( ! $variant['reference_id'] || ! isset( $fields[$path] ) || self::overlaps( $path, $mapped ) ) { throw new InvalidArgumentException( 'A preserved reference field no longer matches the saved layout.' ); } }
@@ -192,12 +201,34 @@ final class Nova_Bridge_Suite_Layout_Locales {
         foreach ( $snapshot['variants'] as $variant ) {
             if ( ! in_array( self::normalize( $locale ), [ self::normalize( $variant['locale'] ), self::normalize( $variant['code'] ) ], true ) ) { continue; }
             foreach ( $variant['values'] as $path => $entry ) {
+                if ( isset( $entry['native_value'] ) ) {
+                    if ( 'url' === $entry['format'] ) {
+                        $blueprint = $adapter->bind( $blueprint, [ 'target' => $path, 'format' => $entry['format'] ], $entry['value'] );
+                        if ( is_wp_error( $blueprint ) ) { throw new InvalidArgumentException( $blueprint->get_error_message() ); }
+                    }
+                    self::restore_native( $blueprint, $path, $entry['native_value'] );
+                    continue;
+                }
                 $blueprint = $adapter->bind( $blueprint, [ 'target' => $path, 'format' => $entry['format'] ], $entry['value'] );
                 if ( is_wp_error( $blueprint ) ) { throw new InvalidArgumentException( $blueprint->get_error_message() ); }
             }
             break;
         }
         return $blueprint;
+    }
+
+    /** Captured controls already use the builder's native encoding, including compound HTML controls. */
+    private static function restore_native( array &$blueprint, string $path, string $value ): void {
+        Nova_Bridge_Suite_Recipe_Engine::put( $blueprint, $path, $value );
+        if ( str_ends_with( $path, '/innerHTML' ) ) {
+            $parent = substr( $path, 0, -10 );
+            $node = Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $parent );
+            if ( isset( $node['blockName'], $node['innerContent'] ) ) { Nova_Bridge_Suite_Recipe_Engine::put( $blueprint, $parent . '/innerContent', [ $value ] ); }
+        } elseif ( str_ends_with( $path, '/innerContent/0' ) ) {
+            $parent = substr( $path, 0, -15 );
+            $node = Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $parent );
+            if ( isset( $node['blockName'], $node['innerHTML'] ) ) { Nova_Bridge_Suite_Recipe_Engine::put( $blueprint, $parent . '/innerHTML', implode( '', array_filter( $node['innerContent'], 'is_string' ) ) ); }
+        }
     }
 
     public static function summary( array $snapshot, bool $saved = false ): array {
