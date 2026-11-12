@@ -100,6 +100,12 @@ final class Nova_Bridge_Suite_Term_Translation_Writer {
             ( $previous['version'] ?? 0 ) >= $content['version_number'] ) ) {
             return self::error( 'version', 'A newer, unrelated or unfinished category translation already owns this language.' );
         }
+        // An omitted description belongs to the existing destination, including its translation.
+        // Retain it in the new record because committing a version replaces that entire record.
+        if ( ! array_key_exists( 'description', $fields['native'] ) &&
+            isset( $previous['fields']['native']['description'] ) ) {
+            $fields['native']['description'] = $previous['fields']['native']['description'];
+        }
         $plan = [ 'format' => self::FORMAT, 'operation_id' => $context['operation_id'],
             'provider' => $target, 'target' => [ 'target_url' => $target['url'] ],
             'site_id' => $content['site_id'], 'content_item_id' => $content['content_item_id'],

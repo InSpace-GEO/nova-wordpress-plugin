@@ -50,6 +50,27 @@ $tag_projection = Nova_Bridge_Suite_Static_Recipe_Adapter::project_record( $tag_
 check( ! is_wp_error( $tag_projection ) && $tag_projection['input']['page_type'] === 'category', 'Product-tag mappings must use the Category writing contract.' );
 $tag_payload = Nova_Bridge_Suite_Category_Recipe::compile( $snapshot, [ 'record' => $tag_record, 'projection' => $tag_projection ], 'product-tag-test' );
 check( $tag_payload === $payload, 'Product-tag fitting changed the mapped native or ACF content.' );
+// A kept notice is excluded from both generation and every destination patch.
+foreach ( [ $record, $tag_record ] as $kept_record ) {
+    $kept_record['recipe']['bindings'] = array_values( array_filter(
+        $kept_record['recipe']['bindings'],
+        static function ( $binding ) { return $binding['target'] !== '/document/sections/0/body'; }
+    ) );
+    $kept_projection = Nova_Bridge_Suite_Static_Recipe_Adapter::project_record( $kept_record );
+    check( ! is_wp_error( $kept_projection ), 'A notice can remain unmapped.' );
+    check( ! isset( $kept_projection['bindings']['/document/sections/0/body'] ), 'The notice was offered for generation.' );
+    $kept_snapshot = $snapshot;
+    unset( $kept_snapshot['destination_values'][Nova_Bridge_Suite_Writing_Adapter::field_id( '/document/sections/0/body' )] );
+    $kept_payload = Nova_Bridge_Suite_Category_Recipe::compile(
+        $kept_snapshot, [ 'record' => $kept_record, 'projection' => $kept_projection ], 'keep-notice'
+    );
+    check( ! is_wp_error( $kept_payload ) && ! array_key_exists( 'description', $kept_payload ), 'The example notice leaked into a destination patch.' );
+    foreach ( [ '<p>Destination-specific research notice.</p>', '' ] as $existing_notice ) {
+        $destination = array_replace( [ 'description' => $existing_notice ], $kept_payload );
+        check( $destination['description'] === $existing_notice, 'Updating mapped fields replaced a destination notice.' );
+    }
+    check( ! array_key_exists( 'description', $kept_payload ), 'New categories received the example notice.' );
+}
 $tag_record['recipe']['custom_fields']['blueprint']['taxonomy'] = 'product_cat';
 check( is_wp_error( Nova_Bridge_Suite_Static_Recipe_Adapter::project_record( $tag_record ) ), 'A category companion was allowed to write product-tag fields.' );
 echo 'PASS ' . ( $checks - $baseline ) . " category publishing projection checks.\n";
