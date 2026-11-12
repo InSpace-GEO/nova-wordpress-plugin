@@ -19,7 +19,7 @@ function wp_json_encode( $value, $flags = 0 ) { return json_encode( $value, $fla
 function __( $value, $domain = '' ) { return $value; }
 function apply_filters( $name, $value, ...$args ) { return $value; }
 function wp_unslash( $value ) { return stripslashes( $value ); }
-function maybe_unserialize( $value ) { return $value; }
+function maybe_unserialize( $value ) { return is_string( $value ) && str_starts_with( $value, 'a:' ) ? unserialize( $value ) : $value; }
 function sanitize_text_field( $value ) { return strip_tags( (string) $value ); }
 function get_post( $id ) { return $GLOBALS['posts'][$id] ?? null; }
 function get_term( $id, $taxonomy ) { $term = $GLOBALS['terms'][$id] ?? null; return $term && $term->taxonomy === $taxonomy ? $term : null; }
@@ -228,8 +228,8 @@ class DocumentRequest {
     private $params; private $body; public function __construct( $params = [], $body = null ) { $this->params = $params; $this->body = $body; }
     public function get_param( $key ) { return $this->params[$key] ?? null; } public function get_header( $key ) { return null; } public function get_json_params() { return $this->body; } public function get_body() { return json_encode( $this->body ); }
 }
-class DocumentDB { public $options = 'wp_options'; public function prepare( $sql, ...$args ) { return $args; } public function query( $args ) { list( $value, $key, $expected ) = $args; if ( serialize( get_option( $key ) ) !== $expected ) { return 0; } $GLOBALS['options'][$key] = unserialize( $value ); return 1; } }
-$wpdb = new DocumentDB();
+require_once __DIR__ . '/fixtures/atomic-option-db.php';
+$wpdb = new Nova_Test_Atomic_Option_DB( $options );
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-endpoint-mappings.php';
 function response_data( $response ) { $response = result( $response ); check( $response instanceof DocumentResponse && $response->headers['Cache-Control'] === 'private, no-store', 'Expected a private controller response.' ); return $response->get_data(); }
 $existing = response_data( Nova_Bridge_Suite_Endpoint_Mappings::existing( new DocumentRequest( [ 'resource_id' => 'post_type:page', 'reference_type' => 'post', 'reference_id' => 1 ] ) ) );

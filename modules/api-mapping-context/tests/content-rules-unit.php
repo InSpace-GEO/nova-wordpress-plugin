@@ -21,19 +21,10 @@ $store = [];
 function get_option( $name, $default = false ) { return $GLOBALS['store'][ $name ] ?? $default; }
 function add_option( $name, $value, $deprecated = '', $autoload = false ) { if ( array_key_exists( $name, $GLOBALS['store'] ) ) { return false; } $GLOBALS['store'][ $name ] = $value; return true; }
 function maybe_serialize( $value ) { return is_array( $value ) ? serialize( $value ) : $value; }
+function maybe_unserialize( $value ) { return unserialize( $value ); }
 function wp_cache_delete( $key, $group ) { return true; }
-class Content_Rules_DB {
-    public $options = 'wp_options'; public $on_query; public $updates = 0;
-    public function prepare( $sql, ...$arguments ) { return [ $sql, $arguments ]; }
-    public function query( $prepared ) {
-        ++$this->updates;
-        if ( $this->on_query ) { $hook = $this->on_query; $this->on_query = null; $hook(); }
-        list( $sql, $arguments ) = $prepared; list( $next, $name, $expected ) = $arguments;
-        if ( maybe_serialize( get_option( $name ) ) !== $expected ) { return 0; }
-        $GLOBALS['store'][ $name ] = unserialize( $next, [ 'allowed_classes' => false ] ); return 1;
-    }
-}
-$wpdb = new Content_Rules_DB();
+require_once __DIR__ . '/fixtures/atomic-option-db.php';
+$wpdb = new Nova_Test_Atomic_Option_DB( $store );
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-content-rules.php';
 $checks = 0;
 function check( $condition, $message ) { ++$GLOBALS['checks']; if ( ! $condition ) { throw new RuntimeException( $message ); } }
@@ -117,11 +108,11 @@ blocked( Nova_Bridge_Suite_Content_Rules::configuration_for_snapshot( [ 'configu
 blocked( Nova_Bridge_Suite_Content_Rules::bind( $site, $saved['id'], 99 ), 'not_found' );
 result( Nova_Bridge_Suite_Content_Rules::unbind( $site ) );
 check( Nova_Bridge_Suite_Content_Rules::binding( $site ) === [], 'Site opt-in can explicitly be removed.' );
-$wpdb->on_query = static function () use ( $updated ) { $race = $updated; $race['revision'] = 3; $race['label'] = 'Concurrent edit'; $GLOBALS['store']['nova_bridge_content_rules_v1']['profiles'][ $race['id'] ][3] = $race; };
+$wpdb->race = static function () use ( $updated ) { $race = $updated; $race['revision'] = 3; $race['label'] = 'Concurrent edit'; $GLOBALS['store']['nova_bridge_content_rules_v1']['profiles'][ $race['id'] ][3] = $race; };
 $attempt = $updated; $attempt['label'] = 'Stale losing edit'; blocked( Nova_Bridge_Suite_Content_Rules::save( $attempt, 2 ), 'conflict' );
 check( Nova_Bridge_Suite_Content_Rules::get( $updated['id'] )['label'] === 'Concurrent edit', 'Byte-CAS refuses a same-profile concurrent overwrite.' );
 $race_before = $wpdb->updates;
-$wpdb->on_query = static function () use ( $site, $other_site ) { $GLOBALS['store']['nova_bridge_content_rules_v1']['bindings'][ $other_site ] = [ 'site_id' => $other_site, 'profile_id' => 'unrelated', 'profile_revision' => 1 ]; };
+$wpdb->race = static function () use ( $site, $other_site ) { $GLOBALS['store']['nova_bridge_content_rules_v1']['bindings'][ $other_site ] = [ 'site_id' => $other_site, 'profile_id' => 'unrelated', 'profile_revision' => 1 ]; };
 result( Nova_Bridge_Suite_Content_Rules::bind( $site, $saved['id'], 1 ) );
 check( $wpdb->updates === $race_before + 2 && isset( $store['nova_bridge_content_rules_v1']['bindings'][ $other_site ] ), 'Atomic CAS retry preserves an unrelated concurrent binding.' );
 echo 'content-rules-unit: ' . $checks . " checks passed\n";

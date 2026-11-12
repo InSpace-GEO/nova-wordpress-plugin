@@ -6,7 +6,7 @@ class MediaRecipeDb extends RecipeDb {
     public $last_error = '';
     public function get_col( $statement ) { if ( $GLOBALS['media_lookup_failure'] ) { throw new RuntimeException( 'Simulated interrupted import' ); } $id = $GLOBALS['media_rows'][$statement['args'][1]] ?? 0; return $id ? [ $id ] : []; }
 }
-$wpdb = new MediaRecipeDb();
+$wpdb = new MediaRecipeDb( $options );
 function wp_attachment_is_image( $id ) { return $id >= 9000; }
 function wp_get_attachment_metadata( $id ) { return [ 'width' => 600, 'height' => 400 ]; }
 function wp_get_attachment_url( $id ) { return 'https://site.example/uploads/imported-' . $id . '.jpg'; }

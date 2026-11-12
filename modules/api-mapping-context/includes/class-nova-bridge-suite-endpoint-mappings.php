@@ -3,6 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
+require_once __DIR__ . '/class-nova-wordpress-atomic-option.php';
 
 final class Nova_Bridge_Suite_Endpoint_Mappings {
     private const OPTION = 'nova_bridge_endpoint_mappings_v1';
@@ -332,12 +333,13 @@ final class Nova_Bridge_Suite_Endpoint_Mappings {
     }
 
     private static function save( array $record, int $expected_revision ) {
-        global $wpdb;
-        if ( ! isset( $wpdb->options ) || ! preg_match( '/^[A-Za-z0-9_]+$/D', $wpdb->options ) ) { return self::error( 'storage', 'Atomic WordPress option storage is unavailable.', 409 ); }
+        if ( ! Nova_WordPress_Atomic_Option::available() ) { return self::error( 'storage', 'Atomic WordPress option storage is unavailable.', 409 ); }
+        $option = Nova_WordPress_Environment::key( self::OPTION );
         $new_id = wp_generate_uuid4();
         for ( $attempt = 0; $attempt < 3; ++$attempt ) {
-            wp_cache_delete( Nova_WordPress_Environment::key( self::OPTION ), 'options' ); wp_cache_delete( 'alloptions', 'options' );
-            $missing = new stdClass(); $stored = get_option( Nova_WordPress_Environment::key( self::OPTION ), $missing ); $state = self::state( $stored, $stored === $missing ); if ( is_wp_error( $state ) ) { return $state; }
+            $stored = Nova_WordPress_Atomic_Option::read( $option );
+            if ( false === $stored ) { return self::error( 'storage', 'The endpoint mapping store could not be read.', 500 ); }
+            $state = self::state( $stored['value'] ?? null, null === $stored ); if ( is_wp_error( $state ) ) { return $state; }
             $current = self::record( $state, $record['resource_id'] ); $latest = $current['revision'] ?? 0;
             if ( $latest !== $expected_revision ) { return self::error( 'conflict', 'This endpoint default changed. Reload its latest revision before saving.', 409 ); }
             $id = $current['mapping_id'] ?? $new_id; $revisions = $state['revisions'][$id] ?? [];
@@ -345,13 +347,9 @@ final class Nova_Bridge_Suite_Endpoint_Mappings {
             $saved = $record; $saved['mapping_id'] = $id; $saved['revision'] = $latest + 1; $saved['saved'] = true;
             $next = $state; $next['revisions'][$id][$saved['revision']] = $saved; $next['defaults'][$record['resource_id']] = [ 'id' => $id, 'revision' => $saved['revision'] ];
             $raw = maybe_serialize( $next ); if ( strlen( $raw ) > self::MAX_STORE_BYTES ) { return self::error( 'storage_size', 'The endpoint mapping store has reached 16 MiB. No history was removed.', 409 ); }
-            if ( $stored === $missing ) { $updated = add_option( Nova_WordPress_Environment::key( self::OPTION ), $next, '', false ); }
-            else {
-                $updated = $wpdb->query( $wpdb->prepare( 'UPDATE `' . $wpdb->options . '` SET option_value = %s WHERE option_name = %s AND BINARY option_value = BINARY %s', $raw, Nova_WordPress_Environment::key( self::OPTION ), maybe_serialize( $stored ) ) );
-                if ( false === $updated ) { return self::error( 'storage', 'The endpoint mapping default could not be saved.', 500 ); } $updated = 1 === $updated;
-            }
-            wp_cache_delete( Nova_WordPress_Environment::key( self::OPTION ), 'options' ); wp_cache_delete( 'alloptions', 'options' ); wp_cache_delete( 'notoptions', 'options' );
-            if ( $updated ) { return self::public_record( $saved, $record['resource_id'] ); }
+            $updated = Nova_WordPress_Atomic_Option::write( $option, $stored['fingerprint'] ?? null, $raw );
+            if ( false === $updated ) { return self::error( 'storage', 'The endpoint mapping default could not be saved.', 500 ); }
+            if ( 1 === $updated ) { return self::public_record( $saved, $record['resource_id'] ); }
         }
         return self::error( 'conflict', 'Another administrator changed the local endpoint mappings. Reload before saving.', 409 );
     }
