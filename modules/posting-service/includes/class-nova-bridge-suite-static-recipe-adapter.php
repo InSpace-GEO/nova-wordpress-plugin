@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-posting-url-scope.php';
 require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
+require_once __DIR__ . '/class-nova-bridge-suite-category-recipe.php';
 
 final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     public const MODE = 'static_recipe_v1';
@@ -39,6 +40,8 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
             if ( is_array( $profile ) && ( $profile['mode'] ?? '' ) === self::MODE && ( $profile['site_id'] ?? '' ) === $client->site_id()
                 && ( $profile['origin'] ?? '' ) === rtrim( home_url( '/' ), '/' ) && hash_equals( self::digest( $unsigned ), (string) ( $profile['profile_digest'] ?? '' ) )
                 && self::digest( $profile['record'] ?? [] ) === self::digest( $record ) && self::digest( $profile['template'] ?? [] ) === self::digest( self::frozen( $remote ) ) ) {
+                $enabled = self::enable_fitting( $client->site_id(), $remote );
+                if ( is_wp_error( $enabled ) ) { return $unknown; }
                 $status = self::editor_summary( $record, $remote );
             }
         }
@@ -96,7 +99,10 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
             $unsigned = is_array( $prior ) ? $prior : []; unset( $unsigned['profile_digest'] );
             // Reuse only this site's retained authority, never a profile from another registration.
             if ( ! is_array( $prior ) || ( $prior['mode'] ?? '' ) !== self::MODE || ! hash_equals( self::digest( $unsigned ), (string) ( $prior['profile_digest'] ?? '' ) ) || ( $prior['site_id'] ?? '' ) !== $client->site_id() || ( $prior['origin'] ?? '' ) !== rtrim( home_url( '/' ), '/' ) || ( ( $prior['scope'] ?? '' ) !== 'site_credential' && ( ! Nova_Bridge_Suite_Posting_Protocol::decimal_id( $prior['client_id'] ?? null ) || ! Nova_Bridge_Suite_Posting_Protocol::decimal_id( $prior['domain_id'] ?? null ) ) ) || self::digest( $prior['template'] ?? [] ) !== self::digest( self::frozen( $remote ) ) ) { return self::error( 'profile_scope', 'The current remote category revision has no matching approved local authority. Review the site setup before synchronizing.' ); }
-            if ( self::digest( $prior['record'] ) === self::digest( $record ) ) { return self::editor_summary( $record, $remote ); }
+            if ( self::digest( $prior['record'] ) === self::digest( $record ) ) {
+                $enabled = self::enable_fitting( $client->site_id(), $remote );
+                return is_wp_error( $enabled ) ? $enabled : self::editor_summary( $record, $remote );
+            }
             $profile = array_intersect_key( $prior, array_flip( [ 'mode', 'site_id', 'client_id', 'domain_id', 'scope', 'origin' ] ) ) + [ 'record' => $record, 'projection' => $projection ];
             $pending = [ 'profile' => $profile, 'base_template' => self::frozen( $remote ) ];
             if ( ! add_option( $key, $pending, '', false ) ) { return self::error( 'sync_storage', 'Could not retain the template update before contacting posting service.' ); }
@@ -113,6 +119,7 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
         $profile['template'] = self::frozen( $remote ); $profile['profile_digest'] = self::digest( $profile );
         $approved = self::key( 'profile', $client->site_id() . ':' . $id . ':' . $remote['revision'] );
         if ( ! add_option( $approved, $profile, '', false ) && get_option( $approved, null ) !== $profile ) { return self::error( 'profile_conflict', 'This remote revision already has a different immutable local authority.' ); }
+        $enabled = self::enable_fitting( $client->site_id(), $remote ); if ( is_wp_error( $enabled ) ) { return $enabled; }
         delete_option( $key );
         if ( null !== get_option( $key, null ) ) { return self::error( 'sync_storage', 'The mapping was approved, but its pending update could not be cleared. Retry synchronization.' ); }
         return self::editor_summary( $record, $remote );
@@ -150,6 +157,7 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
         $profile['template'] = self::frozen( $remote ); $profile['profile_digest'] = self::digest( $profile );
         $approved = self::key( 'profile', $client->site_id() . ':' . $remote['id'] . ':' . $remote['revision'] );
         if ( ! add_option( $approved, $profile, '', false ) && get_option( $approved, null ) !== $profile ) { return self::error( 'profile_conflict', 'This remote revision already has a different immutable local authority.' ); }
+        $enabled = self::enable_fitting( $client->site_id(), $remote ); if ( is_wp_error( $enabled ) ) { return $enabled; }
         // Approve locally before selecting the default: new deliveries can arrive immediately afterwards.
         $defaults = $defaults_reply['body']['defaults']; $selected = $defaults['category'] ?? null;
         if ( null !== $selected && $selected !== $remote['id'] ) { return self::error( 'sync_conflict', 'Another category default was selected. No overwrite was attempted.' ); }
@@ -166,6 +174,17 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
 
     /** The UI stores semantic role IDs independently of editable labels and source names. */
     public static function project_record( array $record, string $page_type = 'category' ) {
+        $legacy = self::legacy_projection( $record, $page_type );
+        if ( ! is_wp_error( $legacy ) || ( $record['recipe']['blueprint']['taxonomy'] ?? '' ) !== 'product_cat' ) { return $legacy; }
+        return Nova_Bridge_Suite_Category_Recipe::project( $record );
+    }
+    private static function enable_fitting( string $site, array $template ) {
+        if ( ( $template['definition']['version'] ?? 1 ) !== 3 ) { return true; }
+        $key = Nova_WordPress_Environment::key( 'nova_posting_v3_' . hash( 'sha256', $site ) );
+        update_option( $key, true, false );
+        return get_option( $key, false ) ? true : self::error( 'fitting_storage', 'The category template is approved, but fitted delivery discovery could not be enabled. Sync this saved revision again.' );
+    }
+    private static function legacy_projection( array $record, string $page_type ) {
         $recipe = $record['recipe'] ?? [];
         if ( ( $record['resource_id'] ?? '' ) !== 'taxonomy:product_cat' || ( $record['builder'] ?? '' ) !== 'core' || ( $record['mode'] ?? '' ) !== 'static' || ( $recipe['mode'] ?? '' ) !== 'static' || ( $recipe['builder'] ?? '' ) !== 'core' || ! empty( $recipe['regions'] ) || isset( $recipe['custom_fields'] ) ) { return self::error( 'unsupported_recipe', 'This compatibility adapter requires a static core product-category template without repeat regions or ACF companions.' ); }
         if ( ! preg_match( '/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/D', $page_type ) ) { return self::error( 'page_type', 'Supply an explicit NOVA page type.' ); }
@@ -215,8 +234,9 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
             $profile['template'] = self::frozen( $remote ); $profile['profile_digest'] = self::digest( $profile );
             $approved = self::key( 'profile', $client->site_id() . ':' . $remote['id'] . ':' . $remote['revision'] );
             if ( ! add_option( $approved, $profile, '', false ) && get_option( $approved, null ) !== $profile ) { return self::error( 'profile_conflict', 'This remote revision already has a different immutable local authority.' ); }
+            $enabled = self::enable_fitting( $client->site_id(), $remote ); if ( is_wp_error( $enabled ) ) { return $enabled; }
             update_option( $key, [ 'intent' => $intent, 'phase' => 'approved', 'template_id' => $remote['id'], 'template_revision' => $remote['revision'] ], false );
-            return [ 'template_id' => $remote['id'], 'template_revision' => $remote['revision'], 'recipe_id' => $recipe_id, 'recipe_revision' => $revision, 'profile_digest' => $profile['profile_digest'], 'warnings' => [ 'Human instructions remain local. This API delivers the existing h1, top_content and bottom_content fields without generation or adaptation rules.' ] ];
+            return [ 'template_id' => $remote['id'], 'template_revision' => $remote['revision'], 'recipe_id' => $recipe_id, 'recipe_revision' => $revision, 'profile_digest' => $profile['profile_digest'], 'warnings' => ( $remote['definition']['version'] ?? 1 ) === 3 ? [] : [ 'Human instructions remain local. This API delivers the existing h1, top_content and bottom_content fields without generation or adaptation rules.' ] ];
         } finally { $locks->unlock( $lock ); }
     }
 
@@ -247,6 +267,16 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     public static function policy( array $snapshot, array $profile ) {
         $valid = self::validate_profile( $snapshot, $profile ); if ( is_wp_error( $valid ) ) { return $valid; }
         if ( ! is_string( $snapshot['url'] ?? null ) ) { return self::error( 'target_url', 'A category delivery requires its planned site URL.' ); }
+        if ( ( $profile['projection']['format'] ?? '' ) === Nova_Bridge_Suite_Category_Recipe::FORMAT ) {
+            $url = Nova_Bridge_Suite_Posting_Url_Scope::canonical_site_url( $snapshot['url'], $snapshot['language'] ?? '' );
+            $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url, 'taxonomy:product_cat', $snapshot['language'] ?? null );
+            if ( ! is_wp_error( $found ) ) {
+                $id = $found['reference_id']; $term = get_term( $id, 'product_cat' );
+                return [ 'reference' => [ 'reference_type' => 'term', 'reference_id' => $id ], 'routing' => [ 'operation' => 'update', 'publication' => 'publish' ],
+                    'target' => [ 'slug' => $term->slug, 'parent' => (int) $term->parent, 'target_url' => $found['requested_url'] ] ];
+            }
+            if ( $found->get_error_code() !== 'nova_mapped_target_not_found' ) { return $found; }
+        }
         $target = self::creation_target( $snapshot['url'], $snapshot['language'] ?? null ); if ( is_wp_error( $target ) ) { return $target; }
         return [ 'reference' => [ 'reference_type' => 'term', 'reference_id' => 0 ], 'routing' => [ 'operation' => 'create', 'publication' => 'publish' ], 'target' => $target ];
     }

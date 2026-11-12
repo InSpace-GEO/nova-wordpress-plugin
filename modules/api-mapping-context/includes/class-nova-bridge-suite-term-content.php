@@ -1,6 +1,7 @@
 <?php
 /** Authenticated existing-term editorial transport. This API never creates taxonomy items. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Term_Content {
     private const STORE = 'nova_bridge_layout_recipes_v1';
@@ -44,7 +45,7 @@ final class Nova_Bridge_Suite_Term_Content {
         $id = $context['profile_id'] ?? null; $revision = $context['revision'] ?? 0;
         if ( null === $id && ! $revision ) { return null; }
         if ( ! is_string( $id ) || ! preg_match( '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iD', $id ) || ! is_int( $revision ) || $revision < 1 ) { return self::error( 'Supply an exact saved mapping profile and revision.', 409 ); }
-        $state = get_option( self::STORE, [] ); $record = is_array( $state ) ? ( $state['profiles'][$id][$revision] ?? null ) : null;
+        $state = get_option( Nova_WordPress_Environment::key( self::STORE ), [] ); $record = is_array( $state ) ? ( $state['profiles'][$id][$revision] ?? null ) : null;
         if ( ! is_array( $state ) || ( $state['format'] ?? '' ) !== 'nova-layout-recipes-store/v1' || ! is_array( $record ) || ( $record['id'] ?? '' ) !== $id || ( $record['revision'] ?? 0 ) !== $revision || ( $record['resource_id'] ?? '' ) !== $resource['id'] || ! in_array( $record['builder'] ?? '', [ 'core', 'acf' ], true ) || ! is_array( $record['recipe']['blueprint'] ?? null ) ) { return self::error( 'That saved mapping revision does not belong to this category destination.', 409 ); }
         $recipe = $record['recipe']; $builder = $recipe['builder'] ?? ''; $blueprint = $recipe['blueprint'];
         if ( $builder !== $record['builder'] || ( $blueprint['taxonomy'] ?? '' ) !== $resource['taxonomy'] || ( 'core' === $builder && ( $blueprint['resource_id'] ?? '' ) !== $resource['id'] ) || ! is_string( $record['seal'] ?? null ) || ! hash_equals( hash_hmac( 'sha256', Nova_Bridge_Suite_Recipe_Engine::json( [ $builder, $blueprint ] ), wp_salt( 'auth' ) ), $record['seal'] ) ) { return self::error( 'The saved category mapping seal or destination could not be verified.', 409 ); }
@@ -137,6 +138,19 @@ final class Nova_Bridge_Suite_Term_Content {
     }
     private static function uncertain( int $id, array $applied, string $field, bool $restored = false ): WP_Error {
         return new WP_Error( 'nova_term_content_partial', 'A native field setter or readback failed. Some category changes may already be saved; inspect the item before retrying.', [ 'status' => 500, 'term_id' => $id, 'write_status' => 'uncertain', 'applied_fields' => $applied, 'failed_field' => $field, 'failed_field_restored' => $restored, 'review_required' => true ] );
+    }
+    public static function validate_payload( string $taxonomy, int $id, array $payload, array $context = [] ) {
+        $expected = self::expected_payload( $taxonomy, $id, $payload, $context );
+        return is_wp_error( $expected ) ? $expected : true;
+    }
+    /** Use the same native sanitizers for planning, saving and recovery readback. */
+    public static function expected_payload( string $taxonomy, int $id, array $payload, array $context = [] ) {
+        $resource = self::resource( $taxonomy, $id ); if ( is_wp_error( $resource ) ) { return $resource; }
+        $plan = self::preflight( $resource, $id, $payload, $context );
+        if ( is_wp_error( $plan ) ) { return $plan; }
+        $expected = $plan['payload'];
+        foreach ( $plan['acf'] as $name => $entry ) { $expected['meta_all']['acf'][$name] = $entry['value']; }
+        return $expected;
     }
     private static function replace_multi( int $id, string $key, array $values ): bool {
         try { delete_term_meta( $id, $key ); if ( [] !== get_term_meta( $id, $key, false ) ) { return false; }

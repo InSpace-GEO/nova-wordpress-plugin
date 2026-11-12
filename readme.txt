@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.7
+Stable tag: 1.4.8
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.8 =
+* Synchronize fixed WooCommerce category templates with selected native content, declared SEO metadata and scalar ACF/SCF companion fields.
+* Publish those category mappings through the shared destination-fitting contract, with verified creation, existing-category updates and retry recovery.
+* Preserve unselected metadata and custom fields, and report the saved category revision's actual publishing support and synchronization status.
+* Use native category rich-text sanitization and complete ACF runtime definitions during validation and readback.
 
 = 1.4.7 =
 * Fix false concurrent-edit warnings when saving layouts, mapping drafts, endpoint mappings or content rules on sites with legacy database encoding or different PHP serialization settings.

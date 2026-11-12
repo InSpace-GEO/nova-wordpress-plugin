@@ -426,7 +426,8 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $operation = $routing['operation'] ?? null; $target = $reference['reference_id'] ?? 0;
                 $source_free = ( $local_rules || $static_term || $stored_layout || $owned_cpt ) && 'create' === $operation && 0 === $target;
                 $reference_type = $static_term ? 'term' : 'post';
-                if ( ( ! $source_free && ( 'update' !== $operation || $target < 1 ) ) || $reference_type !== ( $reference['reference_type'] ?? null ) || ! is_int( $target ) || ( $static_term && ! $source_free ) ) { return $this->native_failure( $job, $snapshot, 'routing_unavailable', [ 'no_native_commit' => true ] ); }
+                $category_update = $static_term && ( $configuration['projection']['format'] ?? '' ) === 'nova.category-recipe/v1';
+                if ( ( ! $source_free && ( 'update' !== $operation || $target < 1 ) ) || $reference_type !== ( $reference['reference_type'] ?? null ) || ! is_int( $target ) || ( $static_term && ! $source_free && ! $category_update ) ) { return $this->native_failure( $job, $snapshot, 'routing_unavailable', [ 'no_native_commit' => true ] ); }
                 $publication = $routing['publication'] ?? 'preserve';
                 if ( ! in_array( $publication, [ 'preserve', 'publish', 'draft' ], true ) || ( $static_term && 'publish' !== $publication ) ) { return $this->native_failure( $job, $snapshot, 'publication_policy_unavailable', [ 'no_native_commit' => true ] ); }
                 $desired = 'preserve' === $publication ? ( 'create' === $operation ? 'draft' : get_post_status( $target ) ) : $publication;

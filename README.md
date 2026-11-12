@@ -122,7 +122,9 @@ New fixed post layouts automatically select **SEO title** and **Meta description
 
 The SEO title uses NOVA's `title` value; the meta description uses `meta_description`. These are separate from the visible page heading. The same purposes are available when mapping other native text fields. Optional instructions can refine the mapping. Omitting an optional SEO value preserves its current value; NOVA never copies the example page's metadata.
 
-The SEO plugin must be configured to emit metadata. Its native formatting and other settings remain in effect. Canonical URLs, indexing directives and social metadata are not editable through this dropdown. This release covers native post types, including Pages and Posts; taxonomy SEO is not included.
+The SEO plugin must be configured to emit metadata. Its native formatting and other settings remain in effect. Canonical URLs, indexing directives and social metadata are protected by this dropdown. The SEO provider dropdown covers native post types, including Pages and Posts.
+
+Fixed WooCommerce category layouts also support selected native fields, declared scalar category metadata and scalar ACF/SCF companions. Category SEO fields use their registered schema or the administrator's confirmed category field definition. The saved field purposes and instructions go through the shared destination-fitting contract. Delivery creates the category at its planned URL or updates the existing category, preserving unselected fields. Repeated regions and nested custom-field structures remain available in the local editor and require a corresponding publishing provider before synchronization.
 
 ## Development
 

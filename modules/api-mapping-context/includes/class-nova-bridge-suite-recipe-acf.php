@@ -546,7 +546,7 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         $payload = [ 'acf' => $blueprint['document'] ];
         $schema = self::catalog( $blueprint['post_type'], 0, $blueprint['template'] ?? '', $blueprint['taxonomy'] ?? '' );
         $bounds = self::validate_constraints( array_values( $schema ), $blueprint['document'], '/document', 0, self::conditions( self::native_schema( $blueprint ) ) ); if ( is_wp_error( $bounds ) ) { return $bounds; }
-        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $blueprint['document'], ! empty( $blueprint['fixed_layout'] ) ? self::native_schema( $blueprint ) : $schema ); if ( is_wp_error( $checked ) ) { return $checked; }
+        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $blueprint['document'], self::native_schema( $blueprint ) ); if ( is_wp_error( $checked ) ) { return $checked; }
         $render = static function ( $value ) use ( &$render ): string { if ( is_array( $value ) ) { $html = '<dl>'; foreach ( $value as $key => $child ) { if ( 'acf_fc_layout' === $key ) { continue; } $html .= '<dt>' . esc_html( is_int( $key ) ? 'Item ' . ( $key + 1 ) : ucfirst( str_replace( '_', ' ', $key ) ) ) . '</dt><dd>' . $render( $child ) . '</dd>'; } return $html . '</dl>'; } return is_string( $value ) ? wp_kses_post( $value ) : esc_html( (string) $value ); };
         $writer = [ 'meta_all' => $payload ];
         if ( ! empty( $blueprint['fixed_layout'] ) ) { $writer['acf_layout'] = array_diff_key( $blueprint, [ 'document' => true ] ); }
@@ -574,7 +574,7 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         $native = $taxonomy ? Nova_Bridge_Suite_Content_Transport::acf_schema_for_screen( [ 'taxonomy' => $taxonomy, 'post_id' => $object_id ] ) : Nova_Bridge_Suite_Content_Transport::field_catalog( $post->post_type, $post_id, $template )['acf'];
         $bounds = self::validate_constraints( array_values( $schema ), $input['acf'], '/document', 0, self::conditions( $native ) ); if ( is_wp_error( $bounds ) ) { return $bounds; }
         foreach ( array_keys( $input['acf'] ) as $name ) { if ( ! Nova_WordPress_Meta_Permission::can_edit( $taxonomy ? 'term' : 'post', $post_id, $name ) ) { return self::error( 'You cannot inspect this saved custom-field metadata. ' . Nova_Bridge_Suite_Content_Transport::meta_denial( $taxonomy ? 'term' : 'post', $post_id, $name ), 403 ); } }
-        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $input['acf'], $schema ); if ( is_wp_error( $checked ) ) { return $checked; }
+        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $input['acf'], $native ); if ( is_wp_error( $checked ) ) { return $checked; }
         return Nova_Bridge_Suite_Content_Transport::verify_named_acf( $checked, $object_id );
     }
 }
