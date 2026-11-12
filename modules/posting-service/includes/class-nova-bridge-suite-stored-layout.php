@@ -69,7 +69,8 @@ final class Nova_Bridge_Suite_Stored_Layout {
                 return;
             }
             if ( is_array( $value ) ) {
-                if ( in_array( $value['widgetType'] ?? '', [ 'global', 'template', 'shortcode' ], true ) || ! empty( $value['templateID'] ) ) { self::fail( 'Inline global/template widgets and shortcodes before saving; a creation mapping must contain its complete native layout.' ); }
+                // An ordinary shortcode is fixed content: new pages render the same shortcode as the example.
+                if ( 'node' === $location && 'shortcode' === ( $value['widgetType'] ?? '' ) ) { unset( $value['settings']['shortcode'] ); }
                 if ( 'node' === $location && 'widget' === ( $value['elType'] ?? '' ) && in_array( $value['widgetType'] ?? '', [ 'loop-carousel', 'loop-grid' ], true ) && ! empty( $value['settings']['template_id'] ) ) {
                     self::check_loop_item( $value['settings']['template_id'] );
                     // Skip only this verified control in the scan copy. The saved widget keeps its live card template and query.
@@ -90,7 +91,10 @@ final class Nova_Bridge_Suite_Stored_Layout {
             elseif ( in_array( $key, [ 'template_id', 'loop_template_id' ], true ) && ! empty( $value ) ) { self::fail( 'The layout still references an external native template. Inline it before saving.' ); }
         };
         require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-elementor-reusable.php';
-        $scan( Nova_Bridge_Suite_Elementor_Reusable::validation_blueprint( $blueprint ) );
+        // Kept-shared components stay live references: new pages render the library version, so
+        // their contents are not part of this layout. One deleted later is left out when a page is
+        // written (Recipe_Elementor::finalize), so this check, which also runs per delivery, never needs it.
+        $scan( Nova_Bridge_Suite_Elementor_Reusable::shallow_blueprint( $blueprint ) );
     }
 
     private static function nodes( array $nodes, array $prefix, array &$out ): void {
