@@ -119,4 +119,33 @@ check( Source::group_lock( $primary ) === null, 'Legacy deliveries retain only t
 check( Source::group_lock( identity( '100', 'en-US' ) ) === Source::group_lock( identity( '200', 'fr-FR' ) ), 'Grouped URLs share a family lock' );
 $other = identity( '200', 'fr-FR' ); $other['site_id'] = 'site-2';
 check( Source::group_lock( $other ) !== Source::group_lock( identity( '200', 'fr-FR' ) ), 'Family locks are site scoped' );
+// Five locale pages keep separate URL ownership and reciprocal native links.
+$languages += [ 'it' => 'it_IT', 'de' => 'de_DE' ];
+foreach ( [ [ 0, 1, 2, 3, 4 ], [ 4, 3, 2, 1, 0 ] ] as $order ) {
+    reset_fixture();
+    $items = [
+        [ identity( '100', 'en-US' ), 10, 'en', 'https://example.test/original/' ],
+        [ identity( '200', 'nl-NL' ), 20, 'nl-nl', 'https://example.test/nl-nl/diensten/' ],
+        [ identity( '300', 'it-IT' ), 30, 'it', 'https://example.test/it/servizi/' ],
+        [ identity( '400', 'de-DE' ), 40, 'de', 'https://example.test/de/leistungen/' ],
+        [ identity( '500', 'fr-FR' ), 50, 'fr', 'https://example.test/fr/prestations/' ],
+    ];
+    foreach ( $order as $index ) {
+        [ $item, $post_id, $code, $url ] = $items[$index];
+        native_post( $post_id, $code, $url );
+        good( Source::preflight( plan( $item, $code ), $post_id ), 'Five-locale member preflight' );
+        good( Source::link( plan( $item, $code ), $post_id ), 'Five-locale member linking' );
+        association( $item, $post_id );
+    }
+    foreach ( $items as [ $item, $post_id, $code, $url ] ) {
+        check( get_permalink( $post_id ) === $url && get_post_meta( $post_id, '_nova_stored_layout_owner' )['url_id'] === $item['url_id'], 'Five-locale member retains its own URL and owner' );
+        foreach ( $items as [ , $other_id, $other_code ] ) {
+            if ( $other_id !== $post_id ) { check( linked( $post_id, $other_id, $other_code ), 'All five locale links are reciprocal' ); }
+        }
+    }
+    $before = $saves;
+    good( Source::link( plan( $items[2][0], $items[2][2] ), $items[2][1] ), 'Replayed update retains the five-locale family' );
+    check( $before === $saves, 'Five-locale update replay is idempotent' );
+}
+
 echo "URL family native $provider checks: $checks passed.\n";
