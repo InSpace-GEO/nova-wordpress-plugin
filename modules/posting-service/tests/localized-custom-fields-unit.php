@@ -243,4 +243,15 @@ $marked = apply_filters( $pre, $typography );
 verify( str_contains( $marked, 'data-nova-seo-field=' ), 'Native description typography was not protected' );
 $restored = apply_filters( $post_hook, str_replace( 'A “quoted” description', 'Wrong', $marked ) );
 verify( str_contains( $restored, 'A “quoted” description' ) && str_contains( $restored, '<body>Unmapped</body>' ), 'Restoration changed native typography or unrelated content' );
+// Elementor product archives need their own scope while product cards keep provider translation.
+$archive_fields = [ 'seo_text' => [ 'provider'=>'acf', 'key'=>'field_archive_body', 'type'=>'wysiwyg', 'value'=>'<h2>Archivinhalt</h2><p>Lokaler Haupttext.</p>' ] ];
+$archive = new Nova_WordPress_Localized_Fields( 66, $archive_fields, 'term', 'product_cat' );
+$archive_body = $archive->value( 'seo_text' );
+$archive_html = '<div data-elementor-type="header"><p>Lokaler Haupttext.</p></div><div data-elementor-type="product-archive" data-elementor-id="278">' . $archive_body . '<div data-elementor-type="loop-item"><p>Lokaler Haupttext.</p></div></div><footer>Lokaler Haupttext.</footer>';
+$archive_expected = str_replace( $archive_body, '<h2><span data-no-translation data-wg-notranslate>Archivinhalt</span></h2><p><span data-no-translation data-wg-notranslate>Lokaler Haupttext.</span></p>', $archive_html );
+verify( $archive->protect( $archive_html ) === $archive_expected, 'Elementor term archive text was unprotected or product cards/header/footer were changed' );
+$post_archive = new Nova_WordPress_Localized_Fields( 66, $archive_fields );
+$post_archive->value( 'seo_text' );
+verify( $post_archive->protect( $archive_html ) === $archive_html, 'A post field unexpectedly claimed a term archive' );
+
 echo "$provider localized custom-field checks: $checks passed.\n";
