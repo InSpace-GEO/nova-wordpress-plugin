@@ -203,6 +203,8 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
         return $this->safe( function () use ( $blueprint, $seed, $context ) {
             $check = $this->validate_blueprint( $blueprint ); if ( is_wp_error( $check ) ) { return $check; }
             if ( isset( $context['recipe']['blueprint']['document'] ) ) { $old = $this->anchors_and_links( $context['recipe']['blueprint']['document'] ); $current = $this->anchors_and_links( $blueprint['document'] ); foreach ( $current['links'] as $anchor ) { if ( isset( $old['anchors'][ $anchor ] ) && ! isset( $current['anchors'][ $anchor ] ) ) { return $this->error( 'A fixed native link still targets the removed example anchor #' . $anchor . '. Bind that navigation link to canonical content or remove the stale sample link before creating a draft.' ); } } }
+            // A kept-shared component deleted since the mapping was saved is left out; the page is still written.
+            $removed = []; $blueprint['document'] = Nova_Bridge_Suite_Elementor_Reusable::without_missing( $blueprint['document'], $removed );
             $blueprint['document'] = $this->provider_flags( $this->rebase( Nova_Bridge_Suite_Elementor_Reusable::native_nodes( $blueprint['document'] ), $seed . '/document', false, $identity ) );
             if ( isset( $blueprint['meta']['custom_css'] ) && is_string( $blueprint['meta']['custom_css'] ) ) { $blueprint['meta']['custom_css'] = $this->native_selectors( $blueprint['meta']['custom_css'], $identity['nodes'] ); }
             if ( isset( $blueprint['document_settings']['custom_css'] ) && is_string( $blueprint['document_settings']['custom_css'] ) ) { $blueprint['document_settings']['custom_css'] = $this->native_selectors( $blueprint['document_settings']['custom_css'], $identity['nodes'] ); }
@@ -212,7 +214,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             if ( array_key_exists( 'theme_presentation', $blueprint ) ) { $payload['theme_presentation'] = $blueprint['theme_presentation']; }
             if ( array_key_exists( 'document_settings', $blueprint ) ) { $payload['elementor_document_settings'] = $blueprint['document_settings']; }
             $count = 0; $this->walk( $blueprint['document'], static function () use ( &$count ) { ++$count; } );
-            return [ 'native_document' => $blueprint, 'writer_payload' => $payload, 'preview_html' => $this->preview( $blueprint['document'] ), 'warnings' => [ 'Structure preview preserves content grouping; native global styles, responsive widgets and dynamic site bindings are verified in the native draft.' ], 'summary' => [ 'nodes' => $count ], 'adapter_version' => self::VERSION ];
+            return [ 'native_document' => $blueprint, 'writer_payload' => $payload, 'preview_html' => $this->preview( $blueprint['document'] ), 'warnings' => array_merge( [ 'Structure preview preserves content grouping; native global styles, responsive widgets and dynamic site bindings are verified in the native draft.' ], array_map( static function ( $name ) { return $name . ' no longer exists and was left out.'; }, array_values( array_unique( $removed ) ) ) ), 'summary' => [ 'nodes' => $count ], 'adapter_version' => self::VERSION ];
         } );
     }
     private function preview( array $nodes ): string {

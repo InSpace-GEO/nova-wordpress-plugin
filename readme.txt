@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.3.3
+Stable tag: 1.3.4
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.3.4 =
+* Creation mappings can keep shared Elementor components (global widgets, saved templates, template shortcodes) linked instead of requiring an independent copy. New pages show the current library version.
+* Ordinary Shortcode widgets in a creation layout are kept as fixed content.
+* A shared component deleted after the mapping was saved is left out of new pages instead of failing the delivery.
 
 = 1.3.3 =
 * After a wake, keep processing deliveries in batches of three until none are due, instead of stopping after the first batch.

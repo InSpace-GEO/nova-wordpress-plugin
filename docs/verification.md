@@ -1,5 +1,11 @@
 # Release verification
 
+## 1.3.4
+
+All 141 local suites passed, including new checks for kept-shared components in creation mappings: globals, saved templates, embedded template shortcodes and plain shortcodes are accepted; shortcodes inside a kept-shared template are not checked as page content; a global without a library ID, a template shortcode typed into text and an unpublished Loop Item are still refused; a component deleted after saving is left out of the written page while present ones keep their live references.
+
+On staging (WordPress 7.1.4, Elementor 4.1.4, Elementor Pro 4.1.2, Polylang), an example page with a mapped heading, a global widget, a shared container template holding a plain shortcode, and a plain Shortcode widget was designed through the mapping endpoint, which listed both components as kept shared. Saving it as a creation layout succeeded (before this release: "Inline global/template widgets and shortcodes before saving"). The plugin's Elementor writer then created a draft page that saved the global and template references unchanged and rendered the delivered heading, the global widget, the template, the shortcode inside it and the plain shortcode. After the global widget was deleted, the next page was still written and verified; it rendered everything except the deleted global. The disposable pages and library items were removed and the staging plugin returned to 1.3.0.
+
 ## 1.3.3
 
 All 140 local suites passed, including 92 new follow-up checks (batch chains, single-use continuation tokens, wakes during a batch or a connection switch, back-off retries, lost continuations, the bounded chain, pause, suspension and disabling).
