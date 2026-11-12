@@ -5,6 +5,7 @@ class WP_Error {
     public $code;
     public function __construct( $code, $message ) { $this->code = $code; }
 }
+function is_wp_error( $value ) { return $value instanceof WP_Error; }
 function get_option( $key, $fallback ) { return $GLOBALS['options'][$key] ?? $fallback; }
 function get_post( $id ) { return $GLOBALS['posts'][$id] ?? null; }
 function get_post_meta( $id, $key, $single ) { return $GLOBALS['owners'][$id][$key] ?? ''; }

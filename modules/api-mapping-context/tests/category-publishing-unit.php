@@ -45,4 +45,11 @@ $missing = $snapshot; unset( $missing['destination_values'][Nova_Bridge_Suite_Wr
 check( is_wp_error( Nova_Bridge_Suite_Category_Recipe::compile( $missing, $profile, 'missing' ) ), 'Category creation allowed a missing title.' );
 $invalid = $record; $invalid['recipe']['custom_fields']['mode'] = 'mixed';
 check( is_wp_error( Nova_Bridge_Suite_Static_Recipe_Adapter::project_record( $invalid ) ), 'Unsupported dynamic companion was enabled.' );
+$tag_record = json_decode( str_replace( [ 'taxonomy:product_cat', '"product_cat"' ], [ 'taxonomy:product_tag', '"product_tag"' ], wp_json_encode( $record ) ), true );
+$tag_projection = Nova_Bridge_Suite_Static_Recipe_Adapter::project_record( $tag_record );
+check( ! is_wp_error( $tag_projection ) && $tag_projection['input']['page_type'] === 'category', 'Product-tag mappings must use the Category writing contract.' );
+$tag_payload = Nova_Bridge_Suite_Category_Recipe::compile( $snapshot, [ 'record' => $tag_record, 'projection' => $tag_projection ], 'product-tag-test' );
+check( $tag_payload === $payload, 'Product-tag fitting changed the mapped native or ACF content.' );
+$tag_record['recipe']['custom_fields']['blueprint']['taxonomy'] = 'product_cat';
+check( is_wp_error( Nova_Bridge_Suite_Static_Recipe_Adapter::project_record( $tag_record ) ), 'A category companion was allowed to write product-tag fields.' );
 echo 'PASS ' . ( $checks - $baseline ) . " category publishing projection checks.\n";

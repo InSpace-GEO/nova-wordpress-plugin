@@ -628,5 +628,15 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   }
   const dynamic=await visualMounted({request:async(route,payload,current)=>{if(route==='/design')return {...current,seo_field_choices:choices};}});dynamic.controller.next();await dynamic.controller.capture(42);assert.equal(dynamic.controller.state.recipe.seo_fields,undefined);
  });
+ await test('product tags use Category writing and retain their destination', async()=>{
+  catalog.resources.push({id:'taxonomy:product_tag',label:'Woo product tags',type:'taxonomy',creation_supported:true,targets:[]});
+  const f=fixture({resourceId:'taxonomy:product_tag'});
+  await f.ctrl.init();
+  assert.equal(f.ctrl.state.resourceId,'taxonomy:product_tag');
+  assert.equal(f.ctrl.state.builder,'core');
+  assert.equal(f.ctrl.state.postingPageType,'category');
+  assert.equal(f.ctrl.selectPageType('informative'),false);
+  assert.equal(f.ctrl.togglePageType('service',true),false);
+ });
  console.log('PASS '+checks+' layout recipe UI workflows.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

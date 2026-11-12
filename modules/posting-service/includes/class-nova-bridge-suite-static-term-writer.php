@@ -10,8 +10,11 @@ final class Nova_Bridge_Suite_Static_Term_Writer {
     private static function digest( array $value ): string { return Nova_Bridge_Suite_Static_Recipe_Adapter::digest( $value ); }
     private static function key( string $operation ): string { return Nova_WordPress_Environment::key( 'nova_static_term_operation_' . hash( 'sha256', $operation ) ); }
     private static function save( string $key, array $value ) { update_option( $key, $value, false ); return get_option( $key, null ) === $value ? true : self::error( 'journal_storage', 'The native category journal could not be retained.' ); }
-    private static function capability() {
-        $taxonomy = get_taxonomy( 'product_cat' );
+    private static function taxonomy( array $plan ): string {
+        return Nova_Bridge_Suite_Category_Recipe::taxonomy( $plan['configuration']['record'] ) ?: 'product_cat';
+    }
+    private static function capability( string $taxonomy_name = 'product_cat' ) {
+        $taxonomy = get_taxonomy( $taxonomy_name );
         return $taxonomy && current_user_can( 'manage_options' ) && current_user_can( $taxonomy->cap->manage_terms ) && current_user_can( $taxonomy->cap->edit_terms ) ? true : self::error( 'permission', 'The configured actor cannot create product categories.' );
     }
 
@@ -51,15 +54,17 @@ final class Nova_Bridge_Suite_Static_Term_Writer {
         if ( $policy['routing']['operation'] !== $context['operation'] || $policy['reference']['reference_id'] !== ( $context['target_post_id'] ?? 0 ) ) {
             return self::error( 'target_changed', 'The category destination changed after delivery policy selection.' );
         }
-        $capability = self::capability(); if ( is_wp_error( $capability ) ) { return $capability; }
+        $taxonomy = Nova_Bridge_Suite_Category_Recipe::taxonomy( $configuration['record'] );
+        $capability = self::capability( $taxonomy ); if ( is_wp_error( $capability ) ) { return $capability; }
         $payload = Nova_Bridge_Suite_Category_Recipe::compile( $snapshot, $configuration, $context['operation_id'] ); if ( is_wp_error( $payload ) ) { return $payload; }
         $record = $configuration['record'];
+        $taxonomy = Nova_Bridge_Suite_Category_Recipe::taxonomy( $record );
         $id = $policy['reference']['reference_id'];
         $profile_context = [ 'profile_id' => $record['id'], 'revision' => $record['revision'] ];
         $preflight_id = $id ?: (int) ( $record['source_reference']['reference_id'] ?? $record['recipe']['blueprint']['term_fields']['reference_id'] ?? 0 );
         if ( $preflight_id < 1 ) { return self::error( 'reference', 'Capture a category reference before enabling automatic category publishing.' ); }
-        $valid = Nova_Bridge_Suite_Term_Content::validate_payload( 'product_cat', $preflight_id, $payload, $profile_context ); if ( is_wp_error( $valid ) ) { return $valid; }
-        $before = $id ? Nova_Bridge_Suite_Term_Content::read( 'product_cat', $id, $profile_context ) : [];
+        $valid = Nova_Bridge_Suite_Term_Content::validate_payload( $taxonomy, $preflight_id, $payload, $profile_context ); if ( is_wp_error( $valid ) ) { return $valid; }
+        $before = $id ? Nova_Bridge_Suite_Term_Content::read( $taxonomy, $id, $profile_context ) : [];
         if ( is_wp_error( $before ) ) { return $before; }
         $plan = [ 'format' => self::FORMAT, 'operation_id' => $context['operation_id'], 'configuration' => $configuration,
             'identity' => array_intersect_key( $snapshot, array_flip( [ 'site_id', 'client_id', 'domain_id', 'url_id', 'content_item_id', 'content_item_version_id', 'version_number', 'url', 'language', 'page_type_frontend', 'source_sha256', 'configuration' ] ) ),
@@ -74,28 +79,36 @@ final class Nova_Bridge_Suite_Static_Term_Writer {
         return Nova_Bridge_Suite_Static_Recipe_Adapter::validate_profile( $plan['identity'], $plan['configuration'] );
     }
     private static function receipt( array $plan, int $id ): array {
-        return [ 'term_id' => $id, 'native_kind' => 'term', 'cms_post_status' => 'publish', 'publication_ref' => 'wordpress:term:product_cat:' . $id . ';operation:' . $plan['operation_id'] ];
+        $taxonomy = self::taxonomy( $plan );
+        return [ 'term_id' => $id, 'native_kind' => 'term', 'cms_post_status' => 'publish', 'publication_ref' => 'wordpress:term:' . $taxonomy . ':' . $id . ';operation:' . $plan['operation_id'] ];
     }
     private static function readback( array $plan, int $id ) {
-        $term = get_term( $id, 'product_cat' );
-        if ( ! $term || is_wp_error( $term ) || $term->taxonomy !== 'product_cat' || $term->slug !== $plan['target']['slug'] || (int) $term->parent !== $plan['target']['parent'] || ! current_user_can( 'edit_term', $id ) || get_term_meta( $id, '_nova_static_term_operation', true ) !== $plan['operation_id'] || get_term_meta( $id, '_nova_static_term_digest', true ) !== $plan['plan_digest'] ) { return self::error( 'category_witness', 'The category no longer matches the exact native operation witness.' ); }
-        $native_url = Nova_Bridge_Suite_Mapped_Content_Target::native_url( 'taxonomy:product_cat', 'term', $id ); if ( is_wp_error( $native_url ) ) { return $native_url; }
+        $taxonomy = self::taxonomy( $plan );
+        return Nova_Bridge_Suite_Term_Content::with_language( $taxonomy, $id, static function () use ( $plan, $id ) {
+            return self::readback_in_language( $plan, $id );
+        } );
+    }
+    private static function readback_in_language( array $plan, int $id ) {
+        $taxonomy = self::taxonomy( $plan );
+        $term = get_term( $id, $taxonomy );
+        if ( ! $term || is_wp_error( $term ) || $term->taxonomy !== $taxonomy || $term->slug !== $plan['target']['slug'] || (int) $term->parent !== $plan['target']['parent'] || ! current_user_can( 'edit_term', $id ) || get_term_meta( $id, '_nova_static_term_operation', true ) !== $plan['operation_id'] || get_term_meta( $id, '_nova_static_term_digest', true ) !== $plan['plan_digest'] ) { return self::error( 'category_witness', 'The category no longer matches the exact native operation witness.' ); }
+        $native_url = Nova_Bridge_Suite_Mapped_Content_Target::native_url( 'taxonomy:' . $taxonomy, 'term', $id ); if ( is_wp_error( $native_url ) ) { return $native_url; }
         $url = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $native_url );
         if ( is_wp_error( $url ) || $url['identity'] !== $plan['target']['target_url'] ) { return self::error( 'category_url', 'The saved category does not have its approved URL.' ); }
-        $language = Nova_Bridge_Suite_Mapped_Content_Target::verify_created_language( 'taxonomy:product_cat', 'term', $id, $plan['target'] ); if ( is_wp_error( $language ) ) { return $language; }
-        $read = Nova_Bridge_Suite_Term_Content::read( 'product_cat', $id, $plan['profile_context'] ); if ( is_wp_error( $read ) ) { return $read; }
+        $language = Nova_Bridge_Suite_Mapped_Content_Target::verify_created_language( 'taxonomy:' . $taxonomy, 'term', $id, $plan['target'] ); if ( is_wp_error( $language ) ) { return $language; }
+        $read = Nova_Bridge_Suite_Term_Content::read( $taxonomy, $id, $plan['profile_context'] ); if ( is_wp_error( $read ) ) { return $read; }
         $payload = class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) ? Nova_Bridge_Suite_Recipe_Term_Fields::delivery_payload( $plan['configuration']['record']['recipe']['blueprint'], $plan['payload'] ) : $plan['payload'];
         $fitted = array_key_exists( 'target_id', $plan );
         if ( $fitted ) {
-            $resolved = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $plan['target']['target_url'], 'taxonomy:product_cat', $plan['identity']['language'] ?? null );
+            $resolved = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $plan['target']['target_url'], 'taxonomy:' . $taxonomy, $plan['identity']['language'] ?? null );
             if ( is_wp_error( $resolved ) || $resolved['reference_id'] !== $id ) { return self::error( 'target_changed', 'The category URL or language no longer matches this operation.' ); }
-            $payload = Nova_Bridge_Suite_Term_Content::expected_payload( 'product_cat', $id, $payload, $plan['profile_context'] );
+            $payload = Nova_Bridge_Suite_Term_Content::expected_payload( $taxonomy, $id, $payload, $plan['profile_context'] );
             if ( is_wp_error( $payload ) ) { return $payload; }
             $read = Nova_Bridge_Suite_Category_Recipe::selected_values( $read, $payload );
         }
         foreach ( $payload as $field => $value ) {
             if ( ! $fitted && in_array( $field, [ 'name', 'description' ], true ) ) {
-                $input = 'name' === $field ? sanitize_text_field( $value ) : wp_kses_post( $value ); $value = sanitize_term_field( $field, wp_slash( $input ), $id, 'product_cat', 'db' );
+                $input = 'name' === $field ? sanitize_text_field( $value ) : wp_kses_post( $value ); $value = sanitize_term_field( $field, wp_slash( $input ), $id, $taxonomy, 'db' );
                 if ( is_wp_error( $value ) || ! is_string( $value ) ) { return self::error( 'category_sanitizer', 'The installed category sanitizer cannot verify the written value.' ); } $value = wp_unslash( $value );
             }
             if ( ! array_key_exists( $field, $read ) || self::digest( [ $value ] ) !== self::digest( [ $read[$field] ] ) ) { return self::error( 'category_readback', 'The category field differs from its retained native plan: ' . $field ); }
@@ -105,27 +118,32 @@ final class Nova_Bridge_Suite_Static_Term_Writer {
 
     /** A writing journal never authorizes another insertion, including a crash before the witness. */
     public static function apply( array $plan, string $operation ) {
+        $taxonomy = self::taxonomy( $plan );
         $valid = self::validate_plan( $plan, $operation ); if ( is_wp_error( $valid ) ) { return $valid; }
-        if ( ! empty( $plan['target_id'] ) ) { return self::update_category( $plan, $operation ); }
+        if ( ! empty( $plan['target_id'] ) ) {
+            return Nova_Bridge_Suite_Term_Content::with_language( $taxonomy, $plan['target_id'], static function () use ( $plan, $operation ) {
+                return self::update_category( $plan, $operation );
+            } );
+        }
         $key = self::key( $operation ); if ( null !== get_option( $key, null ) ) { return self::recover( $plan, $operation ); }
-        $capability = self::capability(); if ( is_wp_error( $capability ) ) { return $capability; }
-        $target = Nova_Bridge_Suite_Static_Recipe_Adapter::creation_target( $plan['identity']['url'], $plan['identity']['language'] ); if ( is_wp_error( $target ) ) { return $target; }
+        $capability = self::capability( $taxonomy ); if ( is_wp_error( $capability ) ) { return $capability; }
+        $target = Nova_Bridge_Suite_Static_Recipe_Adapter::creation_target( $plan['identity']['url'], $plan['identity']['language'], $taxonomy ); if ( is_wp_error( $target ) ) { return $target; }
         if ( self::digest( $target ) !== self::digest( $plan['target'] ) ) { return self::error( 'target_changed', 'The native category route changed after planning.' ); }
         $journal = [ 'plan_digest' => $plan['plan_digest'], 'phase' => 'writing', 'term_id' => 0 ];
         if ( ! add_option( $key, $journal, '', false ) ) { return self::recover( $plan, $operation ); }
         try {
-            $result = Nova_Bridge_Suite_Mapped_Content_Target::with_creation_language( $target, static function () use ( $plan, $operation, $key, &$journal ) {
-                $capability = self::capability(); if ( is_wp_error( $capability ) ) { return $capability; }
-                $witness = static function ( $id, $tt, $taxonomy ) use ( $plan, $operation, $key, &$journal ) {
-                    if ( 'product_cat' !== $taxonomy ) { return; } $term = get_term( $id, $taxonomy );
+            $result = Nova_Bridge_Suite_Mapped_Content_Target::with_creation_language( $target, static function () use ( $plan, $operation, $key, &$journal, $taxonomy ) {
+                $capability = self::capability( $taxonomy ); if ( is_wp_error( $capability ) ) { return $capability; }
+                $witness = static function ( $id, $tt, $created_taxonomy ) use ( $plan, $operation, $key, &$journal, $taxonomy ) {
+                    if ( $taxonomy !== $created_taxonomy ) { return; } $term = get_term( $id, $taxonomy );
                     if ( ! $term || $term->slug !== $plan['target']['slug'] || (int) $term->parent !== $plan['target']['parent'] ) { return; }
                     update_term_meta( $id, '_nova_static_term_operation', $operation ); update_term_meta( $id, '_nova_static_term_digest', $plan['plan_digest'] ); $journal['term_id'] = (int) $id; self::save( $key, $journal );
                 };
                 add_action( 'created_term', $witness, 1, 3 );
-                try { $created = wp_insert_term( sanitize_text_field( $plan['payload']['name'] ), 'product_cat', [ 'slug' => $plan['target']['slug'], 'parent' => $plan['target']['parent'] ] ); } finally { remove_action( 'created_term', $witness, 1 ); }
+                try { $created = wp_insert_term( sanitize_text_field( $plan['payload']['name'] ), $taxonomy, [ 'slug' => $plan['target']['slug'], 'parent' => $plan['target']['parent'] ] ); } finally { remove_action( 'created_term', $witness, 1 ); }
                 if ( is_wp_error( $created ) ) { return $created; } $id = (int) $created['term_id'];
                 if ( $journal['term_id'] !== $id || get_term_meta( $id, '_nova_static_term_operation', true ) !== $operation || get_term_meta( $id, '_nova_static_term_digest', true ) !== $plan['plan_digest'] ) { return self::error( 'category_witness', 'Category insertion has no complete durable operation witness. Inspect before retrying.' ); }
-                $written = Nova_Bridge_Suite_Term_Content::apply( 'product_cat', $id, $plan['payload'], $plan['profile_context'] ); if ( is_wp_error( $written ) ) { return $written; }
+                $written = Nova_Bridge_Suite_Term_Content::apply( $taxonomy, $id, $plan['payload'], $plan['profile_context'] ); if ( is_wp_error( $written ) ) { return $written; }
                 return self::readback( $plan, $id );
             } );
             if ( is_wp_error( $result ) ) { return $result; }
@@ -133,22 +151,23 @@ final class Nova_Bridge_Suite_Static_Term_Writer {
         } catch ( Throwable $error ) { return self::error( 'uncertain', 'Category delivery stopped before verified completion. Its journal must be reconciled without another insertion.' ); }
     }
     private static function update_category( array $plan, string $operation ) {
+        $taxonomy = self::taxonomy( $plan );
         $key = self::key( $operation );
         if ( null !== get_option( $key, null ) ) { return self::recover( $plan, $operation ); }
         $id = $plan['target_id'];
-        $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $plan['target']['target_url'], 'taxonomy:product_cat', $plan['identity']['language'] ?? null );
+        $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $plan['target']['target_url'], 'taxonomy:' . $taxonomy, $plan['identity']['language'] ?? null );
         if ( is_wp_error( $found ) || $found['reference_id'] !== $id ) { return self::error( 'target_changed', 'The exact category URL changed before writing.' ); }
-        $before = Nova_Bridge_Suite_Term_Content::read( 'product_cat', $id, $plan['profile_context'] ); if ( is_wp_error( $before ) ) { return $before; }
+        $before = Nova_Bridge_Suite_Term_Content::read( $taxonomy, $id, $plan['profile_context'] ); if ( is_wp_error( $before ) ) { return $before; }
         if ( self::digest( Nova_Bridge_Suite_Category_Recipe::selected_values( $before, $plan['payload'] ) ) !== self::digest( $plan['before'] ) ) {
             return self::error( 'category_changed', 'A mapped category field changed after planning. Review the current values before retrying.' );
         }
-        $valid = Nova_Bridge_Suite_Term_Content::validate_payload( 'product_cat', $id, $plan['payload'], $plan['profile_context'] ); if ( is_wp_error( $valid ) ) { return $valid; }
+        $valid = Nova_Bridge_Suite_Term_Content::validate_payload( $taxonomy, $id, $plan['payload'], $plan['profile_context'] ); if ( is_wp_error( $valid ) ) { return $valid; }
         $journal = [ 'plan_digest' => $plan['plan_digest'], 'phase' => 'writing', 'term_id' => $id ];
         if ( ! add_option( $key, $journal, '', false ) ) { return self::recover( $plan, $operation ); }
         try {
             update_term_meta( $id, '_nova_static_term_operation', $operation );
             update_term_meta( $id, '_nova_static_term_digest', $plan['plan_digest'] );
-            $written = Nova_Bridge_Suite_Term_Content::apply( 'product_cat', $id, $plan['payload'], $plan['profile_context'] ); if ( is_wp_error( $written ) ) { return $written; }
+            $written = Nova_Bridge_Suite_Term_Content::apply( $taxonomy, $id, $plan['payload'], $plan['profile_context'] ); if ( is_wp_error( $written ) ) { return $written; }
             $result = self::readback( $plan, $id ); if ( is_wp_error( $result ) ) { return $result; }
             $journal['phase'] = 'complete';
             $saved = self::save( $key, $journal );

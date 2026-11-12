@@ -17,7 +17,7 @@ final class Nova_Bridge_Suite_Layout_Page_Types {
             return self::valid( $record['posting_page_types'] ) ? $record['posting_page_types'] : [];
         }
         $resource = $record['resource_id'] ?? '';
-        return [ $record['posting_page_type'] ?? ( 'post_type:post' === $resource ? 'informative' : ( 'taxonomy:product_cat' === $resource ? 'category' : 'service' ) ) ];
+        return [ $record['posting_page_type'] ?? ( 'post_type:post' === $resource ? 'informative' : ( in_array( $resource, [ 'taxonomy:product_cat', 'taxonomy:product_tag' ], true ) ? 'category' : 'service' ) ) ];
     }
 
     public static function accepts( array $profile, $type ): bool {

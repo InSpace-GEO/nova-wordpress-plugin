@@ -99,6 +99,8 @@ final class Nova_Bridge_Suite_Content_Context {
 		add_filter( 'rest_post_dispatch', [ __CLASS__, 'filter_rest_post_dispatch' ], 999, 3 );
 		add_filter( 'rest_prepare_product_cat', [ __CLASS__, 'filter_product_category_response' ], 10000, 3 );
 		add_filter( 'woocommerce_rest_prepare_product_cat', [ __CLASS__, 'filter_product_category_response' ], 10000, 3 );
+		add_filter( 'rest_prepare_product_tag', [ __CLASS__, 'filter_product_tag_response' ], 10000, 3 );
+		add_filter( 'woocommerce_rest_prepare_product_tag', [ __CLASS__, 'filter_product_tag_response' ], 10000, 3 );
 		add_action( 'add_option_' . self::OPTION_NAME, [ __CLASS__, 'flush_config_cache' ] );
 		add_action( 'update_option_' . self::OPTION_NAME, [ __CLASS__, 'flush_config_cache' ] );
 		add_action( 'delete_option_' . self::OPTION_NAME, [ __CLASS__, 'flush_config_cache' ] );
@@ -1206,7 +1208,10 @@ final class Nova_Bridge_Suite_Content_Context {
 	}
 
 	/** Adds private product-category guidance to native and Woo REST responses. */
-	public static function filter_product_category_response( $response, $term, $request ) {
+	public static function filter_product_tag_response( $response, $term, $request ) {
+		return self::filter_product_category_response( $response, $term, $request, 'product_tag' );
+	}
+	public static function filter_product_category_response( $response, $term, $request, string $taxonomy_name = 'product_cat' ) {
 		if ( ! self::rest_guidance_enabled() ) { return $response; }
 		if ( ! $response instanceof WP_REST_Response ) {
 			return $response;
@@ -1232,12 +1237,12 @@ final class Nova_Bridge_Suite_Content_Context {
 			$term_id = absint( $request->get_param( 'id' ) );
 		}
 
-		if ( ! self::can_expose_taxonomy_context( 'product_cat', $term_id ) ) {
+		if ( ! self::can_expose_taxonomy_context( $taxonomy_name, $term_id ) ) {
 			return $response;
 		}
 
-		$descriptions = self::get_saved_descriptions( 'taxonomy:product_cat' );
-		$mappings     = self::get_saved_mappings( 'taxonomy:product_cat' );
+		$descriptions = self::get_saved_descriptions( 'taxonomy:' . $taxonomy_name );
+		$mappings     = self::get_saved_mappings( 'taxonomy:' . $taxonomy_name );
 		if ( empty( $descriptions ) && empty( $mappings ) ) {
 			return $response;
 		}
@@ -1247,7 +1252,7 @@ final class Nova_Bridge_Suite_Content_Context {
 			return $response;
 		}
 
-		if ( ! empty( $descriptions ) && self::post_type_allows_meta_descriptions_merge( 'product_cat' ) ) {
+		if ( ! empty( $descriptions ) && self::post_type_allows_meta_descriptions_merge( $taxonomy_name ) ) {
 			$data = self::add_meta_descriptions_to_record( $data, $descriptions );
 		}
 		if ( ! empty( $mappings ) && ( ! isset( $data['nova_content_mappings'] ) || is_array( $data['nova_content_mappings'] ) ) ) {
@@ -1715,9 +1720,9 @@ final class Nova_Bridge_Suite_Content_Context {
 				}
 			}
 
-			$product_categories = self::build_product_category_resource( $routes, $saved );
-			if ( is_array( $product_categories ) ) {
-				$resources[ $product_categories['id'] ] = $product_categories;
+			foreach ( [ 'product_cat', 'product_tag' ] as $taxonomy_name ) {
+				$product_taxonomy = self::build_product_category_resource( $routes, $saved, $taxonomy_name );
+				if ( is_array( $product_taxonomy ) ) { $resources[ $product_taxonomy['id'] ] = $product_taxonomy; }
 			}
 
 			ksort( $resources, SORT_NATURAL | SORT_FLAG_CASE );
@@ -2143,26 +2148,27 @@ final class Nova_Bridge_Suite_Content_Context {
 		];
 	}
 
-	/** Builds the one logical WooCommerce Product Categories publishing resource. */
-	private static function build_product_category_resource( array $routes, array $saved ) {
-		if ( ! taxonomy_exists( 'product_cat' ) ) {
+	/** Builds the one logical WooCommerce product taxonomy publishing resource. */
+	private static function build_product_category_resource( array $routes, array $saved, string $taxonomy_name = 'product_cat' ) {
+		if ( ! taxonomy_exists( $taxonomy_name ) ) {
 			return null;
 		}
 
-		$taxonomy = get_taxonomy( 'product_cat' );
+		$taxonomy = get_taxonomy( $taxonomy_name );
 		if ( ! $taxonomy instanceof WP_Taxonomy ) {
 			return null;
 		}
 
-		$resource_id = 'taxonomy:product_cat';
-		$can_edit    = self::can_expose_taxonomy_context( 'product_cat' );
+		$resource_id = 'taxonomy:' . $taxonomy_name;
+		$can_edit    = self::can_expose_taxonomy_context( $taxonomy_name );
 		$native_base = '/' . ( ! empty( $taxonomy->rest_namespace ) ? trim( (string) $taxonomy->rest_namespace, '/' ) : 'wp/v2' )
-			. '/' . ( ! empty( $taxonomy->rest_base ) ? trim( (string) $taxonomy->rest_base, '/' ) : 'product_cat' );
+			. '/' . ( ! empty( $taxonomy->rest_base ) ? trim( (string) $taxonomy->rest_base, '/' ) : $taxonomy_name );
 		$native_write = self::collect_resource_write_data( $routes, $native_base );
 
 		$wc_base  = '';
 		$wc_write = [ 'methods' => [], 'args' => [], 'controllers' => [] ];
-		foreach ( [ '/wc/v3/products/categories', '/wc/v2/products/categories', '/wc/v1/products/categories' ] as $candidate ) {
+		$route_name = 'product_tag' === $taxonomy_name ? 'tags' : 'categories';
+		foreach ( [ '/wc/v3/products/' . $route_name, '/wc/v2/products/' . $route_name, '/wc/v1/products/' . $route_name ] as $candidate ) {
 			$candidate_write = self::collect_resource_write_data( $routes, $candidate );
 			if ( ! empty( $candidate_write['methods'] ) ) {
 				$wc_base  = $candidate;
@@ -2274,14 +2280,14 @@ final class Nova_Bridge_Suite_Content_Context {
 			] );
 		}
 
-		$meta_data = self::discover_registered_term_meta_fields( 'product_cat', $native_write['args'], $can_edit, $reason, $native_base );
+		$meta_data = self::discover_registered_term_meta_fields( $taxonomy_name, $native_write['args'], $can_edit, $reason, $native_base );
 		$fields    = self::merge_field_inventories( $fields, $meta_data['fields'] );
 		// NOVA exposes this value as a first-class category field. Do not also
 		// advertise the registered-meta alias as a second, competing target.
 		if ( isset( $fields['/content_below_products'] ) ) {
 			unset( $fields['/meta/content_below_products'], $fields['/meta_all/content_below_products'] );
 		}
-		$acf_data  = self::discover_acf_term_fields( 'product_cat', $native_write['args'], $can_edit, $reason, $native_base );
+		$acf_data  = self::discover_acf_term_fields( $taxonomy_name, $native_write['args'], $can_edit, $reason, $native_base );
 		$fields    = self::merge_field_inventories( $fields, $acf_data['fields'] );
 		$seo_data  = self::discover_term_seo_fields( $native_write['args'], $can_edit, $native_base, $native_write['methods'] );
 		$fields    = self::merge_field_inventories( $fields, $seo_data['fields'] );
@@ -2300,7 +2306,7 @@ final class Nova_Bridge_Suite_Content_Context {
 		}
 
 		return [
-			'id' => $resource_id, 'type' => 'taxonomy', 'taxonomy' => 'product_cat', 'scope' => 'content_model',
+			'id' => $resource_id, 'type' => 'taxonomy', 'taxonomy' => $taxonomy_name, 'scope' => 'content_model',
 			'content_kind' => 'taxonomy', 'selected' => (bool) $selected, 'enabled' => (bool) $selected,
 			'selection_source' => null === $saved_selection ? 'automatic' : 'saved',
 			'label' => $labels && isset( $labels->singular_name ) ? (string) $labels->singular_name : 'Product category',
@@ -4798,11 +4804,11 @@ final class Nova_Bridge_Suite_Content_Context {
 						}
 					}
 				}
-			} elseif ( 'taxonomy' === ( $resource['type'] ?? '' ) && 'product_cat' === ( $resource['taxonomy'] ?? '' ) ) {
-				$taxonomy = get_taxonomy( 'product_cat' );
+			} elseif ( 'taxonomy' === ( $resource['type'] ?? '' ) && in_array( $resource['taxonomy'] ?? '', [ 'product_cat', 'product_tag' ], true ) ) {
+				$taxonomy = get_taxonomy( $resource['taxonomy'] );
 				$prefixes = [];
 				if ( $taxonomy instanceof WP_Taxonomy && ! empty( $taxonomy->show_in_rest ) ) {
-					$base      = ! empty( $taxonomy->rest_base ) ? trim( (string) $taxonomy->rest_base, '/' ) : 'product_cat';
+					$base      = ! empty( $taxonomy->rest_base ) ? trim( (string) $taxonomy->rest_base, '/' ) : $resource['taxonomy'];
 					$namespace = ! empty( $taxonomy->rest_namespace ) ? trim( (string) $taxonomy->rest_namespace, '/' ) : 'wp/v2';
 					$prefixes[] = '/' . $namespace . '/' . $base;
 				}

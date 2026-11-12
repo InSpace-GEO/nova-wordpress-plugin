@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.10
+Stable tag: 1.4.11
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,13 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.11 =
+* Map WooCommerce product tags to the Category content type, including native text, scalar custom fields, SEO fields and translated content.
+* Publish mapped WooCommerce category and product-tag translations through Weglot and TranslatePress.
+* Preserve native WPML taxonomy identities and language context during category/tag updates and readback.
+* Resolve earlier published originals from the exact primary URL in an authenticated NOVA URL group, with native identity and ownership checks.
+* Return the provider-generated category URL in publication receipts and retain localized field values during retry recovery.
 
 = 1.4.10 =
 * Publish Weglot and TranslatePress content at the verified original's provider-generated localized URL when its slug differs from NOVA's intended URL.

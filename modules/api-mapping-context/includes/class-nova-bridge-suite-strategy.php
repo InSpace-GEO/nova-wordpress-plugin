@@ -294,14 +294,16 @@ final class Nova_Bridge_Suite_Strategy {
 				foreach ( $ids as $id ) { $entity = self::entity( 'post', (int) $id ); if ( $entity ) { $entities[] = $entity; } }
 			} while ( count( $ids ) === self::INVENTORY_BATCH );
 		}
-		if ( taxonomy_exists( 'product_cat' ) ) {
+		foreach ( [ 'product_cat', 'product_tag' ] as $taxonomy ) {
+		if ( taxonomy_exists( $taxonomy ) ) {
 			$offset = 0;
 			do {
-				$terms = get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false, 'number' => self::INVENTORY_BATCH, 'offset' => $offset, 'orderby' => 'term_id', 'order' => 'ASC', 'suppress_filter' => true ] );
+				$terms = get_terms( [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'number' => self::INVENTORY_BATCH, 'offset' => $offset, 'orderby' => 'term_id', 'order' => 'ASC', 'suppress_filter' => true ] );
 				if ( is_wp_error( $terms ) ) { throw new RuntimeException( 'Product category inventory failed.' ); }
 				foreach ( $terms as $term ) { $entity = self::entity( 'term', (int) $term->term_id ); if ( $entity ) { $entities[] = $entity; } }
 				$offset += self::INVENTORY_BATCH;
 			} while ( count( $terms ) === self::INVENTORY_BATCH );
+		}
 		}
 		self::$catalog = [ 'entities' => $entities, 'truncated' => false ];
 		return self::$catalog;
@@ -309,8 +311,9 @@ final class Nova_Bridge_Suite_Strategy {
 
 	public static function entity( string $type, int $id ) {
 		if ( ! in_array( $type, [ 'post', 'term' ], true ) || ! current_user_can( 'term' === $type ? 'edit_term' : 'edit_post', $id ) ) { return null; }
-		$object = 'term' === $type ? get_term( $id, 'product_cat' ) : get_post( $id );
+		$object = 'term' === $type ? get_term( $id ) : get_post( $id );
 		if ( ! $object || is_wp_error( $object ) ) { return null; }
+		if ( 'term' === $type && ! in_array( $object->taxonomy, [ 'product_cat', 'product_tag' ], true ) ) { return null; }
 		if ( 'post' === $type && ( ! self::editorial_post_type( $object->post_type )
 			|| in_array( $object->post_status, [ 'trash', 'auto-draft', 'inherit' ], true )
 			|| self::commerce_workflow_page( $object ) ) ) { return null; }
@@ -323,7 +326,7 @@ final class Nova_Bridge_Suite_Strategy {
 		$path = $clean_url ? self::path( $url ) : false;
 		// Draft preview/query URLs remain selectable references, never fake homepages.
 		$has_public_path = is_string( $path );
-		return [ 'reference_type' => $type, 'reference_id' => $id, 'reference_post_id' => 'post' === $type ? $id : 0, 'reference_term_id' => 'term' === $type ? $id : 0, 'post_type' => 'term' === $type ? 'product_cat' : $object->post_type, 'title' => 'term' === $type ? $object->name : $object->post_title, 'url' => $url, 'path' => $has_public_path ? $path : null, 'parent_path' => $has_public_path ? self::parent_path( $path ) : null, 'has_public_path' => $has_public_path, 'post_status' => 'post' === $type ? $object->post_status : 'term' ];
+		return [ 'reference_type' => $type, 'reference_id' => $id, 'reference_post_id' => 'post' === $type ? $id : 0, 'reference_term_id' => 'term' === $type ? $id : 0, 'post_type' => 'term' === $type ? $object->taxonomy : $object->post_type, 'title' => 'term' === $type ? $object->name : $object->post_title, 'url' => $url, 'path' => $has_public_path ? $path : null, 'parent_path' => $has_public_path ? self::parent_path( $path ) : null, 'has_public_path' => $has_public_path, 'post_status' => 'post' === $type ? $object->post_status : 'term' ];
 	}
 
 	/** Values are removed, but ordered node types, attributes, and actual field schemas remain. */
@@ -358,7 +361,7 @@ final class Nova_Bridge_Suite_Strategy {
 
 	private static function acf_groups( array $entity ): array {
 		if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) ) { return []; }
-		$acf_id = 'term' === $entity['reference_type'] ? 'product_cat_' . $entity['reference_id'] : $entity['reference_id'];
+		$acf_id = 'term' === $entity['reference_type'] ? $entity['post_type'] . '_' . $entity['reference_id'] : $entity['reference_id'];
 		$groups = acf_get_field_groups( [ 'post_id' => $acf_id ] );
 		$result = [];
 		foreach ( is_array( $groups ) ? $groups : [] as $group ) { $group['fields'] = acf_get_fields( $group ) ?: []; $result[] = $group; }
@@ -398,7 +401,7 @@ final class Nova_Bridge_Suite_Strategy {
 		$id = $entity['reference_id'];
 		$builders = [];
 		$structure = [];
-		$template = 'post' === $entity['reference_type'] ? (string) get_page_template_slug( $id ) : 'taxonomy-product_cat';
+		$template = 'post' === $entity['reference_type'] ? (string) get_page_template_slug( $id ) : 'taxonomy-' . $entity['post_type'];
 		$schema = [];
 		$acf_layouts = [];
 		foreach ( self::acf_groups( $entity ) as $group ) {
@@ -406,7 +409,7 @@ final class Nova_Bridge_Suite_Strategy {
 			if ( function_exists( 'get_field' ) ) {
 				foreach ( $group['fields'] as $field ) {
 					if ( ! in_array( $field['type'] ?? '', [ 'flexible_content', 'repeater', 'group' ], true ) ) { continue; }
-					$acf_id = 'term' === $entity['reference_type'] ? 'product_cat_' . $id : $id;
+					$acf_id = 'term' === $entity['reference_type'] ? $entity['post_type'] . '_' . $id : $id;
 					$acf_layouts[ $field['key'] ] = self::acf_value_layout( $field, get_field( $field['key'], $acf_id, false ) );
 				}
 			}
@@ -459,8 +462,8 @@ final class Nova_Bridge_Suite_Strategy {
 	private static function creation_plan( array $row, array $reference ): array {
 		$defaults = [ 'slug' => sanitize_title( basename( trim( $row['path'], '/' ) ) ) ];
 		$type = $reference['reference_type'];
-		$object = 'term' === $type ? get_term( $reference['reference_id'], 'product_cat' ) : get_post( $reference['reference_id'] );
-		$registration = 'term' === $type ? get_taxonomy( 'product_cat' ) : get_post_type_object( $reference['post_type'] );
+		$object = 'term' === $type ? get_term( $reference['reference_id'], $reference['post_type'] ) : get_post( $reference['reference_id'] );
+		$registration = 'term' === $type ? get_taxonomy( $reference['post_type'] ) : get_post_type_object( $reference['post_type'] );
 		$parent = 'term' === $type ? (int) $object->parent : (int) $object->post_parent;
 		if ( 'post' === $type ) { $defaults['template'] = (string) get_page_template_slug( $reference['reference_id'] ); }
 		$desired_parent = self::parent_path( $row['path'] );
@@ -876,7 +879,7 @@ final class Nova_Bridge_Suite_Strategy {
 				if ( $bridge_route ) { $row['write']['available'] = true; $row['write']['route'] = $bridge_route . ( $row['post_id'] ? '/' . $row['post_id'] : '' ); $row['write']['transport'] = 'nova_content_bridge'; }
 			}
 			if ( 'term' === $entity['reference_type'] ) {
-				foreach ( self::$resources ?? [] as $resource ) { if ( ( $resource['taxonomy'] ?? '' ) === 'product_cat' && ! empty( $resource['usable'] ) && ! empty( $resource['route'] ) ) { $row['write']['available'] = true; $row['write']['route'] = $resource['route'] . ( $row['term_id'] ? '/' . $row['term_id'] : '' ); $row['write']['transport'] = 0 === strpos( $resource['route'], '/wc/' ) ? 'woocommerce' : 'wordpress'; break; } }
+				foreach ( self::$resources ?? [] as $resource ) { if ( ( $resource['taxonomy'] ?? '' ) === $entity['post_type'] && ! empty( $resource['usable'] ) && ! empty( $resource['route'] ) ) { $row['write']['available'] = true; $row['write']['route'] = $resource['route'] . ( $row['term_id'] ? '/' . $row['term_id'] : '' ); $row['write']['transport'] = 0 === strpos( $resource['route'], '/wc/' ) ? 'woocommerce' : 'wordpress'; break; } }
 			}
 			foreach ( $row['field_contracts'] as $field ) {
 				if ( empty( $field['writable'] ) ) { $row['ready'] = false; $row['warnings'][] = 'Mapped field ' . $field['path'] . ' has no verified writable transport.'; }
@@ -912,7 +915,13 @@ final class Nova_Bridge_Suite_Strategy {
 			add_filter( 'rest_prepare_' . $post_type, [ __CLASS__, 'prepare_post' ], 11000, 3 );
 			self::$prepared[ $post_type ] = true;
 		}
-		if ( ! isset( self::$prepared['taxonomy:product_cat'] ) ) { add_filter( 'rest_prepare_product_cat', [ __CLASS__, 'prepare_term' ], 11000, 3 ); add_filter( 'woocommerce_rest_prepare_product_cat', [ __CLASS__, 'prepare_term' ], 11000, 3 ); self::$prepared['taxonomy:product_cat'] = true; }
+		foreach ( [ 'product_cat', 'product_tag' ] as $taxonomy ) {
+			if ( ! isset( self::$prepared['taxonomy:' . $taxonomy] ) ) {
+				add_filter( 'rest_prepare_' . $taxonomy, [ __CLASS__, 'prepare_term' ], 11000, 3 );
+				add_filter( 'woocommerce_rest_prepare_' . $taxonomy, [ __CLASS__, 'prepare_term' ], 11000, 3 );
+				self::$prepared['taxonomy:' . $taxonomy] = true;
+			}
+		}
 	}
 
 	public static function prepare_post( $response, $post, $request ) {

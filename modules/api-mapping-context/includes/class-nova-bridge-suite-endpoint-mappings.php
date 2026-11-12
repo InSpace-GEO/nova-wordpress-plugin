@@ -118,7 +118,7 @@ final class Nova_Bridge_Suite_Endpoint_Mappings {
 
     private static function preview_url( string $type, int $id, array $resource ): string {
         if ( ! $id || ! class_exists( 'Nova_Bridge_Suite_Mapping_Preview' ) ) { return ''; }
-        if ( 'term' === $type && ( $resource['taxonomy'] ?? '' ) !== 'product_cat' ) { return ''; }
+        if ( 'term' === $type && ! in_array( $resource['taxonomy'] ?? '', [ 'product_cat', 'product_tag' ], true ) ) { return ''; }
         $url = 'post' === $type ? get_permalink( $id ) : get_term_link( $id, $resource['taxonomy'] );
         return ! is_wp_error( $url ) && is_string( $url ) ? Nova_Bridge_Suite_Mapping_Preview::url( [ 'reference_type' => $type, 'reference_id' => $id, 'url' => $url ] ) : '';
     }
