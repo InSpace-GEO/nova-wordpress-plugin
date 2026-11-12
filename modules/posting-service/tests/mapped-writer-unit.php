@@ -25,6 +25,11 @@ function bind_heading( array &$fixture, string $path, array $live ): void {
     nova_writer_fixture_refresh( $fixture );
 }
 $fixture = nova_writer_fixture(); $plan = plan_fixture( $fixture );
+$test_fixture = nova_writer_fixture();
+$test_fixture['content']['url'] = home_url( '/lorem-ipsum-demo-service/' );
+$test_fixture['configuration']['local']['routing']['publication'] = 'publish';
+nova_writer_fixture_refresh( $test_fixture );
+check( plan_fixture( $test_fixture )['desired_status'] === 'draft', 'Application test URLs override a mapped publish policy.' );
 check( $plan['changes']['post']['post_title'] === 'Generated fixture heading', 'Native title mapped.' );
 check( ! isset( $plan['changes']['post']['post_content'] ), 'Leave empty skips updates.' );
 check( ! isset( $plan['changes']['post']['post_excerpt'] ), 'Protected native excerpt is absent from writes.' );

@@ -2,6 +2,7 @@
 /** Serialize connection changes with delivery, and retain retired work outside the active journal. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-wordpress-environment-copy.php';
+require_once __DIR__ . '/class-nova-bridge-suite-connection-layout-sync.php';
 
 final class Nova_Bridge_Suite_Posting_Connection {
     private static $depth = 0;
@@ -129,8 +130,12 @@ final class Nova_Bridge_Suite_Posting_Connection {
             global $wpdb;
             $old = get_option( Nova_Bridge_Suite_Posting_Settings::OPTION, [] );
             $previous = Nova_Bridge_Suite_Posting_Settings::connection();
+            $errors_before = function_exists( 'get_settings_errors' ) ? count( get_settings_errors( Nova_Bridge_Suite_Posting_Settings::OPTION ) ) : 0;
             $next = Nova_Bridge_Suite_Posting_Settings::sanitize( $input );
-            if ( $next === $old ) { return true; }
+            if ( $next === $old ) {
+                if ( ! function_exists( 'get_settings_errors' ) || count( get_settings_errors( Nova_Bridge_Suite_Posting_Settings::OPTION ) ) === $errors_before ) { Nova_Bridge_Suite_Connection_Layout_Sync::after_save( $input, $previous, $previous ); }
+                return true;
+            }
             $effective = Nova_Bridge_Suite_Posting_Settings::effective_connection( $next );
             $switch = self::changed( $previous, $effective );
             if ( $switch && ! Nova_Bridge_Suite_Posting_Delivery::ensure_schema() ) { return new WP_Error( 'nova_posting_storage', 'Delivery storage is unavailable. The connection was not changed.' ); }
@@ -187,6 +192,7 @@ final class Nova_Bridge_Suite_Posting_Connection {
                     add_settings_error( Nova_Bridge_Suite_Posting_Settings::OPTION, 'nova_environment_copy_' . $index, $message[1], $message[0] );
                 }
             }
+            Nova_Bridge_Suite_Connection_Layout_Sync::after_save( $input, $previous, Nova_Bridge_Suite_Posting_Settings::connection() );
             return true;
         } );
     }

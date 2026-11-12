@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/class-nova-bridge-suite-publication-policy.php';
 /** Source-free native publishing from an immutable layout and fitted scalar values. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
@@ -143,7 +144,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     public static function policy( array $content, array $configuration ) {
         return self::guard( static function () use ( $content, $configuration ) {
             $local = self::validate_configuration( $content, $configuration ); $resolved = self::target( $content, $configuration, $local['stored_layout']['post_type'] );
-            $publication = $local['routing']['publication'] ?? 'preserve';
+            $publication = Nova_Bridge_Suite_Publication_Policy::publication( $content, $local['routing']['publication'] ?? 'preserve' );
             if ( ! in_array( $publication, [ 'publish', 'draft', 'preserve' ], true ) ) { self::fail( 'publication', 'This publication policy is unsupported.' ); }
             return [ 'mode' => 'stored_layout_v3', 'reference' => [ 'reference_type' => 'post', 'reference_id' => $resolved['post_id'] ], 'routing' => [ 'operation' => $resolved['post_id'] ? 'update' : 'create', 'publication' => 'preserve' === $publication && ! $resolved['post_id'] ? 'draft' : $publication ] ];
         } );
@@ -180,12 +181,12 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 foreach ( [ 'url', 'page_type_frontend', 'language' ] as $name ) { $sources[$name] = $content[$name] ?? null; }
                 $values = []; foreach ( $configuration['template']['mapping']['fields'] as $binding ) { if ( array_key_exists( $binding['source_field'], $sources ) && null !== $sources[$binding['source_field']] ) { $values[$binding['field_id']] = $sources[$binding['source_field']]; } }
             }
-            $compiled = self::checked( Nova_Bridge_Suite_Stored_Layout::compile( Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $local ), $values, $content['site_id'] . ':' . $content['url_id'] ) );
+            $compiled = self::checked( Nova_Bridge_Suite_Stored_Layout::compile( Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $local ), $values, $content['site_id'] . ':' . $content['url_id'], $content['language'] ) );
             $builder = $compiled['builder'] ?? '';
             $type = $compiled['post_type']; $resolved = self::target( $content, $configuration, $type );
             $target_id = $resolved['post_id']; $association = $resolved['association']; $target = $resolved['target'];
             if ( isset( $context['target_post_id'] ) && $context['target_post_id'] !== $target_id ) { self::fail( 'target_changed', 'The delivery URL acquired a different native target after its policy was selected.' ); }
-            $publication = $local['routing']['publication'] ?? 'preserve'; $status = 'preserve' === $publication ? ( $target_id ? get_post_status( $target_id ) : 'draft' ) : $publication;
+            $publication = Nova_Bridge_Suite_Publication_Policy::publication( $content, $local['routing']['publication'] ?? 'preserve' ); $status = 'preserve' === $publication ? ( $target_id ? get_post_status( $target_id ) : 'draft' ) : $publication;
             if ( ! in_array( $status, [ 'publish', 'draft' ], true ) ) { self::fail( 'publication', 'Stored-layout creation and replacement support draft or published pages.' ); }
             $payload = $compiled['writer_payload']; $post_fields = $compiled['post_fields'];
             $title = $post_fields['title'] ?? '';

@@ -342,9 +342,9 @@ function nova_mapping_bb_clear_bb_caches( $post_id ) {
         return;
     }
 
-    if ( method_exists( 'FLBuilderModel', 'delete_asset_cache' ) ) {
+    if ( method_exists( 'FLBuilderModel', 'delete_all_asset_cache' ) ) {
         try {
-            FLBuilderModel::delete_asset_cache( (int) $post_id );
+            FLBuilderModel::delete_all_asset_cache( (int) $post_id );
         } catch ( \Throwable $e ) { // phpcs:ignore
             // Never let cache clearing break the write.
         }

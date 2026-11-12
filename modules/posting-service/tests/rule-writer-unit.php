@@ -17,6 +17,7 @@ namespace NOVA_Mapping_Elementor {
             if ( $GLOBALS['native_link'] ) { $data[0]['settings']['e_link'] = [ 'url' => 'https://changed.test/' ]; }
             if ( $GLOBALS['drop_node'] ) { array_pop( $data[0]['elements'] ); }
             $GLOBALS['posts'][ $id ]->post_title = stripslashes( $payload['title'] );
+            if ( isset( $payload['status'] ) ) { $GLOBALS['posts'][$id]->post_status = $payload['status']; }
             $GLOBALS['meta'][ $id ]['_elementor_data'] = json_encode( $data, JSON_UNESCAPED_UNICODE );
             if ( $GLOBALS['crash_save'] ) { $GLOBALS['crash_save'] = false; throw new \RuntimeException( 'Response lost after native save' ); }
             return [ 'post_id' => $id ];
@@ -225,5 +226,20 @@ foreach ( [ 'crash_insert', 'crash_save' ] as $interruption ) {
     $saved = result( Nova_Bridge_Suite_Rule_Writer::apply( $new, op( 2 ) ) );
     check( $saved['post_id'] === 10 && $inserts === 1 && $posts[10]->post_title === 'Replacement', 'Newer rules reuse the same reserved page.' );
 }
+reset_native();
+$test_content = snapshot(); $test_content['url'] = 'https://example.test/lorem-ipsum-demo-service/';
+$test_plan = result( Nova_Bridge_Suite_Rule_Writer::plan( $test_content, config( $p ), [ 'operation_id' => op( 401 ) ] ) );
+$test_saved = result( Nova_Bridge_Suite_Rule_Writer::apply( $test_plan, op( 401 ) ) );
+$posts[$test_saved['post_id']]->post_status = 'publish';
+$test_content['content_item_version_id'] = '502'; $test_content['version_number'] = 2;
+$test_plan = result( Nova_Bridge_Suite_Rule_Writer::plan( $test_content, config( $p ), [ 'operation_id' => op( 402 ) ] ) );
+$test_saved = result( Nova_Bridge_Suite_Rule_Writer::apply( $test_plan, op( 402 ) ) );
+check( $test_saved['cms_post_status'] === 'draft', 'A rules update returns a published application test item to draft.' );
+reset_native(); [ $fixture, $store, $client ] = worker_fixture( $p );
+$test_snapshot = $fixture['snapshot']; $test_snapshot['url'] = 'https://example.test/lorem-ipsum-demo-service/';
+$fixture = nova_contract_fixture( [ 'content' => $test_snapshot ] ); $client->fixture = $fixture;
+$worker = new Nova_Bridge_Suite_Posting_Worker( $fixture['connection'], $store, $client );
+$test_job = result( $worker->process( $fixture['job'] ) );
+check( $test_job['state'] === 'complete' && $test_job['payload']['result']['cms_post_status'] === 'draft', 'Worker receipts confirm the application test item was committed as draft.' );
 echo 'PASS ' . $checks . " rule-writer native lifecycle checks.\n";
 }

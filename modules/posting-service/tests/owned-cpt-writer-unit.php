@@ -130,4 +130,11 @@ require_once __DIR__ . '/locale-association-fixture.php';
 foreach ( [ 'service_page', 'blog' ] as $type ) {
     check_locale_associations( Nova_Bridge_Suite_Owned_CPT_Writer::class, 'reset_fake', static function ( $version ) use ( $type ) { return fixture( $type, $version ); }, 'uuid', 'nova_cpt_url_' );
 }
+foreach ( [ 'service_page', 'blog' ] as $type ) {
+    reset_fake(); [ $test_content, $test_configuration ] = fixture( $type );
+    $test_content['url'] = 'https://example.test/lorem-ipsum-demo-informative/';
+    $test_plan = ok( Nova_Bridge_Suite_Owned_CPT_Writer::plan( $test_content, $test_configuration, [ 'operation_id' => uuid( 401 ) ] ) );
+    $test_result = ok( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $test_plan, uuid( 401 ) ) );
+    check( $test_plan['desired_status'] === 'draft' && $test_result['cms_post_status'] === 'draft', 'Application test items remain drafts in native CPT publication.' );
+}
 echo "Owned CPT writer: $checks checks passed\n";

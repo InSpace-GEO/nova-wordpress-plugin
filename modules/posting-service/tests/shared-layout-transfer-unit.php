@@ -12,6 +12,7 @@ class Nova_Bridge_Suite_Owned_CPT_Sync {
 function wp_get_upload_dir() { return [ 'basedir' => $GLOBALS['test_uploads'] ]; }
 function get_attached_file( $id, $unfiltered = false ) { return $GLOBALS['shared_test_media'][$id] ?? false; }
 function wp_get_attachment_url( $id ) { return 'https://media.test/' . $id . '.png'; }
+function attachment_url_to_postid( $url ) { return 41; }
 function get_posts( $query ) { return array_keys( $GLOBALS['shared_test_media'] ); }
 $test_uploads = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'nova-shared-transfer-' . bin2hex( random_bytes( 8 ) );
 mkdir( $test_uploads );
@@ -42,7 +43,15 @@ $frozen_versions = [];
 for ( $revision = 1; $revision <= 2; ++$revision ) {
     $source_recipe['revision'] = $revision;
     $source_recipe['recipe']['blueprint']['document'][0]['settings']['title_color'] = 1 === $revision ? '#123abc' : '#ff00ff';
-    if ( 2 === $revision ) { $source_recipe['recipe']['seo_fields'] = [ '/@nova/seo/yoast/title' => [ 'provider' => 'yoast', 'field' => 'title', 'required' => false ] ]; }
+    if ( 2 === $revision ) {
+        $source_recipe['recipe']['seo_fields'] = [ '/@nova/seo/yoast/title' => [ 'provider' => 'yoast', 'field' => 'title', 'required' => false ] ];
+        $source_recipe['recipe']['blueprint']['document'][] = [ 'id' => 'abc1236', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Contact' ], 'elements' => [] ];
+        $described = Nova_Bridge_Suite_Recipe_Engine::adapter( 'elementor' )->describe( $source_recipe['recipe']['blueprint'] );
+        $locale_field = array_column( $described['fields'], null, 'target' )['/document/2/settings/title'];
+        $source_recipe['locale_preservation'] = [ 'version' => 1, 'provider' => 'polylang', 'source_locale' => 'nl_NL', 'unavailable' => [], 'variants' => [
+            [ 'locale' => 'it_IT', 'code' => 'it', 'reference_id' => 910, 'values' => [ '/document/2/settings/title' => [ 'format' => $locale_field['format'], 'value' => 'Contatti' ] ] ],
+        ] ];
+    }
     Nova_Bridge_Suite_Layout_Recipes::$history[$source_recipe['id']][$revision] = $source_recipe;
     Nova_Bridge_Suite_Layout_Recipes::$record = $source_recipe;
     $projected = stored_ok( Nova_Bridge_Suite_Writing_Adapter::template_input( stored_ok( Nova_Bridge_Suite_Stored_Layout::from_recipe( $source_recipe ) ) ) );
@@ -56,6 +65,24 @@ for ( $revision = 1; $revision <= 2; ++$revision ) {
 $versions = [ [ 'template_id' => $native_template, 'revision' => 1 ], [ 'template_id' => $native_template, 'revision' => 2 ] ];
 $file = stored_ok( Nova_Bridge_Suite_Shared_Layouts::export_selected( $connection, $versions ) );
 $copied = json_decode( wp_json_encode( $file ), true );
+check( str_contains( wp_json_encode( $copied ), 'Contatti' ), 'Shared layout packages retain saved locale values.' );
+$locale_url = 'https://source.test/wp-content/uploads/photo.png';
+$dependency_record = [ 'resource_id' => 'post_type:page', 'recipe' => [ 'builder' => 'core', 'blueprint' => [ 'document' => [] ] ],
+    'locale_preservation' => [ 'variants' => [ [ 'values' => [ '/document/body' => [ 'format' => 'url', 'value' => $locale_url, 'native_value' => $locale_url ] ] ] ] ] ];
+$locale_manifest = stored_ok( Nova_Bridge_Suite_Shared_Layout_Dependencies::capture( $dependency_record ) );
+check( count( $locale_manifest['entries'] ) === 1, 'Locale-only media references enter the dependency manifest.' );
+$GLOBALS['shared_test_media'] = [ 61 => $photo ];
+$resolved_locale = stored_ok( Nova_Bridge_Suite_Shared_Layout_Dependencies::resolve( $dependency_record, $locale_manifest ) );
+$resolved_entry = $resolved_locale['locale_preservation']['variants'][0]['values']['/document/body'];
+check( $resolved_entry['value'] === 'https://media.test/61.png' && $resolved_entry['native_value'] === 'https://media.test/61.png', 'Imported locale media resolves both semantic and native values to the local attachment.' );
+$GLOBALS['shared_test_media'] = [ 41 => $photo ];
+$embedded_locale = $dependency_record;
+$embedded_locale['locale_preservation']['variants'][0]['values']['/document/body']['native_value'] = '<img src="' . $locale_url . '">';
+check( is_wp_error( Nova_Bridge_Suite_Shared_Layout_Dependencies::capture( $embedded_locale ) ), 'Embedded media in captured native locale markup cannot bypass portability checks.' );
+$manual_locale = $dependency_record;
+unset( $manual_locale['locale_preservation'] );
+$manual_locale['recipe']['locale_values'] = [ 'it-IT' => [ '/document/body' => '<img src="' . $locale_url . '">' ] ];
+check( is_wp_error( Nova_Bridge_Suite_Shared_Layout_Dependencies::capture( $manual_locale ) ), 'Manual locale markup receives the same dependency checks.' );
 check( ! str_contains( wp_json_encode( $file ), $connection['token'] ) && ! str_contains( wp_json_encode( $file ), 'private authoring sample' ) && ! str_contains( wp_json_encode( $file ), 'private source receipt' ), 'File excludes credentials, source receipts and sample content.' );
 check( array_column( stored_ok( Nova_Bridge_Suite_Shared_Layouts::catalog( $connection ) )['templates'], 'revision' ) === [ 2, 1 ], 'Source can select active and historical approvals without resaving.' );
 $source_options = $GLOBALS['wpdb'];

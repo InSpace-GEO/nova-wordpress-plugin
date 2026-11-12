@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/class-nova-bridge-suite-publication-policy.php';
 /** Journaled, source-free native Elementor documents from frozen local rendering rules. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
@@ -122,7 +123,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
             self::routing( $content, $configuration['profile'] );
             $association = self::association( $content );
             if ( $association && ! in_array( $association['state'] ?? '', [ 'committed', 'retired' ], true ) ) { self::fail( 'association_pending', 'An earlier native operation for this URL must be reconciled first.' ); }
-            return [ 'mode' => 'local_rules', 'reference' => [ 'reference_type' => 'post', 'reference_id' => (int) ( $association['post_id'] ?? 0 ) ], 'routing' => [ 'operation' => $association ? 'update' : 'create', 'publication' => $association ? 'preserve' : 'draft' ] ];
+            return [ 'mode' => 'local_rules', 'reference' => [ 'reference_type' => 'post', 'reference_id' => (int) ( $association['post_id'] ?? 0 ) ], 'routing' => [ 'operation' => $association ? 'update' : 'create', 'publication' => Nova_Bridge_Suite_Publication_Policy::publication( $content, $association ? 'preserve' : 'draft' ) ] ];
         } );
     }
 
@@ -152,6 +153,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
         if ( $content && ( ! empty( $content['content']['top_content'] ) || ! empty( $content['content']['bottom_content'] ) ) ) { $warnings[] = 'This profile renders main article HTML only; top_content and bottom_content require an explicitly selected arrangement.'; }
         $plan = [ 'format' => self::FORMAT, 'operation_id' => $operation, 'profile' => $profile, 'profile_digest' => Nova_Bridge_Suite_Content_Rules::digest( $profile ), 'renderer_version' => $rendered['renderer_version'], 'provider' => $provider, 'input_digest' => self::digest( $input ), 'elements' => $rendered['elements'], 'title' => $title, 'post_type' => $profile['post_type'], 'slug' => $route ? $route['slug'] : sanitize_title( $title ) . '-' . substr( str_replace( '-', '', $operation ), 0, 10 ), 'parent' => $route['parent'] ?? 0, 'route' => $route, 'association_before' => $association, 'target_post_id' => $target, 'native_before' => $before, 'context' => $context, 'source_selection' => $content ? 'content.content' : 'local_input', 'warnings' => $warnings ];
         if ( $content ) { $plan['delivery_identity'] = array_intersect_key( $content, array_flip( [ 'site_id', 'url_id', 'content_item_id', 'content_item_version_id', 'version_number', 'source_sha256', 'language' ] ) ); }
+        if ( $content && Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ?? null ) ) { $plan['test_delivery_draft'] = true; }
         if ( strlen( self::json( $plan ) ) > self::MAX_PLAN_BYTES ) { self::fail( 'plan_size', 'This rendered document is too large for the recoverable native journal.' ); }
         $plan['plan_digest'] = self::digest( $plan );
         return $plan;
@@ -223,6 +225,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
         return $result;
     }
     private static function finalize( array $plan, array $record, array $state ): array {
+        if ( ! empty( $plan['test_delivery_draft'] ) && get_post_status( (int) $record['post_id'] ) !== 'draft' ) { self::fail( 'test_publication', 'The test item must remain a draft.' ); }
         if ( ! self::semantics_match( $plan['elements'], $state['elements'] ) || $state['title'] !== $plan['title'] || $state['owner'] !== self::owner( $plan ) ) { self::fail( 'native_mismatch', 'Elementor did not preserve the complete ordered content and configured settings. The retained draft requires review.' ); }
         $record['state'] = 'committed'; $record['native_digest'] = self::digest( $state );
         self::checkpoint( self::operation_key( $plan['operation_id'] ), $record );
@@ -296,7 +299,9 @@ final class Nova_Bridge_Suite_Rule_Writer {
                 $record['state'] = 'saving'; self::checkpoint( $key, $record );
                 $service = new \NOVA_Mapping_Elementor\Elementor_Service();
                 // The bridge passes title through wp_update_post, whose input is slashed.
-                $saved = $service->update_page( $id, [ 'title' => wp_slash( $plan['title'] ), 'elementor_data' => wp_json_encode( $plan['elements'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ] );
+                $payload = [ 'title' => wp_slash( $plan['title'] ), 'elementor_data' => wp_json_encode( $plan['elements'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ];
+                if ( ! empty( $plan['test_delivery_draft'] ) ) { $payload['status'] = 'draft'; }
+                $saved = $service->update_page( $id, $payload );
                 if ( is_wp_error( $saved ) ) { self::fail( 'save_unknown', 'Elementor did not confirm its native save. The reserved draft remains available for reconciliation; no replacement draft will be created.' ); }
                 return self::finalize( $plan, $record, self::native_state( $id ) );
             } );
@@ -305,6 +310,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
 
     private static function verify_record( array $plan, array $record ): array {
         $state = self::native_state( (int) $record['post_id'] );
+        if ( ! empty( $plan['test_delivery_draft'] ) && get_post_status( (int) $record['post_id'] ) !== 'draft' ) { self::fail( 'test_publication', 'The test item must remain a draft.' ); }
         if ( self::digest( $state ) !== ( $record['native_digest'] ?? '' ) || $state['owner'] !== self::owner( $plan ) ) { self::fail( 'human_changed', 'The generated page changed after its verified save. Reconcile it before automatic publication confirmation or replacement.' ); }
         return self::result( $record );
     }
