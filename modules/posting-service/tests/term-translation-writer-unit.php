@@ -90,15 +90,26 @@ foreach ( [ 'weglot', 'translatepress' ] as $provider ) { foreach ( [ 'product_c
     $before = $source;
     $result = good( Writer::apply( $plan, 'operation-1' ) );
     expect( $source === $before && $writes === 1, 'Stores localized copy separately' );
+    expect( ! isset( Writer::record( 17, $plan['provider'] )['fields']['native']['description'] ),
+        'The first translation does not copy the source or example notice into an unmapped field' );
     good( Writer::verify( $plan, $result ) );
     good( Writer::recover( $plan, 'operation-1' ) );
     good( Writer::apply( $plan, 'operation-1' ) );
     expect( $writes === 1, 'A lost response cannot duplicate the write' );
     expect( is_wp_error( Writer::plan( $content, $config, $context ) ), 'Same version cannot become a new operation' );
+    // Simulate a notice already stored by an earlier mapped translation.
+    $key = array_key_first( $metadata );
+    $notice = [ 'provider' => 'native', 'key' => 'description', 'type' => 'wysiwyg',
+        'value' => '<p>Nur für Laborforschung. ' . $taxonomy . '</p>' ];
+    $metadata[$key]['fields']['native']['description'] = $notice;
     $content['version_number'] = 2; $context['operation_id'] = 'operation-2';
     $next = good( Writer::plan( $content, $config, $context ) );
     good( Writer::apply( $next, 'operation-2' ) );
     expect( $writes === 2, 'Higher versions update the same localized record' );
+    expect( $metadata[$key]['fields']['native']['description'] === $notice,
+        'An unmapped notice survives a higher localized version byte for byte' );
+    good( Writer::apply( $next, 'operation-2' ) );
+    expect( $writes === 2, 'Replaying a retained-notice plan is idempotent' );
     $content['version_number'] = 3; $context['operation_id'] = 'operation-3';
     $plan = good( Writer::plan( $content, $config, $context ) );
     $permitted = false;
@@ -111,6 +122,18 @@ foreach ( [ 'weglot', 'translatepress' ] as $provider ) { foreach ( [ 'product_c
     expect( Writer::policy( $bad, $config )->code === 'nova_translation_source_pending', 'Waits for an absent original' );
     $bad = $content; $bad['url'] = 'https://other.test/de/example';
     expect( is_wp_error( Writer::policy( $bad, $config ) ), 'Rejects a foreign intended URL' );
+    // Empty retained notices stay empty; an explicitly mapped value still replaces one.
+    $localized_url = 'https://category.test/de/shop/example';
+    $metadata[$key]['fields']['native']['description']['value'] = '';
+    $content['version_number'] = 4; $context['operation_id'] = 'operation-4';
+    $empty_plan = good( Writer::plan( $content, $config, $context ) );
+    good( Writer::apply( $empty_plan, 'operation-4' ) );
+    expect( $metadata[$key]['fields']['native']['description']['value'] === '', 'An empty localized notice remains empty' );
+    $content['values']['native']['description'] = $notice;
+    $content['version_number'] = 5; $context['operation_id'] = 'operation-5';
+    $mapped_plan = good( Writer::plan( $content, $config, $context ) );
+    good( Writer::apply( $mapped_plan, 'operation-5' ) );
+    expect( $metadata[$key]['fields']['native']['description'] === $notice, 'An explicitly mapped description retains its existing update behavior' );
     $bad = $content; $bad['url'] = 'https://category.test/de/lorem';
     expect( is_wp_error( Writer::policy( $bad, $config ) ), 'Shared views cannot be draft test pages' );
 }
