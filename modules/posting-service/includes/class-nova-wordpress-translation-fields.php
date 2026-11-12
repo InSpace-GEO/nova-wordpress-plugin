@@ -21,11 +21,19 @@ final class Nova_WordPress_Translation_Fields {
         $compiled = Nova_Bridge_Suite_Stored_Layout::compile( Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $local ), $values, $content['site_id'] . ':' . $content['url_id'] );
         if ( is_wp_error( $compiled ) ) { return $compiled; }
         $payload = $compiled['writer_payload']; $builder = $compiled['builder']; $fields = [];
-        if ( ! empty( $payload['nova_media'] ) ) { return self::unsupported( 'localized media' ); }
+        if ( ! empty( $payload['nova_media'] ) ) {
+            if ( 'weglot' !== $target['provider'] || ! in_array( $builder, [ 'core', 'gutenberg', 'elementor' ], true ) ) { return self::unsupported( 'localized media' ); }
+            require_once __DIR__ . '/class-nova-bridge-suite-native-media.php';
+            $valid = Nova_Bridge_Suite_Native_Media::validate( $builder, $payload );
+            if ( is_wp_error( $valid ) ) { return $valid; }
+            // Resolve imports only after the writer has retained its operation and acquired the source lock.
+            $fields['native_media'] = [ 'builder' => $builder, 'payload' => $payload ];
+        }
         $bindings = $local['stored_layout']['bindings'] ?? [];
         $columns = []; $document = false;
         foreach ( $bindings as $binding ) {
             if ( 'protected' === $binding['mode'] ) { continue; }
+            if ( 'media' === $binding['kind'] && 'featured' === ( $binding['native_media']['kind'] ?? '' ) ) { continue; }
             if ( 'post' === $binding['kind'] ) { $columns[$binding['column']] = true; }
             elseif ( ! in_array( $binding['kind'], [ 'custom_field', 'routing' ], true ) ) { $document = true; }
         }

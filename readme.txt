@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.11
+Stable tag: 1.4.12
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.4.12 =
+* Publish mapped Elementor images and featured images in Weglot's per-language views.
+* Retain localized image imports for retry recovery and verify their saved attachment IDs and URLs.
 
 = 1.4.11 =
 * Map WooCommerce product tags to the Category content type, including native text, scalar custom fields, SEO fields and translated content.

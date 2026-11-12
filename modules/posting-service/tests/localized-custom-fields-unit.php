@@ -41,7 +41,7 @@ if ( is_file( $core . '/utf8.php' ) ) {
 function is_utf8_charset( $s = null ) { return true; }
 function get_option( $key, $fallback = false ) { return 'active_plugins' === $key ? ( $GLOBALS['seo_plugins'] ?? [] ) : ( 'blog_charset' === $key ? 'UTF-8' : ( 'home' === $key ? home_url() : ( $GLOBALS['associations'][$key] ?? $fallback ) ) ); }
 function home_url( $path = '' ) { return 'https://lang.test' . $path; }
-function get_post( $id ) { return $GLOBALS['post']; }
+function get_post( $id ) { return $GLOBALS['attachment_posts'][$id] ?? $GLOBALS['post']; }
 function get_permalink( $id ) { return home_url( '/entry/' ); }
 function get_page_template_slug( $id ) { return 'service.php'; }
 function get_post_type( $id ) { return 'page'; }
@@ -70,7 +70,7 @@ if ( empty( $grouped_source ) ) {
     class Nova_Bridge_Suite_Stored_Layout_Language { public static function provider() { return 'core'; } }
 } else { require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-language.php'; }
 class Nova_Bridge_Suite_Stored_Layout {
-    public static function compile( $draft, $values, $seed ) { return [ 'builder'=>'elementor', 'post_fields'=>['title'=>'Unmapped sample title'], 'writer_payload'=>[], 'custom_fields'=>$values ]; }
+    public static function compile( $draft, $values, $seed ) { return $GLOBALS['compiled_layout'] ?? [ 'builder'=>'elementor', 'post_fields'=>['title'=>'Unmapped sample title'], 'writer_payload'=>[], 'custom_fields'=>$values ]; }
 }
 if ( empty( $grouped_source ) ) {
     class Nova_Bridge_Suite_Translation_Source { public static function post_id( ...$unused ) { return 41; } }

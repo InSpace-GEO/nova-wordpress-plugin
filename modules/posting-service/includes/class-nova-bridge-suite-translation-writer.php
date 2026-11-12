@@ -166,6 +166,8 @@ final class Nova_Bridge_Suite_Translation_Writer {
         }
         $fields = Nova_WordPress_Translation_Fields::compile( $content, $configuration, $target );
         if ( is_wp_error( $fields ) ) { return $fields; }
+        $media = $fields['native_media'] ?? [];
+        unset( $fields['native_media'] );
         $previous = self::record( $target );
         if ( $previous && ( 'committed' !== ( $previous['state'] ?? '' ) || ( $previous['content_item'] ?? '' ) !== $content['content_item_id'] || ( $previous['version'] ?? 0 ) >= $content['version_number'] ) ) {
             return self::error( 'version', 'A newer or unfinished localization already owns this source and language.' );
@@ -173,7 +175,8 @@ final class Nova_Bridge_Suite_Translation_Writer {
         $plan = [ 'format' => self::FORMAT, 'target_post_id' => $target['post_id'], 'target' => [ 'target_url' => $target['url'] ],
             'operation_id' => $context['operation_id'], 'desired_status' => 'publish', 'provider' => $target, 'fields' => $fields,
             'content_item' => $content['content_item_id'], 'version' => $content['version_number'], 'previous' => self::digest( $previous ) ];
-        $plan['source_digest'] = self::source_digest( $target, $fields );
+        if ( $media ) { $plan['media'] = $media; }
+        $plan['source_digest'] = self::source_digest( $target, $fields, $media );
         if ( is_wp_error( $plan['source_digest'] ) ) { return $plan['source_digest']; }
         if ( strlen( wp_json_encode( $plan ) ) > 780000 ) { return self::error( 'size', 'The localization is too large for the WordPress delivery journal.' ); }
         $plan['digest'] = self::digest( $plan );
@@ -188,10 +191,14 @@ final class Nova_Bridge_Suite_Translation_Writer {
         return $record['mapped_fields'] ?? [];
     }
 
-    private static function source_digest( array $target, array $fields ) {
+    private static function source_digest( array $target, array $fields, array $media = [] ) {
         $id = $target['post_id']; $post = get_post( $id );
         $data = [ $post->post_title, $post->post_excerpt, $post->post_content ];
         foreach ( array_keys( $fields['custom_fields'] ?? $fields['meta'] ?? [] ) as $name ) { $data[$name] = get_post_meta( $id, $name, true ); }
+        if ( $media ) {
+            require_once __DIR__ . '/class-nova-bridge-suite-native-media.php';
+            if ( Nova_Bridge_Suite_Native_Media::has_featured( $media['payload'] ) ) { $data['_thumbnail_id'] = get_post_meta( $id, '_thumbnail_id', true ); }
+        }
         if ( ! empty( $fields['mapped_fields'] ) ) {
             $source = Nova_Bridge_Suite_Stored_Custom_Fields::read( $target['post_type'], $id, (string) get_page_template_slug( $id ), $fields['mapped_fields'] );
             if ( is_wp_error( $source ) ) { return $source; }
@@ -225,7 +232,8 @@ final class Nova_Bridge_Suite_Translation_Writer {
 
     private static function evidence( array $plan, array $ids, array $mapped ) {
         $t = $plan['provider'];
-        $fields = $plan['fields'];
+        $fields = self::resolved_fields( $plan, false );
+        if ( is_wp_error( $fields ) ) { return $fields; }
         $proof = [];
         if ( isset( $fields['mapped_fields'] ) ) {
             foreach ( $fields['mapped_fields'] as $name => $expected ) {
@@ -245,7 +253,23 @@ final class Nova_Bridge_Suite_Translation_Writer {
                 foreach ( $value as $name => $expected ) { if ( ( $stored['meta'][$name] ?? null ) !== $expected ) { return self::error( 'readback', 'A localized Weglot field differs from the saved mapping.' ); } }
             } elseif ( ( $stored[$key] ?? null ) !== $value ) { return self::error( 'readback', 'The localized Weglot copy differs from the saved mapping.' ); }
         }
-        return $plan['fields'];
+        return $fields + ( isset( $plan['fields']['mapped_fields'] ) ? [ 'mapped_fields' => $plan['fields']['mapped_fields'] ] : [] );
+    }
+
+    private static function resolved_fields( array $plan, bool $allow_import ) {
+        $fields = $plan['fields'];
+        if ( empty( $plan['media'] ) ) { return $fields; }
+        require_once __DIR__ . '/class-nova-bridge-suite-native-media.php';
+        $media = $plan['media'];
+        $resolved = Nova_Bridge_Suite_Native_Media::resolve( $media['builder'], $plan['provider']['post_id'], $media['payload'], $plan['operation_id'], $allow_import );
+        if ( is_wp_error( $resolved ) ) { return $resolved; }
+        if ( isset( $fields['meta']['_elementor_data'] ) ) {
+            $document = wp_json_encode( $resolved['payload']['elementor_data'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+            if ( false === $document ) { return self::error( 'field_unsupported', 'The localized Elementor document could not be encoded.' ); }
+            $fields['meta']['_elementor_data'] = $document;
+        }
+        if ( array_key_exists( 'featured', $resolved ) ) { $fields['meta']['_thumbnail_id'] = (string) $resolved['featured']; }
+        return $fields;
     }
 
     public static function apply( array $plan, string $op ) {
@@ -266,7 +290,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
         if ( is_wp_error( $allowed ) ) { return $allowed; }
         $record = self::record( $target );
         if ( ( $record['operation_id'] ?? null ) === $op && 'committed' === $record['state'] ) { return self::verify( $plan, [] ); }
-        if ( self::source_digest( $target, $plan['fields'] ) !== $plan['source_digest'] ) { return self::error( 'source_changed', 'The original changed after translation planning.' ); }
+        if ( self::source_digest( $target, $plan['fields'], $plan['media'] ?? [] ) !== $plan['source_digest'] ) { return self::error( 'source_changed', 'The original changed after translation planning.' ); }
         if ( ( $record['operation_id'] ?? null ) !== $op ) {
             if ( self::digest( $record ) !== $plan['previous'] ) { return self::error( 'version', 'Another localization has acquired this source.' ); }
             $record = [ 'state' => 'saving', 'operation_id' => $op, 'digest' => $plan['digest'], 'version' => $plan['version'], 'content_item' => $plan['content_item'],
@@ -274,7 +298,9 @@ final class Nova_Bridge_Suite_Translation_Writer {
             $saved = self::save( $target, $record ); if ( is_wp_error( $saved ) ) { return $saved; }
         }
         if ( $record['digest'] !== $plan['digest'] ) { return self::error( 'plan', 'This localization operation belongs to another plan.' ); }
-        $fields = $plan['fields']; $result = [];
+        $fields = self::resolved_fields( $plan, true );
+        if ( is_wp_error( $fields ) ) { return $fields; }
+        $result = [];
         $record['mapped_fields'] = array_replace( $record['mapped_fields'] ?? [], $fields['mapped_fields'] ?? [] );
         unset( $fields['mapped_fields'] );
         if ( $fields ) {
@@ -284,7 +310,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
         }
         $record['ids'] = is_array( $result ) ? $result : [];
         $proof = self::evidence( $plan, $record['ids'], $record['mapped_fields'] ); if ( is_wp_error( $proof ) ) { return $proof; }
-        if ( self::source_digest( $target, $plan['fields'] ) !== $plan['source_digest'] ) { return self::error( 'source_changed', 'The original changed during translation.' ); }
+        if ( self::source_digest( $target, $plan['fields'], $plan['media'] ?? [] ) !== $plan['source_digest'] ) { return self::error( 'source_changed', 'The original changed during translation.' ); }
         $record['proof'] = self::digest( $proof ); $record['source_digest'] = $plan['source_digest']; $record['state'] = 'committed';
         $saved = self::save( $target, $record );
         return is_wp_error( $saved ) ? $saved : self::verify( $plan, [] );
@@ -294,7 +320,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
         if ( ! self::check_plan( $plan, $op ) ) { return self::error( 'plan', 'The retained localization plan has changed.' ); }
         $source = self::check_source( $plan['provider'], false );
         if ( is_wp_error( $source ) ) { return $source; }
-        if ( self::source_digest( $plan['provider'], $plan['fields'] ) !== $plan['source_digest'] ) { return self::error( 'source_changed', 'The original changed after translation planning.' ); }
+        if ( self::source_digest( $plan['provider'], $plan['fields'], $plan['media'] ?? [] ) !== $plan['source_digest'] ) { return self::error( 'source_changed', 'The original changed after translation planning.' ); }
         $record = self::record( $plan['provider'] );
         if ( ( $record['operation_id'] ?? null ) !== $op ) {
             return self::digest( $record ) === $plan['previous'] ? [ 'state' => 'not_committed', 'no_native_commit' => true, 'safe_to_apply' => true ] :
@@ -320,7 +346,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
             return self::error( 'journal', 'The localized post has no matching completed operation.' );
         }
         $proof = self::evidence( $plan, $record['ids'], $record['mapped_fields'] ?? [] );
-        if ( is_wp_error( $proof ) || self::digest( $proof ) !== $record['proof'] || self::source_digest( $target, $plan['fields'] ) !== $record['source_digest'] ) { return self::error( 'readback', 'The source or translation differs from the native values witnessed at publication.' ); }
+        if ( is_wp_error( $proof ) || self::digest( $proof ) !== $record['proof'] || self::source_digest( $target, $plan['fields'], $plan['media'] ?? [] ) !== $record['source_digest'] ) { return self::error( 'readback', 'The source or translation differs from the native values witnessed at publication.' ); }
         return [ 'state' => 'complete', 'operation_id' => $plan['operation_id'], 'post_id' => $target['post_id'], 'cms_post_status' => 'publish', 'url' => $target['url'], 'native_digest' => $record['proof'] ];
     }
 
