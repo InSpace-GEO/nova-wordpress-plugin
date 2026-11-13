@@ -635,6 +635,10 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         elseif ( 'acf' === $builder ) { $checked = $fixed_acf ? ( new Nova_Bridge_Suite_Recipe_ACF() )->publication_verify( $id, $payload ) : true; }
         else { $checked = Nova_Bridge_Suite_Recipe_Builders::verify_saved( $builder, $id, $payload ); }
         if ( is_wp_error( $checked ) ) { return $checked; }
+        if ( ! empty( $operation['halo_fields'] ) ) {
+            $checked = Nova_Bridge_Suite_Stored_Custom_Fields::finish( [ 'post_type' => $operation['post_type'], 'custom_template' => $operation['template'], 'custom_fields' => $operation['halo_fields'], 'operation_id' => 'draft:' . $operation['operation_id'] ], $id, [], false );
+            if ( is_wp_error( $checked ) ) { return $checked; }
+        }
         if ( ! empty( $operation['template'] ) && (string) get_page_template_slug( $id ) !== $operation['template'] ) { return self::error( 'draft_template', 'The saved draft uses a different page template; review it before retrying.', 409 ); }
         if ( ! $fixed_acf && ! empty( $payload['meta_all'] ) ) { $checked = Nova_Bridge_Suite_Recipe_ACF::verify_saved( $id, $payload['meta_all'], $operation['template'] ?? '' ); if ( is_wp_error( $checked ) ) { return $checked; } }
         return $media ? Nova_Bridge_Suite_Native_Media::verify_featured( $id, $media ) : true;
@@ -643,7 +647,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     private static function apply_operation_media( array $operation, int $id ) {
         $payload = $operation['writer_payload']; if ( empty( $payload['nova_media'] ) ) { return true; }
         require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-bridge-suite-native-media.php';
-        $before = $operation; unset( $before['writer_payload']['nova_media'] );
+        $before = $operation; unset( $before['writer_payload']['nova_media'], $before['halo_fields'] );
         $unchanged = self::verify_operation( $before, $id );
         $retained = Nova_Bridge_Suite_Native_Media::resolve( $operation['builder'], $id, $payload, 'layout-draft:' . $operation['operation_id'], false );
         if ( is_wp_error( $unchanged ) && ! is_wp_error( $retained ) ) { $before['writer_payload'] = $retained['payload']; $unchanged = self::verify_operation( $before, $id ); }
@@ -675,6 +679,12 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $ids = self::witnesses( $operation );
         if ( 1 !== count( $ids ) ) { return self::error( 'draft_uncertain', $ids ? 'Several drafts match this request. Review them before retrying.' : 'The request did not finish with a recoverable draft. Review its result before starting a new request.', 409 ); }
         $media = self::apply_operation_media( $operation, $ids[0] ); if ( is_wp_error( $media ) ) { return $media; }
+        if ( ! empty( $operation['halo_fields'] ) ) {
+            $base = $operation; unset( $base['halo_fields'] );
+            $checked = self::verify_operation( $base, $ids[0] ); if ( is_wp_error( $checked ) ) { return $checked; }
+            $checked = Nova_Bridge_Suite_Stored_Custom_Fields::finish( [ 'post_type' => $operation['post_type'], 'custom_template' => $operation['template'], 'custom_fields' => $operation['halo_fields'], 'operation_id' => 'draft:' . $operation['operation_id'] ], $ids[0], [], true );
+            if ( is_wp_error( $checked ) ) { return $checked; }
+        }
         $checked = self::verify_operation( $operation, $ids[0] ); if ( is_wp_error( $checked ) ) { return $checked; }
         $saved = self::update_operation( $operation, 'complete', $ids[0] ); return is_wp_error( $saved ) ? $saved : self::draft_result( $saved, true );
     }
@@ -705,6 +715,9 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $meta = ! empty( $payload['meta_all'] ) ? Nova_Bridge_Suite_Content_Transport::validate_payload( $payload['meta_all'], $type, 0, $template ) : null;
         if ( is_wp_error( $meta ) ) { return $meta; }
         $operation = [ 'operation_id' => $op_id, 'user_id' => get_current_user_id(), 'request_digest' => $digest, 'profile_id' => $record['id'], 'revision' => $revision, 'builder' => $record['builder'], 'post_type' => $type, 'title' => $title, 'template' => $template, 'post_fields' => array_intersect_key( $fields, [ 'excerpt' => true ] ), 'writer_payload' => $payload, 'phase' => 'writing', 'updated_at' => time() ];
+        $halo = ! empty( $compiled['halo_fields'] ) ? Nova_Bridge_Suite_Stored_Custom_Fields::prepare( $type, 0, $template, $compiled['halo_fields'] ) : [];
+        if ( is_wp_error( $halo ) ) { return $halo; }
+        if ( $halo ) { $operation['halo_fields'] = $halo; }
         // The new native draft is reserved without any thumbnail; never overwrite a later manual choice.
         foreach ( $payload['nova_media'] ?? [] as $entry ) { if ( 'featured' === ( $entry['kind'] ?? '' ) ) { $operation['featured_before'] = 0; break; } }
         $claimed = self::mutate( Nova_WordPress_Environment::key( self::OPERATIONS ), static function ( array $state ) use ( $op_id, $operation ) { if ( isset( $state[$op_id] ) ) { return self::error( 'draft_busy', 'Another request already claimed this draft. Use Recover draft.', 409 ); } if ( count( $state ) >= 100 ) { return self::error( 'draft_history', 'The retained draft journal reached its limit. No draft history was removed.', 409 ); } $state[$op_id] = $operation; return [ 'state' => $state, 'result' => $operation ]; } );
@@ -722,6 +735,10 @@ final class Nova_Bridge_Suite_Layout_Recipes {
             if ( ! $id || ! in_array( $id, self::witnesses( $operation ), true ) ) { self::update_operation( $operation, 'uncertain' ); return self::error( 'draft_uncertain', 'The native writer did not return this request’s witnessed draft. Use Recover draft before retrying.', 409 ); }
             if ( $meta ) { $written = Nova_Bridge_Suite_Content_Transport::write_fields( get_post( $id ), $meta ); if ( is_wp_error( $written ) ) { self::update_operation( $operation, 'uncertain', $id ); return $written; } }
             $media = self::apply_operation_media( $operation, $id ); if ( is_wp_error( $media ) ) { self::update_operation( $operation, 'uncertain', $id ); return $media; }
+            if ( ! empty( $operation['halo_fields'] ) ) {
+                $written = Nova_Bridge_Suite_Stored_Custom_Fields::finish( [ 'post_type' => $type, 'custom_template' => $template, 'custom_fields' => $operation['halo_fields'], 'operation_id' => 'draft:' . $op_id ], $id, [], true );
+                if ( is_wp_error( $written ) ) { self::update_operation( $operation, 'uncertain', $id ); return $written; }
+            }
             $verified = self::verify_operation( $operation, $id ); if ( is_wp_error( $verified ) ) { self::update_operation( $operation, 'uncertain', $id ); return $verified; }
             $complete = self::update_operation( $operation, 'complete', $id ); return is_wp_error( $complete ) ? $complete : self::draft_result( $complete, false );
         } catch ( Throwable $exception ) { self::update_operation( $operation, 'uncertain' ); return self::error( 'draft_uncertain', 'Draft creation stopped before verification. Use Recover draft before retrying.', 409 ); }

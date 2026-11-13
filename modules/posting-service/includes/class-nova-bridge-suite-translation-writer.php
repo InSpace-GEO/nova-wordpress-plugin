@@ -253,11 +253,22 @@ final class Nova_Bridge_Suite_Translation_Writer {
                 foreach ( $value as $name => $expected ) { if ( ( $stored['meta'][$name] ?? null ) !== $expected ) { return self::error( 'readback', 'A localized Weglot field differs from the saved mapping.' ); } }
             } elseif ( ( $stored[$key] ?? null ) !== $value ) { return self::error( 'readback', 'The localized Weglot copy differs from the saved mapping.' ); }
         }
-        return $fields + ( isset( $plan['fields']['mapped_fields'] ) ? [ 'mapped_fields' => $plan['fields']['mapped_fields'] ] : [] );
+        return $fields + $proof;
     }
 
     private static function resolved_fields( array $plan, bool $allow_import ) {
         $fields = $plan['fields'];
+        foreach ( $fields['mapped_fields'] ?? [] as $name => $field ) {
+            if ( 'halo' !== $field['provider'] || 'optional_second_image_id' !== $name || ! is_string( $field['value'] ) ) { continue; }
+            require_once __DIR__ . '/class-nova-bridge-suite-media-importer.php';
+            $operation = 'halo:' . $plan['operation_id'];
+            try {
+                if ( $allow_import ) { $image = Nova_Bridge_Suite_Media_Importer::resolve( $operation, $field['value'], $plan['provider']['post_id'] ); }
+                else { $retained = Nova_Bridge_Suite_Media_Importer::retained_result( $operation, $field['value'] ); $image = $retained['attachment_id'] ?? 0; }
+            } catch ( Throwable $error ) { return self::error( 'media', 'The localized HALO image could not be recovered.' ); }
+            if ( ! $image ) { return self::error( 'media', 'The localized HALO image could not be imported.' ); }
+            $fields['mapped_fields'][$name]['value'] = $image;
+        }
         if ( empty( $plan['media'] ) ) { return $fields; }
         require_once __DIR__ . '/class-nova-bridge-suite-native-media.php';
         $media = $plan['media'];

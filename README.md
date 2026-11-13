@@ -128,6 +128,16 @@ Fixed WooCommerce category and product-tag layouts support selected native field
 
 Weglot and TranslatePress category and product-tag deliveries store translated editorial fields on the original taxonomy item and render them for the requested language. The delivery uses the URL group's explicit primary item and reports the provider's resolved localized URL. WPML and Polylang deliveries update their existing native translated taxonomy items through the same approved field mapping.
 
+## SiteJob / HALO content fields
+
+For a HALO article or service, select its native WordPress destination and an example that uses the intended theme template. Under **Additional content fields**, select the fields labelled **HALO**. The plugin discovers their public REST names, native types, limits and local storage registrations. Service fields appear where the installed content API registers them.
+
+The mapper supports SEO fields, action buttons, reference sources, FAQs, supplementary rich text, a second image, the inquiry-form flag, service introductions and process steps. Lists use their registered JSON structure in preview inputs and the scalar publishing contract. NOVA supplies JSON text for those destinations, which the WordPress adapter validates and writes as native arrays. Boolean fields accept `true` or `false`. A second image accepts an existing local attachment ID or a supplied image URL that is imported during publication.
+
+Use the preview values to check the structure, then create a native test draft to review the site's actual theme. Omitted optional values preserve existing content. Explicit `[]`, `false` and `0` clear lists, disable the form and remove the second image respectively. The theme retains its own fallback behavior, including default action buttons and forms that require publication and a configured form plugin.
+
+Saved mappings retain their field schemas. Changed registrations or permissions require review before publication. Existing WordPress and ACF mappings continue to use their original providers.
+
 ## Development
 
 Start each change from the latest `main`. Use `feature/<short-description>` for new functionality (for example, `feature/share-layouts`) and `hotfix/<short-description>` for bug fixes (for example, `hotfix/wpml-featured-image`).

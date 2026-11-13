@@ -56,7 +56,7 @@ function wp_json_encode( $v, $flags = 0 ) { return json_encode( $v, $flags ); }
 function current_user_can( ...$args ) { return true; }
 function is_protected_meta( $name, $type ) { return str_starts_with( $name, '_' ); }
 function sanitize_meta( $name, $value, ...$args ) { return $value; }
-function maybe_serialize( $value ) { return str_starts_with( $value, 'a:0:' ) ? serialize( $value ) : $value; }
+function maybe_serialize( $value ) { return is_array( $value ) || is_object( $value ) || ( is_string( $value ) && str_starts_with( $value, 'a:0:' ) ) ? serialize( $value ) : $value; }
 function is_admin() { return false; }
 function is_preview() { return false; }
 function is_feed() { return false; }

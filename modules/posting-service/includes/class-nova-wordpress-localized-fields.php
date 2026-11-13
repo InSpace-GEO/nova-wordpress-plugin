@@ -10,6 +10,7 @@ final class Nova_WordPress_Localized_Fields {
     private $reading_bulk = false;
     private $meta_type;
     private $taxonomy;
+    private $seo;
 
     public function __construct( int $id, array $fields, string $meta_type = 'post', string $taxonomy = 'product_cat' ) {
         $this->id = $id;
@@ -44,7 +45,19 @@ final class Nova_WordPress_Localized_Fields {
         // If the site repurposes a field after delivery, stop serving its old translation.
         if ( ! class_exists( 'Nova_Bridge_Suite_Content_Transport' ) ) { require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-content-transport.php'; }
         $catalog = Nova_Bridge_Suite_Content_Transport::field_catalog( get_post_type( $id ), $id, (string) get_page_template_slug( $id ) );
+        $halo = Nova_WordPress_Halo_Fields::catalog( get_post_type( $id ) );
+        $native = [];
         foreach ( $fields as $name => $field ) {
+            if ( 'halo' === ( $field['provider'] ?? '' ) ) {
+                $definition = $halo[$name] ?? [];
+                if ( ! Nova_WordPress_Halo_Fields::valid( $field + [ 'name' => $name ] ) ||
+                    ( $definition['key'] ?? null ) !== $field['key'] || ( $definition['schema'] ?? null ) !== $field['schema'] ||
+                    is_wp_error( rest_validate_value_from_schema( $field['value'], $field['schema'], $name ) ) ) {
+                    unset( $fields[$name] ); continue;
+                }
+                $native[$field['key']] = $field + [ 'name' => $name ];
+                unset( $fields[$name] ); continue;
+            }
             if ( is_protected_meta( $name, 'post' ) ) { unset( $fields[$name] ); continue; }
             if ( 'acf' === $field['provider'] ) {
                 $definition = $catalog['acf'][$name] ?? [];
@@ -58,11 +71,20 @@ final class Nova_WordPress_Localized_Fields {
                 unset( $fields[$name] );
             }
         }
+        $fields = array_replace( $fields, $native );
         if ( ! $fields ) { return; }
         self::attach( new self( $id, $fields ), $trp );
     }
 
     public static function attach( self $renderer, bool $trp ): void {
+        foreach ( $renderer->fields as $field ) {
+            if ( 'halo' === ( $field['provider'] ?? '' ) && in_array( $field['name'], [ 'seo_title_text', 'seo_meta_description_text' ], true ) ) {
+                require_once __DIR__ . '/class-nova-wordpress-localized-seo.php';
+                $renderer->seo = new Nova_WordPress_Localized_SEO();
+                $renderer->seo->attach( $trp );
+                break;
+            }
+        }
         add_filter( 'get_' . $renderer->meta_type . '_metadata', [ $renderer, 'meta' ], 30, 4 );
         add_filter( 'acf/pre_load_value', [ $renderer, 'acf' ], 30, 3 );
         // A cached Elementor widget may otherwise skip the field read or cache the secondary language on the original.
@@ -105,11 +127,27 @@ final class Nova_WordPress_Localized_Fields {
         return $this->value( $name );
     }
 
-    public function value( string $name ): string {
+    public function value( string $name ) {
         $value = $this->fields[$name]['value'];
+        $field = $this->fields[$name];
+        if ( $this->seo && 'halo' === ( $field['provider'] ?? '' ) ) {
+            $seo_field = [ 'seo_title_text' => 'title', 'seo_meta_description_text' => 'description' ][$field['name']] ?? '';
+            if ( $seo_field ) { $this->seo->remember( $seo_field, $value ); }
+        }
         if ( ! isset( $this->seen[$name] ) ) {
             $this->seen[$name] = [];
             $parts = [ $value ];
+            if ( 'halo' === ( $field['provider'] ?? '' ) ) {
+                $parts = [];
+                $leaves = is_array( $value ) ? $value : [ $value ];
+                array_walk_recursive( $leaves, static function ( $leaf ) use ( &$parts ) {
+                    if ( ! is_string( $leaf ) ) { return; }
+                    $tags = new WP_HTML_Tag_Processor( $leaf );
+                    while ( $tags->next_token() ) {
+                        if ( '#text' === $tags->get_token_type() ) { $parts[] = $tags->get_modifiable_text(); }
+                    }
+                } );
+            }
             if ( 'wysiwyg' === $this->fields[$name]['type'] ) {
                 $parts = [];
                 $tags = new WP_HTML_Tag_Processor( $value );
