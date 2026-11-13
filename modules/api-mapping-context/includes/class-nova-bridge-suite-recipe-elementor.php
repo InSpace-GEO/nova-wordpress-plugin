@@ -162,10 +162,11 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             $parent = 'elements' === end( $parts ) ? Nova_Bridge_Suite_Recipe_Engine::get( $native, $parent_pointer, $found ) : null;
             if ( is_array( $parent ) && in_array( $parent['widgetType'] ?? '', [ 'nested-tabs', 'nested-accordion' ], true ) ) {
                 $accordion = 'nested-accordion' === $parent['widgetType']; $list = $accordion ? 'items' : 'tabs'; $title_key = $accordion ? 'item_title' : 'tab_title';
-                $tabs = $parent['settings'][$list] ?? []; if ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $tabs ) || count( $tabs ) !== count( $parent['elements'] ?? [] ) || count( $children ) !== count( $context['items'] ?? [] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Nested navigation label/panel structure or generated panel cardinality is inconsistent.' ); }
+                $tabs = $accordion ? $this->accordion_items( $parent ) : ( $parent['settings'][$list] ?? [] ); if ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $tabs ) || count( $tabs ) !== count( $parent['elements'] ?? [] ) || count( $children ) !== count( $context['items'] ?? [] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Nested navigation label/panel structure or generated panel cardinality is inconsistent.' ); }
                 $tab_prototype = $tabs[ $region['prototype_start'] ?? $region['start'] ] ?? [ $title_key => '' ]; $new_tabs = [];
                 foreach ( $children as $index => $child ) {
                     $item = $context['items'][ $index ]; $title = is_array( $item ) ? ( $item['title'] ?? $item['title_html'] ?? $item['question'] ?? '' ) : '';
+                    if ( $accordion && 'repeat' === $region['kind'] ) { $title = $item['question'] ?? null; if ( ! is_string( $title ) || Nova_Bridge_Suite_Recipe_Engine::blank( $title ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Each repeated FAQ needs a question.' ); } }
                     if ( '' === $title ) { $title = $this->first_title( $child ); } if ( ! is_string( $title ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Generated tab navigation titles must be text.' ); }
                     $tab = $tab_prototype; $tab[$title_key] = trim( html_entity_decode( strip_tags( $title ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ); $tab['_id'] = substr( hash( 'sha256', ( $context['seed'] ?? '' ) . '/tab/' . $index ), 0, 7 ); if ( ! empty( $tab['element_id'] ) ) { $tab['element_id'] = 'nova-tab-' . $tab['_id']; } if ( $accordion && ! empty( $tab['element_css_id'] ) ) { $tab['element_css_id'] = 'nova-accordion-' . $tab['_id']; } $new_tabs[] = $tab;
                 }
@@ -174,6 +175,25 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             Nova_Bridge_Suite_Recipe_Engine::splice( $native, $region['target'], $region['start'], $region['count'], $children ); return $native;
         } );
     }
+    public function region_content_schema( array $native, array $region, array $schema ) {
+        $parts = Nova_Bridge_Suite_Recipe_Engine::parts( $region['target'] );
+        if ( 'repeat' !== $region['kind'] || 'elements' !== end( $parts ) ) { return $schema; }
+        $parent = Nova_Bridge_Suite_Recipe_Engine::get( $native, $this->pointer( array_slice( $parts, 0, -1 ) ) );
+        if ( ! is_array( $parent ) || 'nested-accordion' !== ( $parent['widgetType'] ?? '' ) ) { return $schema; }
+        return Nova_Bridge_Suite_Recipe_Engine::merge_content_schemas( $schema, [
+            'type' => 'object', 'properties' => [ 'question' => [ 'type' => 'string', 'minLength' => 1, 'description' => 'FAQ question shown above its answer.', 'x-native-formats' => [ 'text' ] ] ], 'required' => [ 'question' ],
+        ] );
+    }
+    private function accordion_items( array $node ): array {
+        $items = $node['settings']['items'] ?? null;
+        if ( ! array_key_exists( 'items', $node['settings'] ) && class_exists( '\\Elementor\\Plugin' ) ) {
+            $widget = \Elementor\Plugin::instance()->widgets_manager->get_widget_types( 'nested-accordion' );
+            $controls = is_object( $widget ) && is_callable( [ $widget, 'get_controls' ] ) ? $widget->get_controls() : [];
+            $items = $controls['items']['default'] ?? null;
+        }
+        if ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $items ) || count( $items ) !== count( $node['elements'] ?? [] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Nested accordion questions and panels must stay paired when changing its items. The complete saved items or matching Elementor defaults are required.' ); }
+        return $items;
+    }
     public function remove_node( array $native, string $parent_pointer, int $index ) {
         return $this->safe( function () use ( $native, $parent_pointer, $index ) {
             $parts = Nova_Bridge_Suite_Recipe_Engine::parts( $parent_pointer );
@@ -181,8 +201,9 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                 $owner_pointer = $this->pointer( array_slice( $parts, 0, -1 ) );
                 $owner = Nova_Bridge_Suite_Recipe_Engine::get( $native, $owner_pointer );
                 if ( is_array( $owner ) && 'nested-accordion' === ( $owner['widgetType'] ?? '' ) ) {
-                    $items = $owner['settings']['items'] ?? [];
-                    if ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $items ) || count( $items ) !== count( $owner['elements'] ?? [] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Nested accordion questions and panels must stay paired when removing an item.' ); }
+                    $items = $this->accordion_items( $owner );
+                    $owner['settings']['items'] = $items;
+                    Nova_Bridge_Suite_Recipe_Engine::put( $native, $owner_pointer, $owner );
                     array_splice( $items, $index, 1 );
                     Nova_Bridge_Suite_Recipe_Engine::put( $native, $owner_pointer . '/settings/items', $items );
                 }

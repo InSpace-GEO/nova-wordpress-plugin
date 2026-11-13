@@ -55,4 +55,29 @@ $repeated = good( Engine::compile( $repeat_recipe, [ 'faqs' => [ [ 'question' =>
 check( array_column( $repeated['native_document']['document'][0]['settings']['items'], 'item_title' ) === [ 'A?', 'B?', 'C?' ], 'Repeated question titles follow their corresponding answers' );
 $overlap = $repeat_recipe; $overlap['bindings'] = [ binding( $question_target, '/question' ) ];
 bad( Engine::validate( $overlap ), 'Fixed questions cannot overlap generated FAQ panels' );
+
+$schema = good( Engine::content_schema( $repeat_recipe ), 'Repeated FAQ content schema' );
+check( $schema['properties']['faqs']['items']['properties']['question']['type'] === 'string' && in_array( 'question', $schema['properties']['faqs']['items']['required'], true ), 'Generated FAQ schema requires its question' );
+bad( Engine::compile( $repeat_recipe, [ 'faqs' => [ [ 'answer' => '<p>No question.</p>' ] ] ], 'missing-question' ), 'A repeated FAQ cannot silently receive an empty title' );
+$framed = recipe( [ 'document' => [ container( 'frame', [ $faq ] ) ] ], [], [ [ 'id' => 'frame', 'target' => '/document', 'start' => 0, 'count' => 1, 'source' => '/faqs', 'kind' => 'optional', 'context' => 'parent', 'empty' => 'remove', 'max_items' => 500, 'prototype' => [ 'native' => [ container( 'frame', [ $faq ] ) ], 'bindings' => [], 'regions' => [ array_replace( $repeating, [ 'target' => '/0/elements/0/elements' ] ) ] ] ] ] );
+$framed_schema = good( Engine::content_schema( $framed ), 'Repeated FAQ inside an optional frame' );
+check( in_array( 'question', $framed_schema['properties']['faqs']['items']['required'], true ), 'Nested region schema retains the question requirement' );
+$variants = $repeat_recipe; $variants['regions'][0]['variant_by'] = '/layout'; $variants['regions'][0]['variants'] = [ 'plain' => $repeating['prototype'], 'alternate' => $repeating['prototype'] ];
+$variant_schema = good( Engine::content_schema( $variants ), 'Repeated FAQ variant schema' );
+foreach ( $variant_schema['properties']['faqs']['items']['oneOf'] as $choice ) { check( in_array( 'question', $choice['required'], true ), 'Each FAQ variant declares its question' ); }
+
+$omitted = $faq_recipe; $omitted['omissions'] = [ [ 'target' => '/document/0/elements/0' ] ];
+bad( Engine::validate( $omitted ), 'Removing an FAQ panel rejects its remaining question binding' );
+$omitted['bindings'] = array_slice( $faq_bindings, 2 );
+good( Engine::compile( $omitted, [ 'question_two' => 'Retained', 'answer_two' => '<p>Second.</p>' ], 'explicit-omit' ), 'Explicit row removal succeeds after all owned bindings are removed' );
+
+$previous_widgets = \Elementor\Plugin::$instance->widgets_manager;
+\Elementor\Plugin::$instance->widgets_manager = new class {
+    public function get_widget_types( $type ) { return new class { public function get_controls() { return [ 'items' => [ 'default' => [ [ 'item_title' => 'Inherited first' ], [ 'item_title' => 'Inherited second' ] ] ] ]; } }; }
+};
+$default_recipe = recipe( $defaults, [ $faq_bindings[1], $faq_bindings[3] ], [], 'static' );
+$default_result = good( Engine::compile( $default_recipe, [ 'answer_two' => '<p>Retained inherited answer.</p>' ], 'default-removal' ), 'Optional answer removal materializes registered default questions' );
+check( $default_result['native_document']['document'][0]['settings']['items'][0]['item_title'] === 'Inherited second', 'Remaining default question stays paired with its answer' );
+check( ! isset( $defaults['document'][0]['settings']['items'] ), 'Default resolution leaves the source blueprint untouched' );
+\Elementor\Plugin::$instance->widgets_manager = $previous_widgets;
 echo 'PASS nested FAQ mapping: ' . ( $checks - $baseline_checks ) . " checks\n";

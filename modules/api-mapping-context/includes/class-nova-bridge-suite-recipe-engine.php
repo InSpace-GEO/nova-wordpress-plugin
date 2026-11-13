@@ -152,12 +152,12 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         $targets = self::omission_targets( $recipe['omissions'] );
         if ( ! $targets ) { return; }
         if ( 'static' !== $recipe['mode'] || in_array( $recipe['builder'], [ 'core', 'acf' ], true ) || ! is_callable( [ $adapter, 'describe' ] ) ) { self::fail( 'Removing elements needs a fixed builder layout.' ); }
-        $description = self::checked( $adapter->describe( $recipe['blueprint'] ) ); $elements = [];
-        foreach ( $description['fields'] ?? [] as $field ) { if ( is_string( $field['node_target'] ?? null ) ) { $elements[ $field['node_target'] ] = true; } }
+        $description = self::checked( $adapter->describe( $recipe['blueprint'] ) ); $elements = []; $field_owners = [];
+        foreach ( $description['fields'] ?? [] as $field ) { if ( is_string( $field['node_target'] ?? null ) ) { $elements[ $field['node_target'] ] = true; $field_owners[ $field['target'] ] = $field['node_target']; } }
         foreach ( $targets as $target ) {
             if ( ! isset( $elements[ $target ] ) ) { self::fail( 'Only an element that shows a listed field can be removed.' ); }
             foreach ( $targets as $other ) { if ( $other !== $target && 0 === strpos( $other, $target . '/' ) ) { self::fail( 'An element inside another removed element is already removed.' ); } }
-            foreach ( $recipe['bindings'] ?? [] as $binding ) { if ( $binding['target'] === $target || 0 === strpos( $binding['target'], $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); } }
+            foreach ( $recipe['bindings'] ?? [] as $binding ) { $owner = $field_owners[ $binding['target'] ] ?? $binding['target']; if ( $binding['target'] === $target || 0 === strpos( $binding['target'], $target . '/' ) || $owner === $target || 0 === strpos( $owner, $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); } }
         }
         // Prove that the builder accepts the document without these elements.
         self::checked( $adapter->validate_blueprint( self::apply_omissions( $recipe['blueprint'], $targets, $adapter ) ) );
@@ -454,12 +454,13 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         }
         foreach ( $groups as &$group ) { if ( isset( $projection['title_source'] ) ) { $title = self::get( $group, $projection['title_source'], $found ); if ( $found && '' !== $title ) { if ( ! is_string( $title ) ) { self::fail( 'A projected native title must be text.' ); } $group['title'] = $title; $group['title_html'] = htmlspecialchars( $title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' ); } } } unset( $group ); return $groups;
     }
-    private static function scope_schema( array $bindings, array $regions ): array {
+    private static function scope_schema( array $bindings, array $regions, $adapter = null, array $native = [] ): array {
         $schema = [ 'type' => 'object', 'properties' => [], 'additionalProperties' => true ];
         foreach ( $bindings as $binding ) { $type = in_array( $binding['format'], [ 'number', 'boolean' ], true ) ? $binding['format'] : 'string'; self::schema_at( $schema, self::parts( $binding['source'] ), [ 'type' => $type, 'description' => $binding['instructions'] ?? $binding['label'] ?? '', 'x-native-formats' => [ $binding['format'] ] ], $binding['required'] ); }
         foreach ( $regions as $region ) {
-            $item = self::scope_schema( $region['prototype']['bindings'] ?? [], $region['prototype']['regions'] ?? [] );
-            if ( isset( $region['variants'] ) ) { $choices = []; foreach ( $region['variants'] as $name => $prototype ) { $variant = self::scope_schema( $prototype['bindings'] ?? [], $prototype['regions'] ?? [] ); self::schema_at( $variant, self::parts( $region['variant_by'] ), [ 'type' => 'string', 'enum' => [ $name ] ], true ); $choices[] = $variant; } $item = [ 'oneOf' => $choices ]; }
+            $item = self::scope_schema( $region['prototype']['bindings'] ?? [], $region['prototype']['regions'] ?? [], $adapter, $region['prototype']['native'] );
+            if ( isset( $region['variants'] ) ) { $choices = []; foreach ( $region['variants'] as $name => $prototype ) { $variant = self::scope_schema( $prototype['bindings'] ?? [], $prototype['regions'] ?? [], $adapter, $prototype['native'] ); self::schema_at( $variant, self::parts( $region['variant_by'] ), [ 'type' => 'string', 'enum' => [ $name ] ], true ); $choices[] = $variant; } $item = [ 'oneOf' => $choices ]; }
+            if ( $adapter && method_exists( $adapter, 'region_content_schema' ) ) { $item = self::checked( $adapter->region_content_schema( $native, $region, $item ) ); }
             if ( isset( $region['projection'] ) ) { self::schema_at( $item, self::parts( $region['projection']['group_by'] ), [ 'type' => 'string', 'description' => 'Explicit contiguous device grouping key; omit for one section per group.' ], false ); if ( isset( $region['projection']['title_source'] ) ) { self::schema_at( $item, self::parts( $region['projection']['title_source'] ), [ 'type' => 'string', 'description' => 'Optional short projected navigation/section title.' ], false ); } }
             if ( 'optional' === $region['kind'] && 'parent' === ( $region['context'] ?? 'item' ) ) { $schema = self::merge_schema( $schema, $item ); $parts = self::parts( $region['source'] ); if ( ! self::schema_get( $schema, $parts ) ) { self::schema_at( $schema, $parts, [ 'anyOf' => [ [ 'type' => 'boolean' ], [ 'type' => 'array' ], [ 'type' => 'object' ], [ 'type' => 'null' ] ], 'description' => $region['instructions'] ?? $region['label'] ?? '' ], false ); } else { self::schema_at( $schema, $parts, [ 'description' => $region['instructions'] ?? $region['label'] ?? '' ], false ); } }
             else { $value = 'repeat' === $region['kind'] ? [ 'type' => 'array', 'items' => $item, 'maxItems' => $region['max_items'] ] : [ 'anyOf' => [ $item, [ 'type' => 'null' ], [ 'type' => 'boolean' ] ] ]; $value['description'] = $region['instructions'] ?? $region['label'] ?? ''; self::schema_at( $schema, self::parts( $region['source'] ), $value, false ); }
@@ -497,7 +498,7 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         return $merged;
     }
     private static function augmented_schema( array $recipe, $adapter ): array {
-        $schema = self::scope_schema( $recipe['bindings'] ?? [], $recipe['regions'] ?? [] );
+        $schema = self::scope_schema( $recipe['bindings'] ?? [], $recipe['regions'] ?? [], $adapter, $recipe['blueprint'] );
         if ( method_exists( $adapter, 'augment_content_schema' ) ) { $schema = self::checked( $adapter->augment_content_schema( $recipe, $schema ) ); if ( ! is_array( $schema ) || ( $schema && self::list_array( $schema ) ) ) { self::fail( 'A native schema adapter must return the complete content-schema object.' ); } }
         $schema = Nova_WordPress_Halo_Fields::content_schema( $recipe, $schema );
         self::json( $schema ); return $schema;
