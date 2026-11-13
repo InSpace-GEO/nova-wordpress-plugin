@@ -99,7 +99,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             $bindings[$path] = $binding;
         }
         $layout = [ 'format' => self::FORMAT, 'builder' => $builder, 'resource_id' => $resource, 'post_type' => $type, 'blueprint' => $blueprint, 'post_fields' => $post_fields, 'bindings' => $bindings ];
-        if ( ! empty( $locale_snapshot['variants'] ) ) {
+        if ( ! empty( $locale_snapshot['variants'] ) || ! empty( $locale_snapshot['shared_templates'] ) ) {
             $mapped = array_keys( array_filter( $bindings, static fn( $binding ) => 'protected' !== $binding['mode'] ) );
             $mapped = array_merge( $mapped, (array) ( $draft['omissions'] ?? [] ) );
             Nova_Bridge_Suite_Layout_Locales::validate( $locale_snapshot, $builder, $blueprint, $mapped );

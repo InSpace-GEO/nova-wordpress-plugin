@@ -1,6 +1,7 @@
 <?php
 /** Retain localized editorial values from explicitly linked native reference pages. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-nova-bridge-suite-beaver-shared.php';
 
 final class Nova_Bridge_Suite_Layout_Locales {
     private static function normalize( string $locale ): string { return strtolower( str_replace( '_', '-', $locale ) ); }
@@ -86,6 +87,25 @@ final class Nova_Bridge_Suite_Layout_Locales {
         if ( ( $resource['type'] ?? '' ) === 'taxonomy' || empty( $resource['post_type'] ) ) { return $empty; }
         $translations = self::translations( $id, $resource['post_type'] );
         $result = array_replace( $empty, array_intersect_key( $translations, $empty ) );
+        if ( 'beaver' === $builder ) {
+            foreach ( Nova_Bridge_Suite_Beaver_Shared::references( $blueprint['document'] ?? [] ) as $path => $reference ) {
+                $node = Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $path );
+                $post = get_post( $reference['reference_id'] );
+                $entry = [ 'target' => $path, 'source' => $reference, 'label' => $post ? $post->post_title : 'Shared Beaver component', 'variants' => [], 'missing' => [] ];
+                $linked = self::translations( $reference['reference_id'], 'fl-builder-template' );
+                $compatible = empty( $node['children'] ) && empty( $node['settings']['dynamic_node_settings'] )
+                    && Nova_Bridge_Suite_Beaver_Shared::identity( $reference['reference_id'], $node['type'] ) == $reference;
+                if ( ! $compatible ) { $entry['reason'] = 'The reference has an unavailable template or instance-specific content. Review this shared component in Beaver Builder before selecting its localized templates.'; }
+                foreach ( $compatible ? $linked['rows'] : [] as $row ) {
+                    $identity = Nova_Bridge_Suite_Beaver_Shared::identity( $row['reference_id'], $node['type'] );
+                    if ( $identity ) { $entry['variants'][] = $identity + [ 'locale' => $row['locale'], 'code' => $row['code'] ]; }
+                }
+                foreach ( $linked['catalog'] ?? [] as $language ) {
+                    if ( ! in_array( $language['code'], array_column( $entry['variants'], 'code' ), true ) ) { $entry['missing'][] = $language['locale']; }
+                }
+                $result['shared_templates'][] = $entry;
+            }
+        }
         $fields = self::fields( $builder, $blueprint );
         foreach ( $translations['rows'] as $row ) {
             if ( $row['reference_id'] === $id ) { continue; }
@@ -138,6 +158,9 @@ final class Nova_Bridge_Suite_Layout_Locales {
     public static function retained( array $snapshot, array $recipe ): array {
         $targets = array_column( $recipe['bindings'] ?? [], 'target' );
         $targets = array_merge( $targets, array_column( $recipe['omissions'] ?? [], 'target' ) );
+        if ( isset( $snapshot['shared_templates'] ) ) {
+            $snapshot['shared_templates'] = array_values( array_filter( $snapshot['shared_templates'], static fn( $entry ) => ! self::overlaps( $entry['target'], $targets ) ) );
+        }
         foreach ( $snapshot['variants'] as &$variant ) {
             foreach ( array_keys( $variant['values'] ) as $path ) { if ( self::overlaps( $path, $targets ) ) { unset( $variant['values'][$path] ); } }
             if ( isset( $variant['unchanged'] ) ) { $variant['unchanged'] = array_values( array_filter( $variant['unchanged'], static fn( $path ) => ! self::overlaps( $path, $targets ) ) ); }
@@ -182,6 +205,10 @@ final class Nova_Bridge_Suite_Layout_Locales {
     public static function validate( array $snapshot, string $builder, array $blueprint, array $mapped ): void {
         if ( ( $snapshot['version'] ?? null ) !== 1 || ! in_array( $snapshot['provider'] ?? '', [ 'polylang', 'wpml', 'translatepress', 'weglot', 'core' ], true ) || ! is_array( $snapshot['variants'] ?? null ) ) { throw new InvalidArgumentException( 'The saved locale variants are invalid.' ); }
         $fields = self::fields( $builder, $blueprint ); $seen = [];
+        if ( isset( $snapshot['shared_templates'] ) ) {
+            if ( ! is_array( $snapshot['shared_templates'] ) ) { throw new InvalidArgumentException( 'The shared component references are invalid.' ); }
+            Nova_Bridge_Suite_Beaver_Shared::validate( $snapshot['shared_templates'], $builder, $blueprint, $mapped );
+        }
         foreach ( $snapshot['variants'] as $variant ) {
             if ( ! is_string( $variant['locale'] ?? null ) || ! preg_match( '/^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/iD', $variant['locale'] ) || ! is_string( $variant['code'] ?? null ) || ! preg_match( '/^[a-z0-9_-]{1,80}$/iD', $variant['code'] ) || ! is_int( $variant['reference_id'] ?? null ) || $variant['reference_id'] < 0 || ! is_array( $variant['values'] ?? null ) ) { throw new InvalidArgumentException( 'A saved locale variant has invalid native identity.' ); }
             foreach ( array_unique( [ self::normalize( $variant['locale'] ), self::normalize( $variant['code'] ) ] ) as $alias ) {
@@ -198,6 +225,7 @@ final class Nova_Bridge_Suite_Layout_Locales {
     }
 
     public static function apply( array $snapshot, string $locale, array $blueprint, $adapter ): array {
+        if ( ! empty( $snapshot['shared_templates'] ) ) { $blueprint = Nova_Bridge_Suite_Beaver_Shared::apply( $snapshot['shared_templates'], $locale, $blueprint ); }
         foreach ( $snapshot['variants'] as $variant ) {
             if ( ! in_array( self::normalize( $locale ), [ self::normalize( $variant['locale'] ), self::normalize( $variant['code'] ) ], true ) ) { continue; }
             foreach ( $variant['values'] as $path => $entry ) {
@@ -233,6 +261,7 @@ final class Nova_Bridge_Suite_Layout_Locales {
 
     public static function summary( array $snapshot, bool $saved = false ): array {
         $summary = [ 'provider' => $snapshot['provider'], 'source_locale' => $snapshot['source_locale'], 'catalog' => $snapshot['catalog'] ?? [], 'saved' => $saved, 'locales' => [], 'fields' => [], 'reference_fields' => [], 'manual_fields' => [], 'unavailable' => $snapshot['unavailable'] ?? [] ];
+        if ( isset( $snapshot['shared_templates'] ) ) { $summary['shared_templates'] = $snapshot['shared_templates']; }
         foreach ( $snapshot['variants'] as $variant ) {
             $summary['locales'][] = [ 'locale' => $variant['locale'], 'reference_id' => $variant['reference_id'], 'fields' => count( $variant['values'] ) ];
             foreach ( $variant['values'] as $path => $entry ) {
