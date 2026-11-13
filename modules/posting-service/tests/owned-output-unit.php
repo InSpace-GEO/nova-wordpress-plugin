@@ -79,4 +79,11 @@ verify(str_contains(Nova_WordPress_Owned_Output::value('Later dynamic field'),'N
 Nova_WordPress_Owned_Output::finish_builder('');
 verify(Nova_WordPress_Owned_Output::value('Plain field')==='Plain field','Finishing the enclosing builder closes its protection scope');
 
+require_once dirname(__DIR__).'/includes/class-nova-wordpress-translation-fields.php';
+$mediaFields=['ownership'=>['elements'=>['media_widget'=>[['path'=>['image','url'],'type'=>'url','hash'=>hash('sha256','https://remote.test/image.jpg')]]]]];
+$mediaTree=[['id'=>'media_widget','settings'=>['image'=>['url'=>'https://local.test/uploads/image.jpg']],'elements'=>[]]];
+$refreshed=Nova_WordPress_Translation_Fields::refresh_elementor_ownership($mediaFields,$mediaTree);
+verify($refreshed['ownership']['elements']['media_widget'][0]['hash']===hash('sha256','https://local.test/uploads/image.jpg'),'Imported images keep ownership of their resolved local URL');
+verify(Nova_WordPress_Translation_Fields::refresh_elementor_ownership(['title'=>'Legacy'],$mediaTree)===['title'=>'Legacy'],'Legacy media payloads keep their existing representation');
+
 echo "Mapped-output ownership checks passed.\n";
