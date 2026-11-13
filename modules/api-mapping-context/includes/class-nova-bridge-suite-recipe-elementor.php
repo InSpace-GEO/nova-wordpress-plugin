@@ -34,6 +34,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                 $anchor = $node['settings']['_element_id'] ?? ''; if ( '' !== $anchor ) { if ( ! is_string( $anchor ) || preg_match( '/[\x00-\x20]/', $anchor ) || isset( $anchors[ $anchor ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Explicit native HTML anchors must be unique within the saved blueprint.' ); } $anchors[ $anchor ] = true; }
                 $scan = static function ( $value, string $key = '' ) use ( &$scan, &$anchors ) { if ( is_array( $value ) ) { foreach ( $value as $name => $child ) { $scan( $child, (string) $name ); } } elseif ( is_string( $value ) && in_array( $key, [ 'title', 'editor', 'html', 'tab_title', 'tab_content' ], true ) ) { foreach ( self::html_anchors( $value ) as $anchor ) { if ( isset( $anchors[ $anchor ] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Inline and native HTML anchor targets must be unambiguous within the complete document.' ); } $anchors[ $anchor ] = true; } } }; $scan( $node['settings'] );
                 if ( 'nested-tabs' === ( $node['widgetType'] ?? '' ) && ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $node['settings']['tabs'] ?? null ) || count( $node['settings']['tabs'] ) !== count( $node['elements'] ?? [] ) ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'A complete native nested-tabs document must retain one navigation record per panel.' ); }
+                if ( 'nested-accordion' === ( $node['widgetType'] ?? '' ) && array_key_exists( 'items', $node['settings'] ) && ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $node['settings']['items'] ) || count( $node['settings']['items'] ) !== count( $node['elements'] ?? [] ) ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'A complete native nested accordion must retain one question record per panel.' ); }
             } );
             return $blueprint;
         } );
@@ -68,9 +69,20 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             elseif ( 'image' === $widget && [ 'image', 'alt' ] === $path && empty( $settings['image']['id'] ) ) { $formats = [ 'text' ]; }
             elseif ( 'image' === $widget && [ 'caption' ] === $path ) { $formats = [ 'text', 'html' ]; }
             elseif ( in_array( $widget, [ 'accordion', 'toggle', 'nested-tabs' ], true ) && count( $path ) === 3 && 'tabs' === $path[0] && ctype_digit( $path[1] ) && in_array( $path[2], [ 'tab_title', 'tab_content' ], true ) ) { $formats = [ 'text', 'html' ]; }
+            elseif ( 'nested-accordion' === $widget && count( $path ) === 3 && 'items' === $path[0] && ctype_digit( $path[1] ) && 'item_title' === $path[2] ) { $formats = [ 'text', 'html' ]; }
+            elseif ( 'icon-list' === $widget && count( $path ) === 3 && 'icon_list' === $path[0] && ctype_digit( $path[1] ) && 'text' === $path[2] ) { $formats = [ 'text', 'html' ]; }
+            elseif ( 'icon-list' === $widget && count( $path ) === 4 && 'icon_list' === $path[0] && ctype_digit( $path[1] ) && [ 'link', 'url' ] === array_slice( $path, 2 ) ) { $formats = [ 'url' ]; }
             elseif ( 'table-of-contents' === $widget && [ 'title' ] === $path ) { $formats = [ 'text', 'html' ]; }
             elseif ( 'google_maps' === $widget && [ 'address' ] === $path ) { if ( ! is_string( $value ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'The native Google Maps location must remain a text address or place name.' ); } $formats = [ 'text' ]; }
-            if ( ! in_array( $binding['format'], $formats, true ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'This native control is an identity, style, dynamic binding, opaque setting or incompatible content format.' ); }
+            if ( ! in_array( $binding['format'], $formats, true ) ) {
+                if ( 'image' === $widget && [ 'image', 'alt' ] === $path && ! empty( $settings['image']['id'] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Elementor reads alternative text from this image\'s Media Library attachment. Edit the attachment in WordPress to change it.' ); }
+                if ( count( $path ) === 2 && 'alt' === $path[1] && 0 === strpos( $path[0], 'background_' ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Elementor renders this image as a CSS background. CSS backgrounds have no alternative-text attribute.' ); }
+                if ( count( $path ) === 3 && 'background_slideshow_gallery' === $path[0] && 'url' === $path[2] ) {
+                    Nova_Bridge_Suite_Recipe_Engine::fail( 'slideshow' === ( $settings['background_background'] ?? '' ) ? 'Background slideshow collection mapping is currently unsupported.' : 'This saved slideshow image is inactive with the current background type. The active background image has its own field.' );
+                }
+                if ( [ 'background_video_fallback', 'url' ] === $path && 'video' !== ( $settings['background_background'] ?? '' ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'This saved video fallback image is inactive with the current background type. The active background image has its own field.' ); }
+                Nova_Bridge_Suite_Recipe_Engine::fail( 'This native control is an identity, style, dynamic binding, opaque setting or incompatible content format.' );
+            }
             return true;
         } );
     }
@@ -84,15 +96,16 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             foreach ( $prototypes as $prototype ) {
                 if ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $prototype['native'] ?? null ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'An Elementor region needs complete ordered native prototype children.' ); }
                 $this->walk( $prototype['native'], static function () {} );
-                if ( is_array( $parent ) && 'nested-tabs' === ( $parent['widgetType'] ?? '' ) && ( count( $prototype['native'] ) !== 1 || 'container' !== ( $prototype['native'][0]['elType'] ?? '' ) ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Each nested-tab iteration must generate one complete native panel container.' ); }
+                if ( is_array( $parent ) && in_array( $parent['widgetType'] ?? '', [ 'nested-tabs', 'nested-accordion' ], true ) && ( count( $prototype['native'] ) !== 1 || 'container' !== ( $prototype['native'][0]['elType'] ?? '' ) ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Each nested navigation iteration must generate one complete native panel container.' ); }
             }
             return true;
         } );
     }
     public function validate_plan_scope( array $native, array $bindings, array $regions ) {
         return $this->safe( function () use ( $native, $bindings, $regions ) {
-            foreach ( $regions as $region ) { $parts = Nova_Bridge_Suite_Recipe_Engine::parts( $region['target'] ); if ( 'elements' !== end( $parts ) ) { continue; } $parent_pointer = $this->pointer( array_slice( $parts, 0, -1 ) ); $parent = Nova_Bridge_Suite_Recipe_Engine::get( $native, $parent_pointer, $found ); if ( ! $found || 'nested-tabs' !== ( $parent['widgetType'] ?? '' ) ) { continue; }
-                $prefix = $parent_pointer . '/settings/tabs/'; foreach ( $bindings as $binding ) { if ( 0 !== strpos( $binding['target'], $prefix ) ) { continue; } $index = explode( '/', substr( $binding['target'], strlen( $prefix ) ) )[0]; if ( ctype_digit( $index ) && (int) $index >= $region['start'] && (int) $index < $region['start'] + $region['count'] ) { return $this->error( 'A fixed tab-label binding overlaps a generated panel range. Use the section title or projected mobile title for that region, or keep the fixed panel outside the replaced range.' ); } }
+            foreach ( $regions as $region ) { $parts = Nova_Bridge_Suite_Recipe_Engine::parts( $region['target'] ); if ( 'elements' !== end( $parts ) ) { continue; } $parent_pointer = $this->pointer( array_slice( $parts, 0, -1 ) ); $parent = Nova_Bridge_Suite_Recipe_Engine::get( $native, $parent_pointer, $found ); if ( ! $found || ! in_array( $parent['widgetType'] ?? '', [ 'nested-tabs', 'nested-accordion' ], true ) ) { continue; }
+                $list = 'nested-tabs' === $parent['widgetType'] ? 'tabs' : 'items';
+                $prefix = $parent_pointer . '/settings/' . $list . '/'; foreach ( $bindings as $binding ) { if ( 0 !== strpos( $binding['target'], $prefix ) ) { continue; } $index = explode( '/', substr( $binding['target'], strlen( $prefix ) ) )[0]; if ( ctype_digit( $index ) && (int) $index >= $region['start'] && (int) $index < $region['start'] + $region['count'] ) { return $this->error( 'A fixed navigation-label binding overlaps a generated panel range. Use the section title or question for that region, or keep the fixed panel outside the replaced range.' ); } }
             } return true;
         } );
     }
@@ -121,7 +134,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             $resolved = $media ? ( $context['resolved_media'][$binding['target']] ?? null ) : null;
             if ( null !== $resolved && ( ! is_array( $resolved ) || ! is_int( $resolved['id'] ?? null ) || $resolved['id'] < 1 || ! is_string( $resolved['url'] ?? null ) || ! preg_match( '#^https?://#i', $resolved['url'] ) ) ) { return $this->error( 'Resolved native media requires a retained local image attachment and URL.' ); }
             if ( $value === Nova_Bridge_Suite_Recipe_Engine::get( $native, $binding['target'] ) && empty( $context['anchor_map'] ) && null === $resolved ) { return $native; }
-            if ( 'html' === $binding['format'] && ( 'heading' === ( $node['widgetType'] ?? '' ) || [ 'text' ] === $path || 'tab_title' === end( $path ) ) && preg_match( '/<(?:h[1-6]|p|div|section|article|main|ul|ol|li|table|details|blockquote|figure)\b/i', $value ) ) { return $this->error( 'Native heading/button/navigation titles accept inline HTML; put complete paragraphs in a rich-text body slot.' ); }
+            if ( 'html' === $binding['format'] && ( 'heading' === ( $node['widgetType'] ?? '' ) || [ 'text' ] === $path || in_array( end( $path ), [ 'tab_title', 'item_title' ], true ) ) && preg_match( '/<(?:h[1-6]|p|div|section|article|main|ul|ol|li|table|details|blockquote|figure)\b/i', $value ) ) { return $this->error( 'Native heading/button/navigation titles accept inline HTML; put complete paragraphs in a rich-text body slot.' ); }
             $map_address = 'google_maps' === ( $node['widgetType'] ?? '' ) && [ 'address' ] === $path;
             if ( 'text' === $binding['format'] && [ 'image', 'alt' ] !== $path && ! $map_address ) { $value = htmlspecialchars( $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' ); }
             if ( 'html' === $binding['format'] ) { $value = $this->html_anchor_references( $value, $context['anchor_map'] ?? [] ); }
@@ -147,17 +160,56 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
         return $this->safe( function () use ( $native, $region, $children, $context ) {
             $parts = Nova_Bridge_Suite_Recipe_Engine::parts( $region['target'] ); $parent_pointer = $this->pointer( array_slice( $parts, 0, -1 ) );
             $parent = 'elements' === end( $parts ) ? Nova_Bridge_Suite_Recipe_Engine::get( $native, $parent_pointer, $found ) : null;
-            if ( is_array( $parent ) && 'nested-tabs' === ( $parent['widgetType'] ?? '' ) ) {
-                $tabs = $parent['settings']['tabs'] ?? []; if ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $tabs ) || count( $tabs ) !== count( $parent['elements'] ?? [] ) || count( $children ) !== count( $context['items'] ?? [] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Nested-tab label/panel structure or generated panel cardinality is inconsistent.' ); }
-                $tab_prototype = $tabs[ $region['prototype_start'] ?? $region['start'] ] ?? [ 'tab_title' => '' ]; $new_tabs = [];
+            if ( is_array( $parent ) && in_array( $parent['widgetType'] ?? '', [ 'nested-tabs', 'nested-accordion' ], true ) ) {
+                $accordion = 'nested-accordion' === $parent['widgetType']; $list = $accordion ? 'items' : 'tabs'; $title_key = $accordion ? 'item_title' : 'tab_title';
+                $tabs = $accordion ? $this->accordion_items( $parent ) : ( $parent['settings'][$list] ?? [] ); if ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $tabs ) || count( $tabs ) !== count( $parent['elements'] ?? [] ) || count( $children ) !== count( $context['items'] ?? [] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Nested navigation label/panel structure or generated panel cardinality is inconsistent.' ); }
+                $tab_prototype = $tabs[ $region['prototype_start'] ?? $region['start'] ] ?? [ $title_key => '' ]; $new_tabs = [];
                 foreach ( $children as $index => $child ) {
                     $item = $context['items'][ $index ]; $title = is_array( $item ) ? ( $item['title'] ?? $item['title_html'] ?? $item['question'] ?? '' ) : '';
+                    if ( $accordion && 'repeat' === $region['kind'] ) { $title = $item['question'] ?? null; if ( ! is_string( $title ) || Nova_Bridge_Suite_Recipe_Engine::blank( $title ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Each repeated FAQ needs a question.' ); } }
                     if ( '' === $title ) { $title = $this->first_title( $child ); } if ( ! is_string( $title ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Generated tab navigation titles must be text.' ); }
-                    $tab = $tab_prototype; $tab['tab_title'] = trim( html_entity_decode( strip_tags( $title ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ); $tab['_id'] = substr( hash( 'sha256', ( $context['seed'] ?? '' ) . '/tab/' . $index ), 0, 7 ); if ( ! empty( $tab['element_id'] ) ) { $tab['element_id'] = 'nova-tab-' . $tab['_id']; } $new_tabs[] = $tab;
+                    $tab = $tab_prototype; $tab[$title_key] = trim( html_entity_decode( strip_tags( $title ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ); $tab['_id'] = substr( hash( 'sha256', ( $context['seed'] ?? '' ) . '/tab/' . $index ), 0, 7 ); if ( ! empty( $tab['element_id'] ) ) { $tab['element_id'] = 'nova-tab-' . $tab['_id']; } if ( $accordion && ! empty( $tab['element_css_id'] ) ) { $tab['element_css_id'] = 'nova-accordion-' . $tab['_id']; } $new_tabs[] = $tab;
                 }
-                array_splice( $tabs, $region['start'], $region['count'], $new_tabs ); $parent['settings']['tabs'] = $tabs; Nova_Bridge_Suite_Recipe_Engine::put( $native, $parent_pointer, $parent );
+                array_splice( $tabs, $region['start'], $region['count'], $new_tabs ); $parent['settings'][$list] = $tabs; Nova_Bridge_Suite_Recipe_Engine::put( $native, $parent_pointer, $parent );
             }
             Nova_Bridge_Suite_Recipe_Engine::splice( $native, $region['target'], $region['start'], $region['count'], $children ); return $native;
+        } );
+    }
+    public function region_content_schema( array $native, array $region, array $schema ) {
+        $parts = Nova_Bridge_Suite_Recipe_Engine::parts( $region['target'] );
+        if ( 'repeat' !== $region['kind'] || 'elements' !== end( $parts ) ) { return $schema; }
+        $parent = Nova_Bridge_Suite_Recipe_Engine::get( $native, $this->pointer( array_slice( $parts, 0, -1 ) ) );
+        if ( ! is_array( $parent ) || 'nested-accordion' !== ( $parent['widgetType'] ?? '' ) ) { return $schema; }
+        return Nova_Bridge_Suite_Recipe_Engine::merge_content_schemas( $schema, [
+            'type' => 'object', 'properties' => [ 'question' => [ 'type' => 'string', 'minLength' => 1, 'description' => 'FAQ question shown above its answer.', 'x-native-formats' => [ 'text' ] ] ], 'required' => [ 'question' ],
+        ] );
+    }
+    private function accordion_items( array $node ): array {
+        $items = $node['settings']['items'] ?? null;
+        if ( ! array_key_exists( 'items', $node['settings'] ) && class_exists( '\\Elementor\\Plugin' ) ) {
+            $widget = \Elementor\Plugin::instance()->widgets_manager->get_widget_types( 'nested-accordion' );
+            $controls = is_object( $widget ) && is_callable( [ $widget, 'get_controls' ] ) ? $widget->get_controls() : [];
+            $items = $controls['items']['default'] ?? null;
+        }
+        if ( ! Nova_Bridge_Suite_Recipe_Engine::list_array( $items ) || count( $items ) !== count( $node['elements'] ?? [] ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'Nested accordion questions and panels must stay paired when changing its items. The complete saved items or matching Elementor defaults are required.' ); }
+        return $items;
+    }
+    public function remove_node( array $native, string $parent_pointer, int $index ) {
+        return $this->safe( function () use ( $native, $parent_pointer, $index ) {
+            $parts = Nova_Bridge_Suite_Recipe_Engine::parts( $parent_pointer );
+            if ( 'elements' === end( $parts ) ) {
+                $owner_pointer = $this->pointer( array_slice( $parts, 0, -1 ) );
+                $owner = Nova_Bridge_Suite_Recipe_Engine::get( $native, $owner_pointer );
+                if ( is_array( $owner ) && 'nested-accordion' === ( $owner['widgetType'] ?? '' ) ) {
+                    $items = $this->accordion_items( $owner );
+                    $owner['settings']['items'] = $items;
+                    Nova_Bridge_Suite_Recipe_Engine::put( $native, $owner_pointer, $owner );
+                    array_splice( $items, $index, 1 );
+                    Nova_Bridge_Suite_Recipe_Engine::put( $native, $owner_pointer . '/settings/items', $items );
+                }
+            }
+            Nova_Bridge_Suite_Recipe_Engine::splice( $native, $parent_pointer, $index, 1, [] );
+            return $native;
         } );
     }
     private function first_title( array $node ): string { if ( 'heading' === ( $node['widgetType'] ?? '' ) ) { return (string) ( $node['settings']['title'] ?? '' ); } foreach ( $node['elements'] ?? [] as $child ) { $title = $this->first_title( $child ); if ( '' !== $title ) { return $title; } } return ''; }
@@ -229,9 +281,11 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             elseif ( in_array( $widget, [ 'accordion', 'toggle' ], true ) ) { foreach ( $settings['tabs'] ?? [] as $tab ) { $part .= '<details><summary>' . wp_kses_post( $tab['tab_title'] ?? '' ) . '</summary>' . wp_kses_post( $tab['tab_content'] ?? '' ) . '</details>'; } }
             elseif ( 'table-of-contents' === $widget ) { $part .= '<aside class="nova-recipe-native-placeholder">Native table of contents</aside>'; }
             elseif ( 'nested-tabs' === $widget ) { foreach ( $node['elements'] ?? [] as $index => $panel ) { $part .= '<section class="nova-recipe-tab"><h4>' . htmlspecialchars( $settings['tabs'][ $index ]['tab_title'] ?? '', ENT_QUOTES, 'UTF-8' ) . '</h4>' . $this->preview( [ $panel ] ) . '</section>'; } }
+            elseif ( 'nested-accordion' === $widget ) { foreach ( $node['elements'] ?? [] as $index => $panel ) { $part .= '<details><summary>' . wp_kses_post( $settings['items'][$index]['item_title'] ?? '' ) . '</summary>' . $this->preview( [ $panel ] ) . '</details>'; } }
+            elseif ( 'icon-list' === $widget ) { $part .= '<ul>'; foreach ( $settings['icon_list'] ?? [] as $item ) { $part .= '<li>' . wp_kses_post( $item['text'] ?? '' ) . '</li>'; } $part .= '</ul>'; }
             elseif ( 'google_maps' === $widget ) { $part .= '<div' . $anchor . ' class="nova-recipe-native-placeholder" data-native-role="map"><strong>Google Maps location</strong><p>' . htmlspecialchars( (string) ( $settings['address'] ?? '' ), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' ) . '</p></div>'; }
             elseif ( 'widget' === $node['elType'] ) { $part .= '<span class="nova-recipe-native-placeholder">Protected native ' . htmlspecialchars( $widget, ENT_QUOTES, 'UTF-8' ) . ' widget</span>'; }
-            if ( 'nested-tabs' !== $widget ) { $children = $this->preview( $node['elements'] ?? [] ); if ( 'widget' !== $node['elType'] ) { $part .= '<div' . $anchor . ' data-native-role="' . htmlspecialchars( $settings['_title'] ?? 'container', ENT_QUOTES, 'UTF-8' ) . '">' . $children . '</div>'; } else { $part .= $children; } }
+            if ( ! in_array( $widget, [ 'nested-tabs', 'nested-accordion' ], true ) ) { $children = $this->preview( $node['elements'] ?? [] ); if ( 'widget' !== $node['elType'] ) { $part .= '<div' . $anchor . ' data-native-role="' . htmlspecialchars( $settings['_title'] ?? 'container', ENT_QUOTES, 'UTF-8' ) . '">' . $children . '</div>'; } else { $part .= $children; } }
             $classes = []; foreach ( [ 'desktop', 'tablet', 'mobile' ] as $device ) { if ( ! empty( $settings[ 'hide_' . $device ] ) ) { $classes[] = 'elementor-hidden-' . $device; } } $html .= $classes ? '<div class="' . implode( ' ', $classes ) . '">' . $part . '</div>' : $part;
         }
         return $html;
@@ -275,7 +329,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                     // __dynamic__ and __globals__ are Elementor's internal maps of tags and global styles, not controls.
                     if ( is_array( $value ) ) { foreach ( $value as $key => $child ) { if ( [] === $parts && is_string( $key ) && 0 === strpos( $key, '__' ) ) { continue; } $visit( $child, array_merge( $parts, [ $key ] ) ); } return; }
                     $target = $base . $this->pointer( array_merge( [ 'settings' ], $parts ) ); $key = (string) end( $parts ); $map_address = 'google_maps' === $widget && [ 'address' ] === $parts;
-                    if ( ( ! $map_address && ! in_array( $key, [ 'title', 'editor', 'text', 'url', 'alt', 'caption', 'tab_title', 'tab_content' ], true ) ) || ! is_string( $value ) ) { return; }
+                    if ( ( ! $map_address && ! in_array( $key, [ 'title', 'editor', 'text', 'url', 'alt', 'caption', 'tab_title', 'tab_content', 'item_title' ], true ) ) || ! is_string( $value ) ) { return; }
                     $heading_title = 'heading' === $widget && [ 'title' ] === $parts;
                     $format = 'url' === $key ? 'url' : ( ! $heading_title && in_array( $key, [ 'editor', 'tab_content', 'title', 'caption' ], true ) ? 'html' : 'text' ); $valid = $this->validate_binding( $blueprint, [ 'target' => $target, 'format' => $format ] );
                     $media = $media_controls[$this->pointer( $parts )] ?? null;
@@ -284,6 +338,15 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                         'native_node_id' => $node['id'], 'node_target' => $base, 'element_type' => $widget, 'control_path' => array_merge( [ 'settings' ], $parts ),
                         'locator' => [ 'strategy' => $safe_id ? 'elementor' : 'none', 'native_node_id' => $node['id'], 'anchor' => '', 'precision' => 'element', 'status' => $safe_id ? 'candidate' : 'unavailable', 'reason' => $safe_id ? '' : 'The native element identity cannot be used safely in the page preview.' ] ];
                     if ( $heading_title ) { $fields[count( $fields ) - 1]['allowed_formats'] = [ 'text', 'html' ]; }
+                    if ( count( $parts ) === 3 && 'background_slideshow_gallery' === $parts[0] && 'url' === $key ) { $fields[count( $fields ) - 1]['label'] = $label . ' · Background slideshow image ' . ( (int) $parts[1] + 1 ); }
+                    if ( [ 'background_video_fallback', 'url' ] === $parts ) { $fields[count( $fields ) - 1]['label'] = $label . ' · Video fallback image'; }
+                    if ( count( $parts ) === 2 && 'alt' === $key && 0 === strpos( $parts[0], 'background_' ) ) { $fields[count( $fields ) - 1]['label'] = $label . ' · ' . ucwords( str_replace( '_', ' ', $parts[0] ) ) . ' alternative text'; }
+                    if ( 'nested-accordion' === $widget && count( $parts ) === 3 && 'items' === $parts[0] && ctype_digit( (string) $parts[1] ) && 'item_title' === $parts[2] ) {
+                        // The question is stored on the widget, but belongs to its corresponding answer panel.
+                        $fields[count( $fields ) - 1]['node_target'] = $base . '/elements/' . $parts[1];
+                        $fields[count( $fields ) - 1]['label'] = $label . ' · Question ' . ( (int) $parts[1] + 1 );
+                        $fields[count( $fields ) - 1]['allowed_formats'] = [ 'text', 'html' ];
+                    }
                     if ( $map_address ) { $fields[count( $fields ) - 1] += [ 'allowed_formats' => [ 'text' ], 'schema' => [ 'type' => 'string' ], 'constraints' => [ 'type' => 'string' ], 'required' => false ]; }
                     if ( $media ) {
                         $fields[count( $fields ) - 1]['label'] = $label . ' · ' . $media['label'];
