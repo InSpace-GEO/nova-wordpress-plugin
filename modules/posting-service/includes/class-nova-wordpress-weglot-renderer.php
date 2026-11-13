@@ -4,6 +4,7 @@
 if (! defined('ABSPATH')) {
     exit;
 }
+require_once __DIR__ . '/class-nova-wordpress-owned-output.php';
 
 /**
  * Serves stored per-locale content on Weglot-translated requests.
@@ -80,6 +81,12 @@ class Nova_WordPress_Weglot_Renderer
         $this->payload  = $payload;
         $this->post_id  = $post_id;
         $this->language = $language;
+        $native = [];
+        foreach ( [ 'title' => 'post_title', 'excerpt' => 'post_excerpt' ] as $key => $column ) {
+            if ( is_string( $payload[$key] ?? null ) ) { $native[$column] = $payload[$key]; }
+        }
+        Nova_WordPress_Owned_Output::native( $post_id, $native );
+        Nova_WordPress_Owned_Output::register( $payload['ownership']['elements'] ?? [] );
 
         // Must run BEFORE register_filters(): it reads the post's real
         // _elementor_data, which our own get_post_metadata filter would shadow.
@@ -109,7 +116,6 @@ class Nova_WordPress_Weglot_Renderer
         add_filter('get_the_excerpt', [$this, 'filter_excerpt'], 10, 2);
         add_filter('get_post_metadata', [$this, 'filter_post_metadata'], 10, 4);
         add_filter('weglot_exclude_blocks', [$this, 'filter_exclude_blocks']);
-        add_filter('elementor/widget/render_content', [$this, 'filter_elementor_title'], 20);
 
         if ($this->payload_carries_builder_document()) {
             $this->disable_builder_element_cache();
@@ -153,6 +159,12 @@ class Nova_WordPress_Weglot_Renderer
         if ($this->payload_carries_builder_document()) {
             return $content;
         }
+        if ( is_array( $this->payload['ownership']['blocks'] ?? null ) ) {
+            return '<div class="nova-weglot-i18n">' . Nova_WordPress_Owned_Output::blocks( $translated, $this->payload['ownership']['blocks'] ) . '</div>';
+        }
+        if ( is_array( $this->payload['ownership']['content'] ?? null ) ) {
+            return '<div class="nova-weglot-i18n">' . Nova_WordPress_Owned_Output::content( $translated, $this->payload['ownership']['content'] ) . '</div>';
+        }
 
         return sprintf(
             '<div class="nova-weglot-i18n nova-weglot-i18n--%s" data-wg-notranslate>%s</div>',
@@ -169,7 +181,7 @@ class Nova_WordPress_Weglot_Renderer
 
         $translated = $this->payload['title'] ?? '';
 
-        return is_string($translated) && '' !== trim($translated) ? $translated : $title;
+        return is_string($translated) && '' !== trim($translated) ? Nova_WordPress_Owned_Output::value( $translated ) : $title;
     }
 
     public function filter_single_post_title($title, $post = null)
@@ -182,34 +194,7 @@ class Nova_WordPress_Weglot_Renderer
 
         $translated = $this->payload['title'] ?? '';
 
-        return is_string($translated) && '' !== trim($translated) ? $translated : $title;
-    }
-
-    /** Protect the localized post title when a shared Elementor template renders its H1. */
-    public function filter_elementor_title($content)
-    {
-        if (!is_string($content) || !$this->applies_to(get_the_ID()) || !$this->has_translated_title()) {
-            return $content;
-        }
-        $post = get_post($this->post_id);
-        if (!$post) {
-            return $content;
-        }
-        $translated = $this->payload['title'];
-        $normalize = static function (string $value): string {
-            return trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($value), ENT_QUOTES, 'UTF-8')));
-        };
-        $titles = [$normalize($post->post_title), $normalize($translated)];
-        return preg_replace_callback('~(<h1\b[^>]*>)(.*?)(</h1>)~is', static function ($match) use ($translated, $normalize, $titles) {
-            if (!in_array($normalize($match[2]), $titles, true)) {
-                return $match[0];
-            }
-            $opening = $match[1];
-            if (!preg_match('/\bdata-wg-notranslate(?:\s|=|>)/i', $opening)) {
-                $opening = substr($opening, 0, -1) . ' data-wg-notranslate>';
-            }
-            return $opening . esc_html($translated) . $match[3];
-        }, $content);
+        return is_string($translated) && '' !== trim($translated) ? Nova_WordPress_Owned_Output::value( $translated ) : $title;
     }
 
     /**
@@ -242,7 +227,7 @@ class Nova_WordPress_Weglot_Renderer
 
         $translated = $this->payload['excerpt'] ?? '';
 
-        return is_string($translated) && '' !== trim($translated) ? $translated : $excerpt;
+        return is_string($translated) && '' !== trim($translated) ? Nova_WordPress_Owned_Output::value( $translated ) : $excerpt;
     }
 
     /**
@@ -296,7 +281,8 @@ class Nova_WordPress_Weglot_Renderer
         // correct for scalars: an array meta value (which storage supports, and
         // sanitize_deep recurses into) came back as $check[0] -- the first element
         // for a list, and an "Undefined array key 0" warning plus null for a map.
-        return [$translated];
+        $type = is_string( $translated ) && preg_match( '#^(?:https?://|mailto:|tel:)#i', $translated ) ? 'url' : ( is_string( $translated ) && strpos( $translated, '<' ) !== false ? 'html' : 'text' );
+        return [in_array( $meta_key, $this->storage_service->structured_meta_keys(), true ) ? $translated : Nova_WordPress_Owned_Output::value( $translated, $type )];
     }
 
     /**
@@ -313,7 +299,8 @@ class Nova_WordPress_Weglot_Renderer
             return $blocks;
         }
 
-        $selectors = array_merge(['.nova-weglot-i18n'], $this->builder_notranslate_selectors);
+        $selectors = $this->builder_notranslate_selectors;
+        if ( ! isset( $this->payload['ownership']['content'] ) && ! isset( $this->payload['ownership']['blocks'] ) ) { $selectors[] = '.nova-weglot-i18n'; }
 
         // Gate each head field on the key that actually renders it, not on a
         // different one that merely tends to travel with it. Both mismatches were
@@ -421,6 +408,7 @@ class Nova_WordPress_Weglot_Renderer
     private function prepare_builder_exclusions(int $post_id): void
     {
         $this->builder_notranslate_selectors = [];
+        if ( isset( $this->payload['ownership']['elements'] ) ) { return; }
 
         $templates = $this->builder_selector_templates();
         $selectors = [];

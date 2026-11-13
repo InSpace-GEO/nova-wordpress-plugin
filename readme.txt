@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.6
+Stable tag: 1.5.7
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.7 =
+* Protect delivered locale fields from repeat Weglot translation, including native excerpts and mixed Elementor widgets.
+* Keep preserved source content eligible for automatic translation and retain existing localized values during updates.
 
 = 1.5.6 =
 * Reuse existing product tags for supported purchase-URL aliases.

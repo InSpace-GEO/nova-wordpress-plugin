@@ -321,4 +321,16 @@ unset( $legacy_profile['stored_layout']['digest'] );
 $legacy_profile['stored_layout']['digest'] = Nova_Bridge_Suite_Recipe_Engine::digest( $legacy_profile['stored_layout'] );
 check( good( Layout::validate( $legacy_profile ), 'Validate an existing sealed profile' ) === $legacy_profile['stored_layout'], 'Older profile digests remain valid without rewriting the layout' );
 check( $live_io_attempts === 0, 'No source or query-result reads, writes, or HTTP requests occurred; the only lookups allowed were for the declared local Loop Item' );
+$ownership_blueprint = $php_template;
+$ownership_blueprint['document']['sections'] = [['body'=>'<p>Source one.</p>'],['body'=>'<p>Retained source.</p>']];
+$owned_path = '/document/sections/0/body';
+$ownership_draft = good(Layout::from_recipe(record('core','page',$ownership_blueprint,[binding($owned_path,'html','Authored body')])), 'Build mixed core mapping');
+$ownership_values = fitted(['/title'=>'Authored title',$owned_path=>'<p>Authored body.</p>']);
+$plain_output = good(Layout::compile($ownership_draft,$ownership_values,'ownership'),'Compile ordinary mixed core mapping');
+$owned_output = good(Layout::compile($ownership_draft,$ownership_values,'ownership','',true),'Compile ownership metadata');
+check($plain_output['writer_payload']===$owned_output['writer_payload'],'Ownership capture preserves the ordinary native payload');
+$ranges=array_column($owned_output['ownership_ranges'],null,'path');
+check($ranges[$owned_path]['owned'] && !$ranges[$owned_path]['preserve'],'Actual supplied destination paths are owned');
+check(!$ranges['/document/sections/1/body']['owned'] && $ranges['/document/sections/1/body']['preserve'],'Unmapped source paths remain preserved');
+
 echo 'PASS ' . $checks . " generic stored-recipe layout assertions\n";

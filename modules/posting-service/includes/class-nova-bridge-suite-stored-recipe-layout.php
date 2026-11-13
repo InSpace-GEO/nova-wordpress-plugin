@@ -201,8 +201,8 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             return $layout;
         } );
     }
-    public static function compile( array $draft, array $destination_values, string $seed, string $locale = '' ) {
-        return self::guard( static function () use ( $draft, $destination_values, $seed, $locale ) {
+    public static function compile( array $draft, array $destination_values, string $seed, string $locale = '', bool $capture_ownership = false ) {
+        return self::guard( static function () use ( $draft, $destination_values, $seed, $locale, $capture_ownership ) {
             if ( '' === $seed ) { self::fail( 'A retained operation identity is required for native layout compilation.' ); }
             $layout = self::checked( self::validate( $draft ) ); $effective = Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $draft );
             $values = self::checked( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $effective, $destination_values ) );
@@ -245,10 +245,23 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 $removed = $adapter::vacant_rows( $blueprint, $vacant, $kept, $removed );
             }
             if ( $removed ) { $blueprint = Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $removed, $adapter ); $media = Nova_Bridge_Suite_Recipe_Engine::shift_pointers( $media, $removed ); }
-            $compiled = self::checked( $adapter->finalize( $blueprint, 'stored-layout:' . $seed, [ 'recipe' => [ 'blueprint' => $layout['blueprint'] ] ] ) );
+            $context = [ 'recipe' => [ 'blueprint' => $layout['blueprint'] ] ];
+            if ( $capture_ownership ) {
+                $context['owned_paths'] = array_column( array_filter( $layout['bindings'], static function ( $binding, $path ) use ( $values ) {
+                    return 'protected' !== $binding['mode'] && array_key_exists( $path, $values );
+                }, ARRAY_FILTER_USE_BOTH ), 'target' );
+                $context['preserved_paths'] = array_column( array_filter( $layout['bindings'], static function ( $binding ) { return 'protected' === $binding['mode']; } ), 'target' );
+                $context['mapped_paths'] = array_column( $layout['bindings'], 'target' );
+            }
+            $compiled = self::checked( $adapter->finalize( $blueprint, 'stored-layout:' . $seed, $context ) );
             if ( ! is_array( $compiled['writer_payload'] ?? null ) ) { self::fail( 'The builder did not produce a complete native payload.' ); }
             if ( $media ) { $compiled['writer_payload']['nova_media'] = $media; }
             $result = [ 'builder' => $layout['builder'], 'post_type' => $layout['post_type'], 'writer_payload' => $compiled['writer_payload'], 'post_fields' => $post_fields, 'layout_digest' => $layout['digest'] ];
+            if ( $capture_ownership ) {
+                $result['identity_map'] = $compiled['identity_map'] ?? [];
+                $result['ownership_ranges'] = $compiled['ownership_ranges'] ?? null;
+                $result['compiled_blueprint'] = $blueprint;
+            }
             if ( $custom ) { $result['custom_fields'] = $custom; }
             return $result;
         } );
