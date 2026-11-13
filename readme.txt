@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.0
+Stable tag: 1.5.1
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.1 =
+* Map Elementor nested-accordion questions and answers, including optional FAQ rows and repeated panels.
+* Keep questions paired with their answers when empty optional rows are removed.
+* Reveal animated content in Elementor Canvas previews and make collapsed FAQ answers selectable.
+* Map individual Elementor icon-list text and links, and clarify background-image and Media Library alternative-text controls.
 
 = 1.5.0 =
 * Map SiteJob/HALO article and service fields using their registered REST names and schemas.

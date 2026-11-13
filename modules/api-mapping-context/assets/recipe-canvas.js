@@ -34,7 +34,7 @@
 		if ( ! win.getComputedStyle ) { return 0; }
 		var changed = 0, excluded = 'nav,header,footer,[role="navigation"],[role="dialog"],[hidden],[aria-hidden="true"]';
 		// Divi Theme Builder templates render the post inside #main-content without a main, article or .entry-content.
-		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content,#main-content,.et-l--body,#ajax-content-wrap .container-wrap .main-content,#page-header-wrap' ).forEach( function ( main ) {
+		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content,#main-content,.et-l--body,#ajax-content-wrap .container-wrap .main-content,#page-header-wrap,[data-elementor-type="wp-page"],[data-elementor-type="wp-post"],[data-elementor-type="single-page"],[data-elementor-type="single-post"]' ).forEach( function ( main ) {
 			if ( main.closest( excluded ) ) { return; }
 			for ( var ancestor = main; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement ) {
 				var ancestorStyle = win.getComputedStyle( ancestor );
@@ -114,6 +114,12 @@
 	}
 	function prepareMedia( document, config, fields ) {
 		var scope = unique( document, '[data-elementor-id="' + config.referenceId + '"]' ); if ( ! scope ) { return; } fields = fields || [];
+		// All answer panels must be selectable while native accordion scripts are disabled.
+		scope.querySelectorAll( 'details.e-n-accordion-item' ).forEach( function ( details ) {
+			if ( ! details.closest( '[data-widget_type="nested-accordion.default"]' ) ) { return; }
+			details.open = true;
+			var summary = details.querySelector( 'summary' ); if ( summary ) { summary.setAttribute( 'aria-expanded', 'true' ); }
+		} );
 		function nativeValue( owner, type, control ) { var id = owner.getAttribute( 'data-id' ); if ( ! safeId.test( id || '' ) || unique( scope, '[data-id="' + id + '"]' ) !== owner ) { return null; } return fields.find( function ( item ) { return item.writable && item.locator.strategy === 'elementor' && item.locator.reference_id === config.referenceId && item.locator.node_id === id && item.locator.element_type === type && controlPath( item.locator ) === control; } ); }
 		scope.querySelectorAll( '[data-widget_type="google_maps.default"]' ).forEach( function ( owner ) {
 			var id = owner.getAttribute( 'data-id' ); if ( ! safeId.test( id || '' ) || unique( scope, '[data-id="' + id + '"]' ) !== owner ) { return; }
@@ -257,6 +263,18 @@
 			if ( ! safeId.test( id ) ) { return null; }
 			var scope = unique( document, '[data-elementor-id="' + config.referenceId + '"]' ); if ( ! scope ) { return null; }
 			owner = unique( scope, '[data-id="' + id + '"]' ); if ( ! owner ) { return null; }
+			var question = locator.element_type === 'nested-accordion' && /^items\.(\d+)\.item_title$/.exec( control );
+			if ( question ) {
+				var titles = Array.from( owner.querySelectorAll( '.e-n-accordion-item-title-text' ) ).filter( function ( title ) { return title.closest( '[data-widget_type="nested-accordion.default"]' ) === owner; } );
+				var title = titles[Number( question[1] )];
+				return title ? { node: title, owner: title.closest( 'details.e-n-accordion-item' ) || owner, precision: 'field' } : null;
+			}
+			var iconItem = locator.element_type === 'icon-list' && /^icon_list\.(\d+)\.(text|link\.url)$/.exec( control );
+			if ( iconItem ) {
+				var labels = Array.from( owner.querySelectorAll( '.elementor-icon-list-text' ) ).filter( function ( label ) { return label.closest( '[data-widget_type="icon-list.default"]' ) === owner; } );
+				var label = labels[Number( iconItem[1] )];
+				return label ? { node: label, owner: label.closest( '.elementor-icon-list-item' ) || owner, precision: 'field' } : null;
+			}
 			selector = { 'heading:title': '.elementor-heading-title', 'text-editor:editor': '.elementor-widget-container', 'button:text': '.elementor-button-text', 'image:caption': '.widget-image-caption', 'image:image.url': '.elementor-widget-container img', 'image:image.alt': '.elementor-widget-container img', 'google_maps:address': '.nrc-map-placeholder' }[ locator.element_type + ':' + control ];
         } else if ( strategy === 'betheme' ) {
             if ( ! safeId.test( id ) ) { return null; }

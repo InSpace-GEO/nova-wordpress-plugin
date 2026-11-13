@@ -234,7 +234,7 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         foreach ( $empty as $target ) {
             $node = $nodes[ $target ] ?? null;
             if ( null === $node || ! self::element_pointer( $node ) ) { continue; }
-            foreach ( $kept as $other ) { if ( $inside( $other, $node ) ) { continue 2; } }
+            foreach ( $kept as $other ) { if ( $inside( $nodes[ $other ] ?? $other, $node ) ) { continue 2; } }
             $removed[ $node ] = true; $vacant = true;
         }
         if ( ! $vacant ) { return $omissions; }
@@ -254,6 +254,8 @@ final class Nova_Bridge_Suite_Recipe_Engine {
                 if ( isset( $removed[ $owner ] ) || isset( $emptied[ $owner ] ) || ! self::element_pointer( $owner ) ) { continue; }
                 $list = self::get( $native, $list_pointer, $found );
                 if ( ! $found || ! self::list_array( $list ) || ! $list ) { continue; }
+                // A visible label can live on its widget while owning a child panel.
+                foreach ( $kept as $other ) { if ( ( $nodes[ $other ] ?? $other ) === $owner ) { continue 2; } }
                 foreach ( $list as $index => $child ) { $pointer = $list_pointer . '/' . $index; if ( ! isset( $removed[ $pointer ] ) && ! isset( $emptied[ $pointer ] ) && ! $filler( $child, $pointer ) ) { continue 2; } }
                 // Nothing this container showed remains.
                 if ( self::column( self::get( $native, $owner ) ) ) { $emptied[ $owner ] = true; }
