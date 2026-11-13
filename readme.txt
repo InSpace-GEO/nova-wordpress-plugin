@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.5
+Stable tag: 1.5.6
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.6 =
+* Reuse existing product tags for supported purchase-URL aliases.
+* Expose native Yoast taxonomy titles and descriptions for category and product-tag mappings.
+* Create missing Weglot originals for ungrouped deliveries using stable URL identities, including resumed jobs.
+* Preserve authored localized titles in shared Elementor H1 widgets.
 
 = 1.5.5 =
 * Derive newly generated Weglot originals' slugs from their original-language titles.

@@ -109,6 +109,7 @@ class Nova_WordPress_Weglot_Renderer
         add_filter('get_the_excerpt', [$this, 'filter_excerpt'], 10, 2);
         add_filter('get_post_metadata', [$this, 'filter_post_metadata'], 10, 4);
         add_filter('weglot_exclude_blocks', [$this, 'filter_exclude_blocks']);
+        add_filter('elementor/widget/render_content', [$this, 'filter_elementor_title'], 20);
 
         if ($this->payload_carries_builder_document()) {
             $this->disable_builder_element_cache();
@@ -147,13 +148,8 @@ class Nova_WordPress_Weglot_Renderer
             return $content;
         }
 
-        // On a builder page the builder owns the render, and this filter's output
-        // only ever reaches the visitor when the builder produced nothing --
-        // Elementor's apply_builder_in_content() leaves the_content alone when its
-        // own content is empty. That surfaced on 24peptides /fr/ as the payload's
-        // raw HTML printed straight into the theme's entry-content, with the whole
-        // page template gone. Serving nothing here is strictly better: the page
-        // falls back to the source layout, which Weglot still translates.
+        // Let the builder render its document. Returning translated raw HTML here
+        // can replace an empty builder render and bypass its layout.
         if ($this->payload_carries_builder_document()) {
             return $content;
         }
@@ -187,6 +183,33 @@ class Nova_WordPress_Weglot_Renderer
         $translated = $this->payload['title'] ?? '';
 
         return is_string($translated) && '' !== trim($translated) ? $translated : $title;
+    }
+
+    /** Protect the localized post title when a shared Elementor template renders its H1. */
+    public function filter_elementor_title($content)
+    {
+        if (!is_string($content) || !$this->applies_to(get_the_ID()) || !$this->has_translated_title()) {
+            return $content;
+        }
+        $post = get_post($this->post_id);
+        if (!$post) {
+            return $content;
+        }
+        $translated = $this->payload['title'];
+        $normalize = static function (string $value): string {
+            return trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($value), ENT_QUOTES, 'UTF-8')));
+        };
+        $titles = [$normalize($post->post_title), $normalize($translated)];
+        return preg_replace_callback('~(<h1\b[^>]*>)(.*?)(</h1>)~is', static function ($match) use ($translated, $normalize, $titles) {
+            if (!in_array($normalize($match[2]), $titles, true)) {
+                return $match[0];
+            }
+            $opening = $match[1];
+            if (!preg_match('/\bdata-wg-notranslate(?:\s|=|>)/i', $opening)) {
+                $opening = substr($opening, 0, -1) . ' data-wg-notranslate>';
+            }
+            return $opening . esc_html($translated) . $match[3];
+        }, $content);
     }
 
     /**

@@ -28,7 +28,8 @@ function get_posts( $query ) { return $GLOBALS['drafts']; }
 function get_post_status( $id ) { return get_post( $id )->post_status; }
 function get_post_meta( ...$args ) { return ''; }
 function get_term( $id, $taxonomy ) { return $GLOBALS['native'][$id] ?? null; }
-function get_term_link( $term ) { return 'https://example.test/topic'; }
+function get_term_by( $field, $value, $taxonomy ) { return $GLOBALS['matching_tags'][$value] ?? false; }
+function get_term_link( $term, $taxonomy = '' ) { return isset( $term->slug ) ? 'https://example.test/product-tag/' . $term->slug : 'https://example.test/topic'; }
 function current_user_can( ...$args ) { return $GLOBALS['permitted']; }
 function wp_json_encode( $value ) { return json_encode( $value ); }
 function sanitize_title( $value ) { return trim( strtolower( preg_replace( '/[^a-z0-9]+/i', '-', $value ) ), '-' ); }
@@ -118,6 +119,7 @@ function reset_state() {
     $GLOBALS['permitted'] = true;
     $GLOBALS['provider'] = 'weglot';
     $GLOBALS['drafts'] = [];
+    $GLOBALS['matching_tags'] = [];
     $GLOBALS['native_url'] = 'https://example.test/topic';
 }
 function fixture( $term = false, $operation = '00000000-0000-4000-a000-000000000001' ) {
@@ -142,9 +144,24 @@ $GLOBALS['provider'] = 'translatepress';
 check( ! Writer::eligible( $plan['content'] ), 'TranslatePress keeps its existing flow' );
 $GLOBALS['provider'] = 'weglot';
 $ungrouped = $plan['content']; unset( $ungrouped['url_family'] );
-check( ! Writer::eligible( $ungrouped ), 'Ungrouped ordinary deliveries require explicit group evidence' );
+check( Writer::eligible( $ungrouped ), 'Ungrouped translated deliveries can create a source for their stable URL identity' );
+check( Writer::descriptor( $ungrouped, $plan['configuration'] )['family'] === 'url:10', 'Ungrouped source ownership uses its stable URL ID' );
+$invalid_ungrouped = $ungrouped; unset( $invalid_ungrouped['url_id'] );
+check( ! Writer::eligible( $invalid_ungrouped ), 'Ordinary source creation requires a stable positive URL ID' );
 $ungrouped['url'] = 'https://example.test/de/lorem-ipsum-demo-informative/';
 check( Writer::eligible( $ungrouped ), 'A translated demo can create its source without group metadata' );
+reset_state();
+$single = fixture();
+unset( $single['content']['url_family'] );
+$single['source'] = Writer::descriptor( $single['content'], $single['configuration'] );
+$single['target']['target_url'] = $single['source']['target_url'];
+unset( $single['digest'] );
+$single['digest'] = hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $single ) );
+check( !is_wp_error( Writer::apply( $single, $single['operation_id'] ) ), 'An ungrouped translation creates and populates one original' );
+check( !is_wp_error( Writer::recover( $single, $single['operation_id'] ) ) && $GLOBALS['creates'] === 1, 'Ungrouped retries reuse the original without duplication' );
+$moved = $single['content']; $moved['url'] = 'https://example.test/de/resolved-topic';
+check( Writer::lookup( $moved, $single['configuration'] ) === 41, 'URL reconciliation retains ungrouped source identity' );
+reset_state(); $plan = fixture();
 $bad = $plan['content']; $bad['url_family']['primary_url'] = 'https://elsewhere.test/de/topic';
 check( is_wp_error( Writer::descriptor( $bad, $plan['configuration'] ) ), 'Foreign source URL fails before creation' );
 check( Writer::recover( $plan, $plan['operation_id'] )['no_native_commit'], 'Untouched operation has an absence proof' );
@@ -213,6 +230,17 @@ check( $generate->invoke( null, $plan['source'], $native ) === 'https://example.
 $GLOBALS['slug_taken'] = false;
 $term = $plan['source']; $term['term'] = true; $term['type'] = 'product_tag'; $term['source_url'] = 'https://example.test/product-tag/beispiel';
 check( $generate->invoke( null, $term, [ 'payload' => [ 'name' => 'Research Peptides' ] ] ) === 'https://example.test/product-tag/research-peptides', 'A taxonomy original uses the translated term title and native base' );
+$matching = new ReflectionMethod( Writer::class, 'existing_tag_url' );
+$GLOBALS['matching_tags']['ss-31'] = (object) [ 'term_id' => 60, 'slug' => 'ss-31' ];
+check( $matching->invoke( null, 'https://example.test/product-tag/buy-ss-31', 'en' ) === 'https://example.test/product-tag/ss-31', 'Buy aliases reuse the existing product tag' );
+check( $matching->invoke( null, 'https://example.test/product-tag/ss-31-kaufen', 'en' ) === 'https://example.test/product-tag/ss-31', 'Localized buy suffixes reuse the native product tag' );
+check( $matching->invoke( null, 'https://example.test/product-tag/buy-new-tag', 'en' ) === 'https://example.test/product-tag/buy-new-tag', 'A missing tag retains the normal creation path' );
+$GLOBALS['matching_tags']['buy-ss-31'] = (object) [ 'term_id' => 61, 'slug' => 'buy-ss-31' ];
+check( $matching->invoke( null, 'https://example.test/product-tag/buy-ss-31', 'en' ) === 'https://example.test/product-tag/buy-ss-31', 'An explicit existing URL keeps its exact destination' );
+$GLOBALS['matching_tags']['topic-kaufen'] = (object) [ 'term_id' => 70, 'slug' => 'topic-kaufen' ];
+$GLOBALS['matching_tags']['buy-topic'] = (object) [ 'term_id' => 71, 'slug' => 'buy-topic' ];
+check( is_wp_error( $matching->invoke( null, 'https://example.test/product-tag/buy-topic-kaufen', 'en' ) ), 'Ambiguous commercial aliases cannot select or create a tag' );
+$GLOBALS['matching_tags'] = [];
 $plan['source'] = $relocate->invoke( null, $plan['source'], $url );
 $plan['generated_source_url'] = $url;
 $plan['source_plan']['target']['target_url'] = $url;

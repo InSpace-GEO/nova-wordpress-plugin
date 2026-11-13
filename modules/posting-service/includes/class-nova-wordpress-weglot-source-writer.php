@@ -27,7 +27,10 @@ final class Nova_WordPress_Weglot_Source_Writer {
         $provider = Nova_Bridge_Suite_Translation_Writer::provider( $content['language'] ?? '' );
         if ( ! is_array( $provider ) || 'weglot' !== $provider['provider'] ) { return false; }
         $family = $content['url_family'] ?? null;
-        if ( ! $family ) { return Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ?? null ); }
+        if ( ! $family ) {
+            return Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ?? null )
+                || ( isset( $content['url_id'] ) && ctype_digit( (string) $content['url_id'] ) && (int) $content['url_id'] > 0 );
+        }
         return ! Nova_Bridge_Suite_Translation_Writer::same_language_slot( $family['primary_language'], $provider['source'] );
     }
 
@@ -67,7 +70,8 @@ final class Nova_WordPress_Weglot_Source_Writer {
         if ( $term ) { $source = Nova_WordPress_Taxonomy_Route::url( $source, $type, $provider['source'] ); }
         if ( is_wp_error( $source ) ) { return $source; }
         $resource = ( $term ? 'taxonomy:' : 'post_type:' ) . $type;
-        $family_id = $family ? 'group:' . $family['url_group_id'] : 'demo:' . $source;
+        $family_id = $family ? 'group:' . $family['url_group_id']
+            : ( Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ) ? 'demo:' . $source : 'url:' . $content['url_id'] );
         $key = Nova_WordPress_Environment::key( 'nova_weglot_source_' . hash( 'sha256', $content['site_id'] . ':' . $resource . ':' . $source ) );
         $record = self::record( self::group_key( $content['site_id'], $resource, $family_id ) );
         if ( null === $record ) { $record = self::record( $key ); }
@@ -78,6 +82,9 @@ final class Nova_WordPress_Weglot_Source_Writer {
                 return self::error( 'ownership', 'This original belongs to a different retained URL group.' );
             }
             $source = Nova_Bridge_Suite_Translation_Writer::delivery_url( $record['source_url'], $provider['source'] );
+            if ( is_wp_error( $source ) ) { return $source; }
+        } elseif ( $term && 'product_tag' === $type ) {
+            $source = self::existing_tag_url( $source, $provider['source'] );
             if ( is_wp_error( $source ) ) { return $source; }
         }
         $localized = Nova_Bridge_Suite_Translation_Writer::translated_url( $provider, $source );
@@ -98,6 +105,37 @@ final class Nova_WordPress_Weglot_Source_Writer {
             'source_url' => $source, 'target_url' => $localized['identity'], 'site_id' => $content['site_id'],
             'family' => $family_id, 'key' => $key,
             'test' => Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ) ];
+    }
+
+    /** Reuse exact native tags for commercial URL aliases before considering creation. */
+    private static function existing_tag_url( string $url, string $source_language ) {
+        $path = parse_url( $url, PHP_URL_PATH );
+        $slug = rawurldecode( basename( rtrim( (string) $path, '/' ) ) );
+        $exact = get_term_by( 'slug', $slug, 'product_tag' );
+        if ( is_wp_error( $exact ) ) { return $exact; }
+        if ( $exact ) { return $url; }
+
+        $words = 'buy|kaufen|acheter|comprar|acquisto|kop';
+        $candidates = array_unique( [
+            preg_replace( '/^(?:' . $words . ')-/i', '', $slug ),
+            preg_replace( '/-(?:' . $words . ')$/i', '', $slug ),
+        ] );
+        $matches = [];
+        foreach ( $candidates as $candidate ) {
+            if ( '' === $candidate || $candidate === $slug ) { continue; }
+            $term = get_term_by( 'slug', $candidate, 'product_tag' );
+            if ( is_wp_error( $term ) ) { return $term; }
+            if ( $term ) { $matches[(int) $term->term_id] = $term; }
+        }
+        if ( count( $matches ) > 1 ) {
+            return self::error( 'ambiguous', 'More than one product tag matches this URL. Select its canonical tag before publishing.' );
+        }
+        if ( ! $matches ) { return $url; }
+        $canonical = get_term_link( reset( $matches ), 'product_tag' );
+        if ( is_wp_error( $canonical ) ) { return $canonical; }
+        return Nova_Bridge_Suite_Translation_Writer::delivery_url(
+            Nova_WordPress_Weglot::url( $canonical, $source_language ), $source_language
+        );
     }
 
     private static function record( string $key ) {
@@ -351,6 +389,7 @@ final class Nova_WordPress_Weglot_Source_Writer {
                 if ( is_wp_error( $source_plan ) ) { return $source_plan; }
             }
         }
+        $source_input_url = $content['url'];
         $content['url'] = $source['target_url'];
         $plan = [ 'format' => self::FORMAT, 'operation_id' => $context['operation_id'], 'source' => $source,
             'source_id' => $id, 'source_plan' => $source_plan, 'source_writer' => $writer,
@@ -358,6 +397,7 @@ final class Nova_WordPress_Weglot_Source_Writer {
             'provider' => $source['provider'] + ( $source['term'] ? [ 'taxonomy' => $source['type'] ] : [] ),
             'target' => [ 'target_url' => $source['target_url'] ], 'desired_status' => $context['desired_status'] ];
         if ( null !== $generated_url ) { $plan['generated_source_url'] = $generated_url; }
+        if ( ! isset( $content['url_family'] ) ) { $plan['source_input_url'] = $source_input_url; }
         if ( strlen( wp_json_encode( $plan ) ) > 1572864 ) { return self::error( 'size', 'The original and translation exceed the recoverable journal size.' ); }
         $plan['digest'] = self::digest( $plan );
         return $plan;
@@ -372,7 +412,9 @@ final class Nova_WordPress_Weglot_Source_Writer {
         unset( $unsigned['digest'] );
         if ( ( $plan['format'] ?? '' ) !== self::FORMAT || ( $plan['operation_id'] ?? '' ) !== $operation ||
             ! hash_equals( self::digest( $unsigned ), $plan['digest'] ?? '' ) ) { return self::error( 'plan', 'The original-language plan changed.' ); }
-        $source = self::descriptor( $plan['content'], $plan['configuration'] );
+        $source_content = $plan['content'];
+        if ( isset( $plan['source_input_url'] ) ) { $source_content['url'] = $plan['source_input_url']; }
+        $source = self::descriptor( $source_content, $plan['configuration'] );
         if ( ! is_wp_error( $source ) && isset( $plan['generated_source_url'] ) &&
             null === self::record( $source['key'] ) &&
             null === self::record( self::group_key( $source['site_id'], $source['resource'], $source['family'] ) ) ) {
