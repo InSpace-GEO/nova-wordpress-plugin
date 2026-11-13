@@ -34,8 +34,16 @@ final class Nova_WordPress_Localized_SEO {
                 return $binding['value'];
             }, 20, 2 );
         }
-        add_filter( $translatepress ? 'trp_pre_translating_html' : 'weglot_modify_original_content', [ $renderer, 'protect' ], 25 );
-        add_filter( $translatepress ? 'trp_translated_html' : 'weglot_render_dom', [ $renderer, 'restore' ], PHP_INT_MAX );
+        $renderer->attach( $translatepress );
+    }
+
+    public function remember( string $field, string $value ): void {
+        $this->seen[$field] = $value;
+    }
+
+    public function attach( bool $translatepress ): void {
+        add_filter( $translatepress ? 'trp_pre_translating_html' : 'weglot_modify_original_content', [ $this, 'protect' ], 25 );
+        add_filter( $translatepress ? 'trp_translated_html' : 'weglot_render_dom', [ $this, 'restore' ], PHP_INT_MAX );
     }
 
     /** Only mark head values actually emitted by a selected plugin's native filter. */

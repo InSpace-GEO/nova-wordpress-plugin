@@ -66,3 +66,31 @@ test('unsaved HALO mapping changes cannot create a draft from an older revision'
     assert.equal(calls, 0);
     assert.equal(controller.state.error, true);
 });
+
+test('successful recovery releases the old payload while failed recovery retains it', async () => {
+    const oldOperation = '22222222-2222-4222-8222-222222222222';
+    const newOperation = '33333333-3333-4333-8333-333333333333';
+    let recoveryFails = true;
+    let latest;
+    const {controller} = fixture(async (path, payload) => {
+        if (path.startsWith('/draft?')) {
+            if (recoveryFails) { throw new Error('Temporary failure'); }
+            return {id: 42, status: 'draft', operation_id: oldOperation, view_url: 'https://example.test/?p=42&preview=true'};
+        }
+        latest = structuredClone(payload);
+        if (payload.operation_id === oldOperation) { throw new Error('Response lost'); }
+        return {id: 43, status: 'draft', operation_id: newOperation, view_url: 'https://example.test/?p=43&preview=true'};
+    });
+    await controller.createHaloDraft(oldOperation);
+    await controller.recoverDraft(oldOperation);
+    assert.equal(controller.state.pendingReview.operation_id, oldOperation);
+    recoveryFails = false;
+    await controller.recoverDraft(oldOperation);
+    assert.equal(controller.state.pendingReview, null);
+    controller.state.content.halo.display_intake_form_boolean = true;
+    await controller.createHaloDraft(newOperation);
+    assert.equal(controller.state.error, false);
+    assert.equal(latest.operation_id, newOperation);
+    assert.equal(latest.content.halo.display_intake_form_boolean, true);
+    assert.equal(controller.state.reviewDraft.id, 43);
+});

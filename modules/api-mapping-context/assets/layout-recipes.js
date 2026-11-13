@@ -353,7 +353,13 @@
                 if ( options.forgetDraft ) { options.forgetDraft(); }
                 feedback( 'The HALO preview draft is ready.' );
             } ); },
-			recoverDraft: function ( operation ) { return run( async function () { if ( ! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( operation ) ) { throw new Error( 'The retained draft operation is invalid.' ); } state.reviewDraft = draftResult( await request( '/draft?operation_id=' + encodeURIComponent( operation ) ), operation, options.origin ); if ( options.forgetDraft ) { options.forgetDraft(); } feedback( 'The retained native review draft was recovered without creating another item.' ); } ); },
+			recoverDraft: function ( operation ) { return run( async function () {
+                if ( ! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( operation ) ) { throw new Error( 'The retained draft operation is invalid.' ); }
+                state.reviewDraft = draftResult( await request( '/draft?operation_id=' + encodeURIComponent( operation ) ), operation, options.origin );
+                if ( state.pendingReview && state.pendingReview.operation_id === operation ) { state.pendingReview = null; }
+                if ( options.forgetDraft ) { options.forgetDraft(); }
+                feedback( 'The retained native review draft was recovered without creating another item.' );
+            } ); },
 			reload: function () { if ( dirty() && ! confirm( 'Reload the saved template and discard your unsaved rules?' ) ) { return Promise.resolve(); } return run( async function () { if ( state.id ) { var id = state.id; state.catalog = catalogResult( await request( '/catalog' ) ); await loadProfile( id ); } } ); }
 		};
 	}
