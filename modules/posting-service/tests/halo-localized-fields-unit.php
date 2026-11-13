@@ -99,7 +99,13 @@ verify( 100 === get_post_meta( 41, '_local_optional_second_image_id', true ), 'L
 verify( 1 === $media_downloads && count( $attachment_posts ) === 1, 'HALO image retry downloaded another attachment' );
 $hooks = [];
 verify( $original_halo === array_intersect_key( $data[41], $original_halo ), 'HALO image import changed the source fields' );
+$native_plan = ['post_type'=>'page', 'custom_template'=>'service.php', 'operation_id'=>$operation, 'custom_fields'=>['optional_second_image_id'=>$import]];
+$data[41]['_local_optional_second_image_id'] = ['100'];
+verify( true === Nova_Bridge_Suite_Stored_Custom_Fields::finish( $native_plan, 41, [], false ), 'Native HALO image readback failed for its retained attachment' );
 unset( $attachment_posts[100] );
+verify( is_wp_error( Nova_Bridge_Suite_Stored_Custom_Fields::finish( $native_plan, 41, [], false ) ) && 1 === $media_downloads,
+    'Native HALO verification accepted a missing image or downloaded a replacement' );
+$data[41]['_local_optional_second_image_id'] = $original_halo['_local_optional_second_image_id'];
 verify( is_wp_error( Writer::verify( $plan, [] ) ) && 1 === $media_downloads, 'HALO verification accepted a missing image or downloaded a replacement' );
 $halo_registry['page']['_local_service_intro_rich_text']['show_in_rest']['schema']['maxLength'] = 3;
 request_locale( 'de_DE' );

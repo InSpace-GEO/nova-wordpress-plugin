@@ -173,7 +173,10 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
                 if ( 'optional_second_image_id' === $name && is_string( $value ) ) {
                     require_once __DIR__ . '/class-nova-bridge-suite-media-importer.php';
                     $operation = 'halo:' . $plan['operation_id'];
-                    $value = $write ? Nova_Bridge_Suite_Media_Importer::resolve( $operation, $value, $id ) : Nova_Bridge_Suite_Media_Importer::retained( $operation, $value );
+                    try {
+                        if ( $write ) { $value = Nova_Bridge_Suite_Media_Importer::resolve( $operation, $value, $id ); }
+                        else { $retained = Nova_Bridge_Suite_Media_Importer::retained_result( $operation, $value ); $value = $retained['attachment_id'] ?? 0; }
+                    } catch ( Throwable $error ) { return self::error( 'The HALO image could not be recovered.' ); }
                     if ( ! $value ) { return self::error( 'The HALO image could not be imported.' ); }
                 }
                 if ( Nova_WordPress_Halo_Fields::matches( $current[$name], $value, $binding + [ 'name' => $name ], $type ) ) { continue; }
