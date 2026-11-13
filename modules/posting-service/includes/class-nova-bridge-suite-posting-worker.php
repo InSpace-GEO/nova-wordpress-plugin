@@ -132,6 +132,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
         $ready = Nova_Bridge_Suite_Translation_Writer::policy( $snapshot, $job['payload']['configuration'] );
         if ( is_array( $ready ) ) {
             $original = array_replace( $snapshot, [ 'url_id' => $snapshot['url_family']['primary_url_id'], 'url' => $snapshot['url_family']['primary_url'], 'language' => $snapshot['url_family']['primary_language'] ] );
+            if ( Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && 'draft' === get_post_status( $ready['reference']['reference_id'] ) ) { $original['draft_demo'] = true; }
             $woken = $this->jobs->wake_translation_dependents( $original );
             if ( is_wp_error( $woken ) ) { return $woken; }
         }
@@ -412,18 +413,15 @@ final class Nova_Bridge_Suite_Posting_Worker {
                     }
                 }
                 if ( $this->default_dispatch ) { $this->writer = self::WRITERS[$writer_name]; }
-                if ( Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && in_array( $writer_name, [ 'dictionary_translation', 'dictionary_term_translation' ], true ) ) {
-                    $error = Nova_Bridge_Suite_Publication_Policy::unsupported();
-                    return $this->native_failure( $job, $snapshot, $error->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $error->get_error_message() );
-                }
-                if ( in_array( $writer_name, [ 'dictionary_translation', 'dictionary_term_translation' ], true ) ) {
+                $shared_translation = in_array( $writer_name, [ 'dictionary_translation', 'dictionary_term_translation' ], true );
+                if ( $shared_translation ) {
                     $selected = call_user_func( [ $this->writer, 'policy' ], $snapshot, $configuration );
                 } else {
                     $selected = ( $retained_local || $retained_layout ) && isset( $job['payload']['selected_policy'] ) ? $job['payload']['selected_policy'] : call_user_func( $this->policy, $this->client, $snapshot, $configuration );
                 }
                 if ( is_wp_error( $selected ) && 'nova_translation_source_pending' === $selected->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
                 if ( is_wp_error( $selected ) ) { return $this->native_failure( $job, $snapshot, $selected->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $selected->get_error_message() ); }
-                if ( ! $static_term && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) ) { $selected['routing']['publication'] = 'draft'; }
+                if ( ! $static_term && ! $shared_translation && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) ) { $selected['routing']['publication'] = 'draft'; }
                 $reference = $selected['reference'] ?? []; $routing = $selected['routing'] ?? [];
                 $operation = $routing['operation'] ?? null; $target = $reference['reference_id'] ?? 0;
                 $source_free = ( $local_rules || $static_term || $stored_layout || $owned_cpt ) && 'create' === $operation && 0 === $target;
@@ -450,7 +448,9 @@ final class Nova_Bridge_Suite_Posting_Worker {
             }
             if ( ! in_array( $job['phase'], [ 'planned', 'applying', 'committed' ], true ) ) { return $this->block( $job, 'journal_phase_invalid' ); }
             $static_term = in_array( $job['payload']['native_writer'] ?? '', [ 'static_recipe_v1', 'dictionary_term_translation' ], true );
-            if ( ! $static_term && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && ( $job['payload']['plan']['desired_status'] ?? $job['payload']['plan']['context']['desired_status'] ?? '' ) !== 'draft' ) {
+            $weglot_translation = ( $job['payload']['native_writer'] ?? '' ) === 'dictionary_translation'
+                && Nova_Bridge_Suite_Publication_Policy::allows_shared_test( $job['payload']['plan']['provider'] ?? null );
+            if ( ! $static_term && ! $weglot_translation && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && ( $job['payload']['plan']['desired_status'] ?? $job['payload']['plan']['context']['desired_status'] ?? '' ) !== 'draft' ) {
                 return $this->block( $job, 'test_delivery_requires_draft_plan' );
             }
             $native_id_key = $static_term ? 'term_id' : 'post_id';
@@ -507,8 +507,9 @@ final class Nova_Bridge_Suite_Posting_Worker {
             if ( is_wp_error( $verified ) ) { $saved = $this->retain_native_error( $job, $verified ); return is_wp_error( $saved ) ? $saved : $this->retry( $saved, $verified->get_error_code() ); }
             if ( ! is_array( $verified ) || (int) ( $verified[$native_id_key] ?? 0 ) !== (int) $result[$native_id_key] || ! in_array( $verified['cms_post_status'] ?? null, [ 'draft', 'publish', 'future', 'private', 'pending' ], true ) ) { return $this->block( $job, 'verification_result_invalid' ); }
             if ( ! $actor_eligible && ( ! empty( $verified['derived_pending'] ) || 'complete' !== ( $verified['state'] ?? 'complete' ) ) ) { return $this->block( $job, 'publishing_user_unavailable' ); }
-            if ( 'publish' === $verified['cms_post_status'] && Nova_Bridge_Suite_Translation_Source::is_provider_original( $snapshot ) && method_exists( $this->jobs, 'wake_translation_dependents' ) ) {
-                $woken = $this->jobs->wake_translation_dependents( $snapshot );
+            $draft_demo = 'draft' === $verified['cms_post_status'] && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null );
+            if ( ( 'publish' === $verified['cms_post_status'] || $draft_demo ) && Nova_Bridge_Suite_Translation_Source::is_provider_original( $snapshot ) && method_exists( $this->jobs, 'wake_translation_dependents' ) ) {
+                $woken = $this->jobs->wake_translation_dependents( $draft_demo ? array_replace( $snapshot, [ 'draft_demo' => true ] ) : $snapshot );
                 if ( is_wp_error( $woken ) ) { return $this->retry( $job, $woken->get_error_code() ); }
             }
             // In the initial webhook scope, success attests the verified native save,

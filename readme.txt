@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.1
+Stable tag: 1.5.2
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.2 =
+* Allow Weglot test translations to use the original post's draft status and editor preview.
+* Wake dependent Weglot test translations when their original draft is saved, and report the verified draft status.
+* Allow translated WooCommerce category and product-tag tests with a verified original and matching localized URL.
 
 = 1.5.1 =
 * Map Elementor nested-accordion questions and answers, including optional FAQ rows and repeated panels.

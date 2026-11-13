@@ -57,11 +57,14 @@ final class Nova_Bridge_Suite_Term_Translation_Writer {
         if ( is_wp_error( $localized ) ) { return $localized; }
         $url = Nova_Bridge_Suite_Translation_Writer::delivery_url( $localized['identity'], $content['language'] );
         if ( is_wp_error( $url ) ) { return $url; }
+        $test_target = Nova_Bridge_Suite_Publication_Policy::validate_shared_test_target( $content, $intended, $url );
+        if ( is_wp_error( $test_target ) ) { return $test_target; }
         return $provider + [ 'taxonomy' => $taxonomy, 'term_id' => $id, 'source_url' => $source_url, 'url' => $url ];
     }
 
     public static function policy( array $content, array $configuration ) {
-        if ( Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ?? null ) ) {
+        if ( Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ?? null )
+            && ! Nova_Bridge_Suite_Publication_Policy::allows_shared_test( Nova_Bridge_Suite_Translation_Writer::provider( $content['language'] ?? '' ) ) ) {
             return Nova_Bridge_Suite_Publication_Policy::unsupported();
         }
         $valid = Nova_Bridge_Suite_Static_Recipe_Adapter::validate_profile( $content, $configuration );
