@@ -1,5 +1,11 @@
 # Release verification
 
+## 1.5.2
+
+All 166 local PHP and Node suites passed. Coverage includes Weglot demo drafts, source identity and URL checks, original-content preservation, permissions, replay, source-state changes, and existing TranslatePress behavior.
+
+The packaged ZIP passed 21 staging checks on PHP 8.1.34 and Weglot 6.4.3. English and German content shared one native draft. Private loopback HTTP requests returned 200 with the correct language content in an editor request context and 404 for both guest previews. German product-tag content was stored on the original term, preserving its original fields and empty product assignments. Posting-service responses, editor authentication and the delivery journal were simulated. WordPress storage, query handling and rendering filters used their real implementations. The fixture posts and terms were removed.
+
 ## 1.4.11
 
 All 159 local PHP and Node suites passed. Coverage includes category and product-tag mapping, the Category fitting contract, localized native/custom/SEO fields, exact original-URL resolution, native WPML term identity, and recovery after interrupted acknowledgements.

@@ -27,10 +27,7 @@ class Nova_Bridge_Suite_Writing_Adapter {
 class Nova_Bridge_Suite_Posting_Protocol {
     public static function uuid( $value ) { return (bool) $value; }
 }
-class Nova_Bridge_Suite_Publication_Policy {
-    public static function test_url( $url ) { return str_contains( $url, 'lorem' ); }
-    public static function unsupported() { return new WP_Error( 'test_url', 'Shared publication has no draft.' ); }
-}
+require dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-publication-policy.php';
 class Nova_Bridge_Suite_Static_Recipe_Adapter {
     public static function validate_profile( $content, $config ) { return true; }
 }
@@ -134,8 +131,14 @@ foreach ( [ 'weglot', 'translatepress' ] as $provider ) { foreach ( [ 'product_c
     $mapped_plan = good( Writer::plan( $content, $config, $context ) );
     good( Writer::apply( $mapped_plan, 'operation-5' ) );
     expect( $metadata[$key]['fields']['native']['description'] === $notice, 'An explicitly mapped description retains its existing update behavior' );
-    $bad = $content; $bad['url'] = 'https://category.test/de/lorem';
-    expect( is_wp_error( Writer::policy( $bad, $config ) ), 'Shared views cannot be draft test pages' );
+    $demo = $content; $demo['url'] = 'https://category.test/de/shop/lorem-ipsum-demo-category/';
+    $error = Writer::policy( $demo, $config );
+    $expected = 'weglot' === $provider ? 'nova_translation_test_url' : 'nova_test_delivery_draft_unavailable';
+    expect( is_wp_error( $error ) && $error->code === $expected, 'Rejects a non-demo destination or unsupported provider' );
+    $localized_url = rtrim( $demo['url'], '/' );
+    $policy = Writer::policy( $demo, $config );
+    expect( 'weglot' === $provider ? ( $policy['routing']['publication'] ?? '' ) === 'publish'
+        : is_wp_error( $policy ), 'Only Weglot allows a test at the exact localized tag URL' );
 }
 }
 echo "Shared category writer checks: $checks passed.\n";

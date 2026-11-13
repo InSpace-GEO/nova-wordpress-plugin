@@ -33,7 +33,7 @@ final class Nova_Bridge_Suite_Translation_Source {
     }
 
     /** Only the explicit primary identity may adopt a pre-group record, after checking its native URL. */
-    private static function retained_primary( array $identity, array $row, int $id ): bool {
+    private static function retained_primary( array $identity, array $row, int $id, bool $allow_draft = false ): bool {
         $family = $identity['url_family'];
         if ( $row['url_id'] !== $family['primary_url_id'] || ! Nova_Bridge_Suite_Stored_Layout_Language::same_language_slot( $row['language'], $family['primary_language'] ) ) { return false; }
         $expected = Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( $family['primary_url'], $family['primary_language'] );
@@ -41,7 +41,9 @@ final class Nova_Bridge_Suite_Translation_Source {
         $expected = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $expected );
         $post = get_post( $id );
         if ( ! $post ) { return false; }
-        $actual = Nova_Bridge_Suite_Mapped_Content_Target::native_url( 'post_type:' . $post->post_type, 'post', $id );
+        $actual = $allow_draft && 'draft' === $post->post_status
+            ? Nova_Bridge_Suite_Translation_Writer::source_permalink( $post )
+            : Nova_Bridge_Suite_Mapped_Content_Target::native_url( 'post_type:' . $post->post_type, 'post', $id );
         $actual = is_wp_error( $actual ) ? $actual : Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $actual );
         return ! is_wp_error( $expected ) && ! is_wp_error( $actual ) && $expected['identity'] === $actual['identity'];
     }
@@ -107,10 +109,13 @@ final class Nova_Bridge_Suite_Translation_Source {
         return $records;
     }
 
-    public static function post_id( array $content, array $configuration, string $source_language ) {
+    public static function post_id( array $content, array $configuration, string $source_language, bool $allow_demo_draft = false ) {
         $source = self::language( $source_language );
         $type = $configuration['local']['routing']['post_type'] ?? $configuration['local']['stored_layout']['post_type'] ?? '';
         $languages = [ $source, explode( '-', $source )[0], get_option( 'WPLANG', '' ) ?: 'en_US' ];
+        $family = $content['url_family'] ?? null;
+        $allow_draft = $allow_demo_draft && $family && Nova_Bridge_Suite_Publication_Policy::test_url( $family['primary_url'] ?? null );
+        if ( $allow_draft ) { $languages[] = $family['primary_language']; }
         $matches = [];
         $lookup = $content;
         if ( isset( $content['url_family'] ) ) {
@@ -124,14 +129,14 @@ final class Nova_Bridge_Suite_Translation_Source {
         foreach ( self::records( $lookup, $languages ) as $id => $row ) {
             if ( isset( $content['url_family'] ) ) {
                 if ( $row['url_id'] !== $content['url_family']['primary_url_id'] ) { continue; }
-                if ( ! self::retained_primary( $content, $row, $id ) ) {
+                if ( ! self::retained_primary( $content, $row, $id, $allow_draft ) ) {
                     return new WP_Error( 'nova_translation_source_identity', 'The retained original language or permalink differs from the URL group primary.' );
                 }
             }
             $language = self::language( $row['language'] );
             if ( $source !== $language && ( explode( '-', $language )[0] !== explode( '-', $source )[0] || ( false !== strpos( $source, '-' ) && false !== strpos( $language, '-' ) ) ) ) { continue; }
             $post = get_post( $id );
-            if ( $post && 'publish' === $post->post_status && $post->post_type === $type ) { $matches[] = $id; }
+            if ( $post && $post->post_type === $type && ( 'publish' === $post->post_status || ( $allow_draft && 'draft' === $post->post_status ) ) ) { $matches[] = $id; }
         }
         if ( ! $matches ) {
             $existing = self::existing_original( $content, $configuration, $type );
@@ -186,6 +191,8 @@ final class Nova_Bridge_Suite_Translation_Source {
 
     public static function depends_on( array $waiting, array $original ): bool {
         if ( ! isset( $waiting['url_family'] ) || ! self::is_provider_original( $original ) ) { return false; }
+        if ( ! empty( $original['draft_demo'] ) && ( ! Nova_Bridge_Suite_Publication_Policy::test_url( $waiting['url'] ?? null )
+            || ! Nova_Bridge_Suite_Publication_Policy::allows_shared_test( Nova_Bridge_Suite_Translation_Writer::provider( $waiting['language'] ?? '' ) ) ) ) { return false; }
         $expected = Nova_Bridge_Suite_Translation_Writer::delivery_url( $waiting['url_family']['primary_url'], $waiting['url_family']['primary_language'] );
         $actual = Nova_Bridge_Suite_Translation_Writer::delivery_url( $original['url'] ?? '', $original['language'] );
         return ! is_wp_error( $expected ) && ! is_wp_error( $actual ) && $expected === $actual &&
