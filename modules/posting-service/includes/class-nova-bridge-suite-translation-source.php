@@ -110,6 +110,10 @@ final class Nova_Bridge_Suite_Translation_Source {
     }
 
     public static function post_id( array $content, array $configuration, string $source_language, bool $allow_demo_draft = false ) {
+        if ( class_exists( 'Nova_WordPress_Weglot_Source_Writer' ) && Nova_WordPress_Weglot_Source_Writer::eligible( $content ) ) {
+            $id = Nova_WordPress_Weglot_Source_Writer::lookup( $content, $configuration );
+            return $id ?: new WP_Error( 'nova_translation_source_pending', 'The generated Weglot original is not ready.' );
+        }
         $source = self::language( $source_language );
         $type = $configuration['local']['routing']['post_type'] ?? $configuration['local']['stored_layout']['post_type'] ?? '';
         $languages = [ $source, explode( '-', $source )[0], get_option( 'WPLANG', '' ) ?: 'en_US' ];

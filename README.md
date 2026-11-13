@@ -128,6 +128,8 @@ Fixed WooCommerce category and product-tag layouts support selected native field
 
 Weglot and TranslatePress category and product-tag deliveries store translated editorial fields on the original taxonomy item and render them for the requested language. The delivery uses the URL group's explicit primary item and reports the provider's resolved localized URL. WPML and Polylang deliveries update their existing native translated taxonomy items through the same approved field mapping.
 
+For Weglot groups whose primary language differs from the site's original language, the plugin resolves the original through Weglot's language URLs. It reuses an existing original or translates the delivered editorial fields through Weglot and creates the original using the saved layout. Subsequent locales share that native item. Source creation and localization retain separate recovery checkpoints. This supports saved post layouts, mapped post types, product categories and product tags. Demo posts use native drafts. Structured JSON inside a text slot requires mapping its editorial fields separately.
+
 ## SiteJob / HALO content fields
 
 For a HALO article or service, select its native WordPress destination and an example that uses the intended theme template. Under **Additional content fields**, select the fields labelled **HALO**. The plugin discovers their public REST names, native types, limits and local storage registrations. Service fields appear where the installed content API registers them.

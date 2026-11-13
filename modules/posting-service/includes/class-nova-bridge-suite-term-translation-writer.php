@@ -30,18 +30,28 @@ final class Nova_Bridge_Suite_Term_Translation_Writer {
             return is_wp_error( $provider ) ? $provider : self::error( 'provider', 'A shared-category translation requires an active translation provider.' );
         }
         $family = $content['url_family'] ?? [];
-        if ( empty( $family['primary_url'] ) || empty( $family['primary_url_id'] ) ||
-            ! Nova_Bridge_Suite_Translation_Writer::same_language_slot( $family['primary_language'] ?? '', $provider['source'] ) ) {
-            return self::error( 'source_language', 'A category translation requires the explicit original-language URL group member.' );
+        $generated = class_exists( 'Nova_WordPress_Weglot_Source_Writer' ) && Nova_WordPress_Weglot_Source_Writer::eligible( $content );
+        if ( $generated ) {
+            $id = Nova_WordPress_Weglot_Source_Writer::lookup( $content, $configuration );
+            if ( is_wp_error( $id ) ) { return $id; }
+            if ( ! $id ) { return self::error( 'source_pending', 'The generated Weglot original term is not ready.' ); }
+            $source = Nova_WordPress_Weglot_Source_Writer::descriptor( $content, $configuration );
+            if ( is_wp_error( $source ) ) { return $source; }
+            $source_url = $source['source_url'];
+        } else {
+            if ( empty( $family['primary_url'] ) || empty( $family['primary_url_id'] ) ||
+                ! Nova_Bridge_Suite_Translation_Writer::same_language_slot( $family['primary_language'] ?? '', $provider['source'] ) ) {
+                return self::error( 'source_language', 'A category translation requires the explicit original-language URL group member.' );
+            }
+            $source_url = Nova_Bridge_Suite_Translation_Writer::delivery_url( $family['primary_url'], $family['primary_language'] );
+            if ( is_wp_error( $source_url ) ) { return $source_url; }
+            $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $source_url, 'taxonomy:' . $taxonomy );
+            if ( is_wp_error( $found ) ) {
+                return 'nova_mapped_target_not_found' === $found->get_error_code()
+                    ? self::error( 'source_pending', 'The original WooCommerce category is not available yet.' ) : $found;
+            }
+            $id = $found['reference_id'];
         }
-        $source_url = Nova_Bridge_Suite_Translation_Writer::delivery_url( $family['primary_url'], $family['primary_language'] );
-        if ( is_wp_error( $source_url ) ) { return $source_url; }
-        $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $source_url, 'taxonomy:' . $taxonomy );
-        if ( is_wp_error( $found ) ) {
-            return 'nova_mapped_target_not_found' === $found->get_error_code()
-                ? self::error( 'source_pending', 'The original WooCommerce category is not available yet.' ) : $found;
-        }
-        $id = $found['reference_id'];
         $term = get_term( $id, $taxonomy );
         if ( ! $term || is_wp_error( $term ) || $term->taxonomy !== $taxonomy || ! current_user_can( 'edit_term', $id ) ) {
             return self::error( 'source_permission', 'The publishing user cannot translate the original category.' );
