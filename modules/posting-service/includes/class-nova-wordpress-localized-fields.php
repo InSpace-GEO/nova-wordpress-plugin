@@ -1,6 +1,7 @@
 <?php
 /** Render mapped custom fields on the published source in the requested provider locale. */
 defined( 'ABSPATH' ) || exit;
+require_once __DIR__ . '/class-nova-wordpress-owned-output.php';
 
 final class Nova_WordPress_Localized_Fields {
     private $id;
@@ -77,6 +78,7 @@ final class Nova_WordPress_Localized_Fields {
     }
 
     public static function attach( self $renderer, bool $trp ): void {
+        if ( ! $trp ) { Nova_WordPress_Owned_Output::register(); }
         foreach ( $renderer->fields as $field ) {
             if ( 'halo' === ( $field['provider'] ?? '' ) && in_array( $field['name'], [ 'seo_title_text', 'seo_meta_description_text' ], true ) ) {
                 require_once __DIR__ . '/class-nova-wordpress-localized-seo.php';
@@ -164,7 +166,7 @@ final class Nova_WordPress_Localized_Fields {
                 }
             }
         }
-        return $value;
+        return Nova_WordPress_Owned_Output::value( $value, $field['type'] ?? 'text' );
     }
 
     /** Tell the provider which final, already-localized HTML it should leave alone.

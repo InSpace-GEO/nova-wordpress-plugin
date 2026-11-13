@@ -167,12 +167,12 @@ final class Nova_Bridge_Suite_Stored_Layout {
     }
 
     /** Fill frozen destinations and rebase native identities, without reading the source page. */
-    public static function compile( array $draft, array $destination_values, string $seed, string $locale = '' ) {
+    public static function compile( array $draft, array $destination_values, string $seed, string $locale = '', bool $capture_ownership = false ) {
         if ( ( $draft['stored_layout']['format'] ?? '' ) === 'nova.stored-recipe/v1' ) {
             require_once __DIR__ . '/class-nova-bridge-suite-stored-recipe-layout.php';
-            return Nova_Bridge_Suite_Stored_Recipe_Layout::compile( $draft, $destination_values, $seed, $locale );
+            return Nova_Bridge_Suite_Stored_Recipe_Layout::compile( $draft, $destination_values, $seed, $locale, $capture_ownership );
         }
-        return self::guard( static function () use ( $draft, $destination_values, $seed ) {
+        return self::guard( static function () use ( $draft, $destination_values, $seed, $capture_ownership ) {
             if ( '' === $seed ) { self::fail( 'A retained operation identity is required for fresh native element IDs.' ); }
             $layout = self::checked( self::validate( $draft ) ); $effective = Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $draft );
             $fitted = self::checked( Nova_Bridge_Suite_Writing_Adapter::validate_fitted_values( $effective, $destination_values ) );
@@ -186,8 +186,12 @@ final class Nova_Bridge_Suite_Stored_Layout {
                 if ( 'post' === $binding['kind'] ) { $post_fields[ $binding['column'] ] = $value; }
                 else { $blueprint = self::checked( $adapter->bind( $blueprint, $binding, $value ) ); }
             }
-            $compiled = self::checked( $adapter->finalize( $blueprint, 'stored-layout:' . $seed, [ 'recipe' => [ 'blueprint' => $layout['blueprint'] ] ] ) );
-            return [ 'builder' => 'elementor', 'post_type' => 'page', 'writer_payload' => $compiled['writer_payload'], 'post_fields' => $post_fields, 'layout_digest' => $layout['digest'] ];
+            $context = [ 'recipe' => [ 'blueprint' => $layout['blueprint'] ] ];
+            if ( $capture_ownership ) { $context['owned_paths'] = array_keys( $fitted ); }
+            $compiled = self::checked( $adapter->finalize( $blueprint, 'stored-layout:' . $seed, $context ) );
+            $result = [ 'builder' => 'elementor', 'post_type' => 'page', 'writer_payload' => $compiled['writer_payload'], 'post_fields' => $post_fields, 'layout_digest' => $layout['digest'] ];
+            if ( $capture_ownership ) { $result['identity_map'] = $compiled['identity_map'] ?? []; }
+            return $result;
         } );
     }
 

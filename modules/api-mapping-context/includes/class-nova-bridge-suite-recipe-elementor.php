@@ -266,7 +266,9 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             if ( array_key_exists( 'theme_presentation', $blueprint ) ) { $payload['theme_presentation'] = $blueprint['theme_presentation']; }
             if ( array_key_exists( 'document_settings', $blueprint ) ) { $payload['elementor_document_settings'] = $blueprint['document_settings']; }
             $count = 0; $this->walk( $blueprint['document'], static function () use ( &$count ) { ++$count; } );
-            return [ 'native_document' => $blueprint, 'writer_payload' => $payload, 'preview_html' => $this->preview( $blueprint['document'] ), 'warnings' => array_merge( [ 'Structure preview preserves content grouping; native global styles, responsive widgets and dynamic site bindings are verified in the native draft.' ], array_map( static function ( $name ) { return $name . ' no longer exists and was left out.'; }, array_values( array_unique( $removed ) ) ) ), 'summary' => [ 'nodes' => $count ], 'adapter_version' => self::VERSION ];
+            $result = [ 'native_document' => $blueprint, 'writer_payload' => $payload, 'preview_html' => $this->preview( $blueprint['document'] ), 'warnings' => array_merge( [ 'Structure preview preserves content grouping; native global styles, responsive widgets and dynamic site bindings are verified in the native draft.' ], array_map( static function ( $name ) { return $name . ' no longer exists and was left out.'; }, array_values( array_unique( $removed ) ) ) ), 'summary' => [ 'nodes' => $count ], 'adapter_version' => self::VERSION ];
+            if ( array_key_exists( 'owned_paths', $context ) ) { $result['identity_map'] = $identity['nodes']; }
+            return $result;
         } );
     }
     private function preview( array $nodes ): string {

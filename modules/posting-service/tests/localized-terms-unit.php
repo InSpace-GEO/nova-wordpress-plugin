@@ -64,11 +64,12 @@ verify( apply_filters( 'wpseo_title', 'Original' ) === 'Deutscher Suchtitel', 'C
 $marked = apply_filters( $pre, '<html><body><main><h1>Deutsche Kategorie</h1><p>Deutsche Beschreibung</p><p>Deutscher Inhalt.</p></main></body></html>' );
 verify( str_contains( $marked, 'data-wg-notranslate' ), 'Already localized category copy is protected' );
 if ( $provider === 'weglot' ) {
-    $widget = apply_filters( 'elementor/widget/render_content', '<h1>Deutsche Kategorie</h1><a>Deutsche Kategorie</a>' );
-    verify( str_contains( $widget, '<h1 data-wg-notranslate>Deutsche Kategorie</h1>' ), 'The archive H1 is protected even when its name repeats in a product link' );
-    verify( str_contains( $widget, '<a>Deutsche Kategorie</a>' ), 'Archive heading protection preserves neighboring product links' );
-    verify( apply_filters( 'elementor/widget/render_content', '<h1>Another heading</h1>' ) === '<h1>Another heading</h1>', 'An unrelated widget heading retains its translation behavior' );
-    verify( apply_filters( 'elementor/widget/render_content', '<h2>Deutsche Kategorie</h2>' ) === '<h2>Deutsche Kategorie</h2>', 'Non-H1 product headings retain their translation behavior' );
+    $widget = new stdClass();
+    Nova_WordPress_Owned_Output::begin( $widget );
+    $html = '<h1>' . esc_html( $wp_query->queried_object->name ) . '</h1><a>Deutsche Kategorie</a>';
+    $html = Nova_WordPress_Owned_Output::finish( $html, $widget );
+    verify( str_contains( $html, '<h1><span data-wg-notranslate>Deutsche Kategorie</span></h1>' ), 'The archive native name is protected through the shared field renderer' );
+    verify( str_contains( $html, '<a>Deutsche Kategorie</a>' ), 'A preserved neighboring product link stays translatable' );
 }
 verify( $term_data === $source_data && $source_term->name === 'Original category', 'Rendering preserves stored source fields' );
 $wp_query->queried_object = clone $source_term;

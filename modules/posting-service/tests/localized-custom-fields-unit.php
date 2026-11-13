@@ -27,6 +27,7 @@ function apply_filters( $name, $v, ...$args ) {
     return $v;
 }
 function add_filter( $name, $fn, ...$unused ) { $GLOBALS['hooks'][$name][] = $fn; }
+function add_action( $name, $fn, ...$unused ) { add_filter( $name, $fn, ...$unused ); }
 function did_action( $name ) { return 'elementor/loaded' === $name ? 1 : 0; }
 function do_action( ...$args ) {}
 function wp_cache_delete( ...$unused ) {}
