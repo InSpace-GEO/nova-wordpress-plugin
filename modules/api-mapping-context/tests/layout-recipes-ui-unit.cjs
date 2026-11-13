@@ -552,6 +552,34 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   await t.controller.captureReusableBlock('/document/1');assert.equal(t.controller.state.error,false);assert.deepEqual(t.controller.state.recipe.bindings,oldBindings);assert.deepEqual(t.controller.state.content,{title:'Keep my sample'});assert.equal(t.controller.state.design.seal,'captured-seal');assert.equal(t.controller.state.design.source_receipt,'expanded-receipt');assert(t.host.textContent.includes('Captured for mapping'));assert(t.host.textContent.includes('no longer depend on the original UX Block'));
   const call=t.calls.find(call=>call.path==='/reusable-block');assert.equal(call.payload.target,'/document/1');assert.equal(call.payload.design.seal,'linked-seal');assert.deepEqual(call.payload.source_reference,original.source_reference);assert.equal(call.payload.source_receipt,'original-receipt');assert(!t.calls.some(call=>['/save','/draft'].includes(call.path)));
  });
+ await test('shared Beaver components show linked languages and missing translations',async()=>{
+  const original=visualDesign();
+  original.builder='beaver';original.recipe_preset.builder='beaver';
+  original.locale_preservation={provider:'polylang',shared_templates:[{label:'Shared contact section',variants:[{locale:'nl-NL'},{locale:'it-IT'}],missing:['fr-FR']}]};
+  const t=await visualMounted({request:async(path,payload,current,choices)=>{
+   if(path==='/catalog') { choices.builders.push({id:'beaver',label:'Beaver Builder',available:true,modes:['static','mixed','rules']}); return clone(choices); }
+   if(path==='/design')return clone(original);
+  }});
+  t.controller.selectBuilder('beaver');
+  await t.controller.capture(42);
+  assert(t.host.textContent.includes('Linked Beaver components'));
+  assert(t.host.textContent.includes('Shared contact section'));
+  assert(t.host.textContent.includes('Linked language templates · nl-NL, it-IT'));
+  assert(t.host.textContent.includes('No linked template for fr-FR'));
+  assert(t.host.textContent.includes('Link a translated shared template in Polylang or WPML'));
+  assert(!t.host.textContent.includes('Create independent copy for mapping'));
+  assert(!t.calls.some(call=>['/save','/draft','/reusable-block'].includes(call.path)));
+  for(const provider of ['translatepress','weglot']) {
+   original.locale_preservation.provider=provider;
+   const managed=await visualMounted({request:async(path,payload,current,choices)=>{
+    if(path==='/catalog') { choices.builders.push({id:'beaver',label:'Beaver Builder',available:true,modes:['static','mixed','rules']}); return clone(choices); }
+    if(path==='/design')return clone(original);
+   }});
+   managed.controller.selectBuilder('beaver');
+   await managed.controller.capture(42);
+   assert(managed.host.textContent.includes('rendered content are managed by '+provider));
+  }
+ });
  await test('Elementor globals are explicitly shared until copied and existing content rules survive',async()=>{
   const original=visualDesign();original.reusable_blocks=[{target:'/document/1',label:'Global widget #42 · Contact button',kind:'global',mode:'linked',expandable:true}];
   const expanded=clone(original);expanded.seal='copied-seal';expanded.reusable_blocks[0].mode='captured';expanded.source_receipt='copy-receipt';

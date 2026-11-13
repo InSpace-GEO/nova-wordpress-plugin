@@ -3,6 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__ ) . '/adapters/wpbakery-salient.php';
 require_once __DIR__ . '/class-nova-bridge-suite-beaver-publishing.php';
+require_once __DIR__ . '/class-nova-bridge-suite-beaver-shared.php';
 
 final class Nova_Bridge_Suite_Recipe_Builders {
     const BUILDERS = [ 'elementor', 'gutenberg', 'flatsome', 'enfold', 'cornerstone', 'betheme', 'wpbakery', 'avada', 'divi4', 'divi5', 'beaver', 'breakdance' ];
@@ -592,6 +593,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             $native_tag = (string) ( $node['tag'] ?? $node['blockName'] ?? $node['data']['type'] ?? $node['settings']['type'] ?? $node['type'] ?? 'Native item' );
             $label = $this->human_label( $native_tag );
             $node_protected = $protected;
+            if ( 'beaver' === $this->builder && Nova_Bridge_Suite_Beaver_Shared::reference( $node ) ) { $node_protected = true; }
             if ( 'wpbakery' === $this->builder && Nova_Mapping_Salient::shared( $native_tag ) ) { $node_protected = true; }
             if ( 'divi5' === $this->builder ) { $node_protected = $protected || 'divi/global-layout' === $native_tag || nova_mapping_divi5_block_is_locked( $node['attrs'] ?? [] ); }
             elseif ( 'gutenberg' === $this->builder ) { $node_protected = $protected || in_array( $native_tag, [ 'core/block', 'core/template-part', 'core/query', 'core/post-content' ], true ) || ! empty( $node['attrs']['lock'] ) || ! empty( $node['attrs']['templateLock'] ); }

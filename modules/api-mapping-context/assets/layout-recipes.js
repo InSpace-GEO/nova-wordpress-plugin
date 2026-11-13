@@ -553,6 +553,20 @@
 			} );
 			return wrap;
 		}
+		function sharedBeaverEditor() {
+			var snapshot = controller.state.design.locale_preservation || {}, components = snapshot.shared_templates || [], wrap = node( 'section', undefined, 'nlr-panel' );
+			var providerManaged = [ 'translatepress', 'weglot' ].includes( snapshot.provider );
+			wrap.append( node( 'h3', 'Linked Beaver components' ), help( providerManaged ? 'Shared Beaver components stay linked. Existing translations of their rendered content are managed by ' + snapshot.provider + '.' : 'Each page keeps its shared component linked. Publishing selects the saved template for the page’s language. Edit the text and design in the shared Beaver template.' ) );
+			components.forEach( function ( component ) {
+				var row = node( 'section', undefined, 'nlr-reusable-block' );
+				row.append( node( 'h4', component.label || 'Shared Beaver component' ), node( 'strong', 'Keep linked' ) );
+				if ( component.variants.length ) { row.append( help( 'Linked language templates · ' + component.variants.map( function ( variant ) { return variant.locale; } ).join( ', ' ) + '.' ) ); }
+				if ( component.reason ) { row.append( help( component.reason ) ); }
+				if ( component.missing.length ) { row.append( help( 'No linked template for ' + component.missing.join( ', ' ) + '. These languages keep the reference component. Link a translated shared template in Polylang or WPML, then capture and save this layout again.' ) ); }
+				wrap.append( row );
+			} );
+			return wrap;
+		}
 		function seoFieldsEditor( state ) {
             var selected = state.recipe.seo_fields || {}, choices = state.design.seo_field_choices || {}, entries = Object.assign( {}, selected, choices );
             if ( ! Object.keys( entries ).length ) { return null; }
@@ -767,6 +781,7 @@
 
 			}
 			if ( state.step === 3 && [ 'flatsome', 'elementor' ].includes( state.builder ) && ( state.design.reusable_blocks || [] ).length ) { panel.append( reusableBlocksEditor() ); }
+			if ( state.step === 3 && state.builder === 'beaver' && ( ( state.design.locale_preservation || {} ).shared_templates || [] ).length ) { panel.append( sharedBeaverEditor() ); }
 			if ( state.step === 3 ) {
 				var source = state.design.source_reference;
 				if ( ! source ) {
