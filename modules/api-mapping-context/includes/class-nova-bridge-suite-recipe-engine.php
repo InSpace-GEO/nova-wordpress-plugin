@@ -369,6 +369,8 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             $result['content_schema'] = self::augmented_schema( $recipe, $adapter );
             $result['normalized_content'] = $normalized; $result['engine_version'] = self::VERSION; $result['recipe_digest'] = self::digest( $recipe ); $result['content_digest'] = self::digest( $normalized );
             if ( isset( $recipe['custom_fields'] ) ) { $result['custom_fields'] = $recipe['custom_fields']; }
+            $halo = self::checked( Nova_WordPress_Halo_Fields::compile( $recipe, $normalized ) );
+            if ( $halo ) { $result['halo_fields'] = $halo; $result['preview_html'] .= Nova_WordPress_Halo_Fields::preview( $halo ); }
             $result['plan_digest'] = self::digest( $result ); self::json( $result ); return $result;
         } );
     }
@@ -495,6 +497,7 @@ final class Nova_Bridge_Suite_Recipe_Engine {
     private static function augmented_schema( array $recipe, $adapter ): array {
         $schema = self::scope_schema( $recipe['bindings'] ?? [], $recipe['regions'] ?? [] );
         if ( method_exists( $adapter, 'augment_content_schema' ) ) { $schema = self::checked( $adapter->augment_content_schema( $recipe, $schema ) ); if ( ! is_array( $schema ) || ( $schema && self::list_array( $schema ) ) ) { self::fail( 'A native schema adapter must return the complete content-schema object.' ); } }
+        $schema = Nova_WordPress_Halo_Fields::content_schema( $recipe, $schema );
         self::json( $schema ); return $schema;
     }
     public static function content_schema( array $recipe ) { return self::guard( static function () use ( $recipe ) { self::checked( self::validate( $recipe ) ); return self::augmented_schema( $recipe, self::checked( self::adapter( $recipe['builder'] ) ) ); } ); }

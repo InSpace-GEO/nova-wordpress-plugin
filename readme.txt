@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.15
+Stable tag: 1.5.0
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.0 =
+* Map SiteJob/HALO article and service fields using their registered REST names and schemas.
+* Preview and publish typed FAQs, buttons, references, supplementary content, form visibility and secondary images.
+* Verify field permissions, schema changes and native saved values while preserving omitted fields.
 
 = 1.4.15 =
 * Keep shared Beaver Builder components linked to the matching Polylang or WPML language template when publishing localized pages.

@@ -147,9 +147,9 @@
 		var checked = copy( result ); [ 'edit_url', 'view_url', 'preview_url' ].forEach( function ( key ) { if ( checked[ key ] ) { var url; try { url = new URL( checked[ key ], origin ); } catch ( error ) { throw new Error( 'The draft returned an unsupported link.' ); } if ( url.origin !== new URL( origin ).origin || ! /^https?:$/.test( url.protocol ) ) { throw new Error( 'The draft returned a link outside this WordPress site.' ); } checked[ key ] = url.href; } } ); return checked;
 	}
 	function safeStorage( win ) { try { return win.sessionStorage; } catch ( error ) { return undefined; } }
-	function operationStore( storage, key ) { return { read: function () { try { var value = JSON.parse( storage.getItem( key ) || 'null' ); return value && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( value.operation_id ) && typeof value.id === 'string' && Number.isInteger( value.revision ) && value.revision > 0 ? value : null; } catch ( error ) { return null; } }, forget: function () { try { storage.removeItem( key ); } catch ( error ) { /* Storage may be disabled by the browser. */ } } }; }
+	function operationStore( storage, key ) { return { read: function () { try { var value = JSON.parse( storage.getItem( key ) || 'null' ); return value && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( value.operation_id ) && typeof value.id === 'string' && Number.isInteger( value.revision ) && value.revision > 0 ? value : null; } catch ( error ) { return null; } }, remember: function ( value ) { try { storage.setItem( key, JSON.stringify( value ) ); } catch ( error ) { /* In-memory recovery remains available. */ } }, forget: function () { try { storage.removeItem( key ); } catch ( error ) { /* Storage may be disabled by the browser. */ } } }; }
 	function createController( options ) {
-		var state = { catalog: null, resourceId: options.resourceId || '', postingPageType: defaultPageType( options.resourceId || '' ), mode: 'mixed', builder: '', design: null, recipe: null, customDesign: null, customEnabled: false, declaredTermFields: {}, regionMeta: {}, step: 1, highestStep: 1, busy: false, feedback: '', error: false, builderConflict: [], label: '', id: '', revision: 0, baseline: '', content: defaultContent( 2 ), reviewDraft: null, designSerial: 0 };
+		var state = { catalog: null, resourceId: options.resourceId || '', postingPageType: defaultPageType( options.resourceId || '' ), mode: 'mixed', builder: '', design: null, recipe: null, customDesign: null, customEnabled: false, declaredTermFields: {}, regionMeta: {}, step: 1, highestStep: 1, busy: false, feedback: '', error: false, builderConflict: [], label: '', id: '', revision: 0, baseline: '', content: defaultContent( 2 ), reviewDraft: null, haloPreview: null, pendingReview: null, designSerial: 0 };
 		var request = options.request, notify = options.change || function () {}, confirm = options.confirm || function () { return true; };
 		var modeChosen = false, pageTypeChosen = false, replacementApprovals = [];
 		function emit() { notify( state ); }
@@ -166,7 +166,7 @@
 				mergeContent( state.content, seedScope( state.recipe.custom_fields, count, 0, state.content, { fields: state.customDesign.fields, regionMeta: state.regionMeta } ) );
 			}
 		}
-		function change( callback, rerender ) { var previous = fingerprint( state ); callback( state ); if ( state.customEnabled && state.customDesign && state.recipe ) { state.recipe.custom_fields = state.recipe.custom_fields || recipeFrom( state.customDesign, state.mode ); } else if ( state.recipe ) { delete state.recipe.custom_fields; } if ( previous !== fingerprint( state ) ) { invalidate(); } if ( rerender !== false ) { emit(); } else if ( options.inputsChanged ) { options.inputsChanged( state ); } }
+		function change( callback, rerender ) { var previous = fingerprint( state ); callback( state ); state.haloPreview = null; if ( state.customEnabled && state.customDesign && state.recipe ) { state.recipe.custom_fields = state.recipe.custom_fields || recipeFrom( state.customDesign, state.mode ); } else if ( state.recipe ) { delete state.recipe.custom_fields; } if ( previous !== fingerprint( state ) ) { invalidate(); } if ( rerender !== false ) { emit(); } else if ( options.inputsChanged ) { options.inputsChanged( state ); } }
 		function syncFeedback( result, restored ) {
 			var sync = result.posting_sync; state.postingSync = sync || null; state.postingSupport = result.posting_support || null;
 			var page = state.resourceId.startsWith( 'post_type:' ), confirmed = page ? confirmedPageDefault( sync, state.revision, selectedPageTypes( state ) ) : sync && sync.status === 'synced' && sync.recipe_revision === state.revision && Number.isSafeInteger( sync.template_revision ) && sync.template_revision > 0 && typeof sync.template_id === 'string' && sync.template_id;
@@ -334,6 +334,25 @@
 				syncFeedback( result );
 			}, true ); },
 			syncSaved: function ( replaceDefault ) { return run( async function () { if ( ! state.id || dirty() ) { throw new Error( 'Save your current edits before synchronizing the saved revision.' ); } var payload = { id: state.id, revision: state.revision }; if ( replaceDefault !== true ) { replacementApprovals = []; } if ( replaceDefault === true ) { var replacement = defaultReplacement( state ); if ( ! replacement ) { throw new Error( 'Synchronize the saved revision to review its current default before replacing it.' ); } replacementApprovals = replacementApprovals.filter( function ( item ) { return item.defaults_revision === replacement.defaults_revision && item.page_type !== replacement.page_type; } ); replacementApprovals.push( copy( replacement ) ); if ( replacementApprovals.length === 1 ) { payload.replace_default = copy( replacement ); } else { payload.replace_defaults = copy( replacementApprovals ); } } var result = await request( '/sync', payload ); if ( ! result || result.id !== state.id || result.revision !== state.revision || ! result.posting_sync ) { throw new Error( 'The saved revision synchronization could not be verified.' ); } syncFeedback( result ); }, true ); },
+            previewHalo: function () { return run( async function () {
+                if ( ! state.recipe ) { throw new Error( 'Choose a HALO layout first.' ); }
+                seedSavedSamples();
+                var result = await request( '/preview', { recipe: copy( state.recipe ), seal: state.design.seal, resource_id: state.resourceId, input: { content: copy( state.content ) } } );
+                if ( ! result || typeof result.preview_document !== 'string' ) { throw new Error( 'The HALO preview could not be verified.' ); }
+                state.haloPreview = result.preview_document;
+            } ); },
+            createHaloDraft: function ( operation ) { return run( async function () {
+                if ( ! state.id || dirty() ) { throw new Error( 'Save the HALO mapping before creating its preview draft.' ); }
+                seedSavedSamples();
+                var payload = state.pendingReview || { id: state.id, revision: state.revision, content: copy( state.content ), title: 'HALO preview - ' + state.label, operation_id: operation };
+                if ( ! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( payload.operation_id ) ) { throw new Error( 'A valid preview operation is required.' ); }
+                state.pendingReview = payload;
+                if ( options.rememberDraft ) { options.rememberDraft( { id: payload.id, revision: payload.revision, operation_id: payload.operation_id } ); }
+                state.reviewDraft = draftResult( await request( '/draft', payload ), payload.operation_id, options.origin );
+                state.pendingReview = null;
+                if ( options.forgetDraft ) { options.forgetDraft(); }
+                feedback( 'The HALO preview draft is ready.' );
+            } ); },
 			recoverDraft: function ( operation ) { return run( async function () { if ( ! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( operation ) ) { throw new Error( 'The retained draft operation is invalid.' ); } state.reviewDraft = draftResult( await request( '/draft?operation_id=' + encodeURIComponent( operation ) ), operation, options.origin ); if ( options.forgetDraft ) { options.forgetDraft(); } feedback( 'The retained native review draft was recovered without creating another item.' ); } ); },
 			reload: function () { if ( dirty() && ! confirm( 'Reload the saved template and discard your unsaved rules?' ) ) { return Promise.resolve(); } return run( async function () { if ( state.id ) { var id = state.id; state.catalog = catalogResult( await request( '/catalog' ) ); await loadProfile( id ); } } ); }
 		};
@@ -428,10 +447,11 @@
 		function updateGates( state ) {
 			if ( ! host.querySelectorAll ) { return; }
 			var saved = !! state.id && fingerprint( state ) === state.baseline;
+            if ( ! state.haloPreview ) { host.querySelectorAll( '[data-halo-preview]' ).forEach( function ( frame ) { frame.remove(); } ); }
 			host.querySelectorAll( 'button' ).forEach( function ( control ) {
 				var action = control.getAttribute( 'data-nlr-view-key' );
 				if ( action === 'action:save-default' ) { control.disabled = state.busy || ! state.label.trim(); }
-				if ( [ 'action:sync', 'action:replace-default' ].includes( action ) ) { control.disabled = state.busy || ! saved; }
+				if ( [ 'action:sync', 'action:replace-default', 'action:halo-draft' ].includes( action ) ) { control.disabled = state.busy || ! saved; }
 			} );
 			var status = host.querySelector( '.nlr-state' );
 			if ( status ) {
@@ -586,6 +606,13 @@
 		function editorialFieldsEditor( state ) {
 			var choices = state.design.posting_field_choices || {}, selected = state.recipe.posting_fields || {};
 			var entries = Object.assign( {}, selected, choices ), designFields = state.design.presentation_choices && state.design.presentation_choices.inventory && state.design.presentation_choices.inventory.fields || {};
+            Object.keys( entries ).forEach( function ( path ) {
+                if ( selected[path] ) { return; }
+                var entry = entries[path];
+                var selectedAlias = Object.keys( selected ).some( function ( other ) { return other !== path && selected[other].key === entry.key; } );
+                var haloAlias = entry.provider !== 'halo' && Object.values( choices ).some( function ( other ) { return other.provider === 'halo' && other.key === entry.key; } );
+                if ( selectedAlias || haloAlias ) { delete entries[path]; }
+            } );
 			Object.keys( entries ).forEach( function ( path ) { var setting = designFields[ entries[path].name ]; if ( setting && setting.template_setting && ! selected[path] ) { delete entries[path]; } } );
 			if ( state.customEnabled ) {
 				( state.recipe.custom_fields.bindings || [] ).forEach( function ( binding ) {
@@ -597,7 +624,7 @@
 			section.append( node( 'summary', 'Additional content fields (optional)' ), help( 'Select a field only when NOVA should fill it with new article content. Its example value is not copied. Closing this section keeps your selections.' ) );
 			Object.keys( entries ).forEach( function ( path ) {
 				var entry = entries[ path ], label = entry.label || entry.name;
-				var hint = ( entry.provider === 'acf' ? 'ACF' : 'WordPress' ) + ' · ' + entry.name, designSetting = designFields[ entry.name ] && designFields[ entry.name ].template_setting;
+				var hint = ( entry.provider === 'halo' ? 'HALO · ' + entry.type : entry.provider === 'acf' ? 'ACF' : 'WordPress' ) + ' · ' + entry.name, designSetting = designFields[ entry.name ] && designFields[ entry.name ].template_setting;
 				if ( ! choices[ path ] ) {
 					hint = entry.name === 'footnotes' ? 'Previously selected footnotes metadata. Deselect it to remove it from this layout.' : 'Registration unavailable. Deselect this field or restore its registration before saving.';
 				}
@@ -618,6 +645,26 @@
 					if ( designSetting ) {
 						section.append( help( 'This saved mapping fills a design setting with article content. Keep it as configured, or explicitly copy the example’s design setting instead.' ), button( 'Copy example setting: ' + label, function () { controller.edit( function () { delete state.recipe.posting_fields[path]; if ( ! Object.keys( state.recipe.posting_fields ).length ) { delete state.recipe.posting_fields; } var fixed = state.design.pendingPresentationKeys || storedPresentationKeys( state.design ); setPresentationKeys( state.design, Array.from( new Set( fixed.concat( [ entry.name ] ) ) ) ); } ); } ) );
 					}
+                    if ( entry.provider === 'halo' ) {
+                        var sample = state.content.halo && state.content.halo[entry.name];
+                        section.append( help( entry.schema.description || '' ) );
+                        if ( entry.type === 'boolean' ) {
+                            section.append( check( 'Preview value for ' + label, sample === true, function ( value ) {
+                                controller.edit( function () { state.content.halo = state.content.halo || {}; state.content.halo[entry.name] = value; }, false );
+                            } ) );
+                        } else {
+                            var sampleText = sample === undefined ? '' : typeof sample === 'string' ? sample : JSON.stringify( sample, null, 2 );
+                            section.append( field( 'Preview value for ' + label, input( sampleText, function ( value ) {
+                                controller.edit( function () {
+                                    state.content.halo = state.content.halo || {};
+                                    if ( value === '' ) { delete state.content.halo[entry.name]; return; }
+                                    var parsed = value;
+                                    if ( entry.type !== 'string' ) { try { parsed = JSON.parse( value ); } catch ( error ) { /* Preserve invalid input for preview validation. */ } }
+                                    state.content.halo[entry.name] = parsed;
+                                }, false );
+                            }, true ), entry.type === 'array' ? 'Enter a JSON list using the registered field schema. This value is used by the structure preview and test draft.' : 'Used by the structure preview and test draft. An empty input omits the field.' ) );
+                        }
+                    }
 					var guidance = node( 'details' ); guidance.setAttribute( 'data-nlr-view-key', 'custom-guidance:' + path ); guidance.append( node( 'summary', 'Optional instructions for ' + label ) );
 					guidance.append( field( 'Instructions for ' + label, input( selected[ path ].instructions, function ( value ) {
 						controller.edit( function () { state.recipe.posting_fields[ path ].instructions = value; }, false );
@@ -626,6 +673,13 @@
 					} ) ); section.append( guidance );
 				}
 			} );
+            if ( Object.values( selected ).some( function ( entry ) { return entry.provider === 'halo'; } ) ) {
+                section.append( button( 'Preview HALO values', function () { controller.previewHalo(); }, false, state.busy ) );
+                var draftButton = button( 'Create HALO preview draft', function () { controller.createHaloDraft( win.crypto.randomUUID() ); }, false, state.busy || ! state.id || controller.dirty() );
+                draftButton.setAttribute( 'data-nlr-view-key', 'action:halo-draft' ); section.append( draftButton );
+                section.append( help( 'Save the mapping before creating a draft. The draft renders these sample values through the active theme.' ) );
+                if ( state.haloPreview ) { var preview = node( 'iframe' ); preview.title = 'HALO sample values'; preview.setAttribute( 'data-halo-preview', '' ); preview.setAttribute( 'sandbox', '' ); preview.style.width = '100%'; preview.style.height = '480px'; preview.srcdoc = state.haloPreview; section.append( preview ); }
+            }
 			return section;
 		}
 		function presentationEditor() {
@@ -803,7 +857,7 @@
 			if ( state.busy ) { panel.setAttribute( 'aria-busy', 'true' ); if ( panel.querySelectorAll ) { [ 'input', 'select', 'textarea', 'button' ].forEach( function ( tag ) { panel.querySelectorAll( tag ).forEach( function ( control ) { control.disabled = true; } ); } ); } }
 			finishView( position, state );
 		}
-		controller = createController( { resourceId: config.resourceId, profileId: config.profileId, request: dependencies.request || request, change: render, inputsChanged: updateGates, confirm: dependencies.confirm || win.confirm.bind( win ), origin: win.location.origin, forgetDraft: retainedOperations.forget } );
+		controller = createController( { resourceId: config.resourceId, profileId: config.profileId, request: dependencies.request || request, change: render, inputsChanged: updateGates, confirm: dependencies.confirm || win.confirm.bind( win ), origin: win.location.origin, forgetDraft: retainedOperations.forget, rememberDraft: retainedOperations.remember } );
 		win.addEventListener( 'beforeunload', function ( event ) { if ( controller.dirty() ) { event.preventDefault(); event.returnValue = ''; } } ); render(); controller.ready = controller.init(); return controller;
 	}
 	return { modes: MODES, displayMode: displayMode, modeLabel: modeLabel, clearOptionalRegions: clearOptionalRegions, manualResource: manualResource, builderChoices: builderChoices, sources: sources, catalogResult: catalogResult, designResult: designResult, recipeFrom: recipeFrom, fingerprint: fingerprint, defaultContent: defaultContent, draftResult: draftResult, operationStore: operationStore, rolePath: rolePath, fieldRules: fieldRules, regionLimits: regionLimits, assignRole: assignRole, rolesFor: rolesFor, customRoleIssue: customRoleIssue, visualContext: visualContext, canvasMessage: canvasMessage, referenceGeometry: referenceGeometry, contentValue: contentValue, setContentValue: setContentValue, seedScope: seedScope, mergeInputScopes: mergeInputScopes, ancestorChain: ancestorChain, ancestorContext: ancestorContext, createController: createController, mount: mount };

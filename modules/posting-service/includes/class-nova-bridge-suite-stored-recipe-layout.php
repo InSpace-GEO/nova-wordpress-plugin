@@ -73,8 +73,8 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             }
             if ( isset( $draft['posting_fields'][$path] ) ) {
                 $spec = $draft['posting_fields'][$path];
-                if ( ( $descriptor['builder'] ?? '' ) !== 'custom_field' || $field['description']['value_type'] !== Nova_Bridge_Suite_Layout_Custom_Fields::value_type( $spec['type'] ) ) { self::fail( 'The approved editorial custom field has changed.' ); }
-                $bindings[$path] = [ 'kind' => 'custom_field', 'mode' => $mode, 'name' => $spec['name'], 'provider' => $spec['provider'], 'key' => $spec['key'], 'type' => $spec['type'] ];
+                if ( ( $descriptor['builder'] ?? '' ) !== 'custom_field' || $field['description']['value_type'] !== ( 'halo' === $spec['provider'] ? Nova_WordPress_Halo_Fields::value_type( $spec ) : Nova_Bridge_Suite_Layout_Custom_Fields::value_type( $spec['type'] ) ) ) { self::fail( 'The approved editorial custom field has changed.' ); }
+                $bindings[$path] = [ 'kind' => 'custom_field', 'mode' => $mode, 'name' => $spec['name'], 'provider' => $spec['provider'], 'key' => $spec['key'], 'type' => $spec['type'] ] + ( 'halo' === $spec['provider'] ? [ 'schema' => $spec['schema'] ] : [] );
                 continue;
             }
             if ( in_array( $path, [ '/title', '/excerpt' ], true ) ) { $bindings[$path] = [ 'kind' => 'post', 'column' => substr( $path, 1 ), 'mode' => $mode ]; continue; }
@@ -172,8 +172,9 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             }
             foreach ( Nova_Bridge_Suite_Layout_Custom_Fields::selections( $recipe ) as $path => $entry ) {
                 $label = trim( $entry['label'] ?? '' ) ?: $entry['name'];
-                $draft['fields'][$path] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => ! empty( $entry['required'] ), 'instructions' => $entry['instructions'] ?? '', 'description' => [ 'label' => $label, 'purpose' => 'Editorial content for ' . $label . '.', 'value_type' => Nova_Bridge_Suite_Layout_Custom_Fields::value_type( $entry['type'] ), 'constraints' => [] ] ];
-                $draft['posting_fields'][$path] = array_intersect_key( $entry, array_flip( [ 'provider', 'key', 'name', 'type' ] ) );
+                $draft['fields'][$path] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => ! empty( $entry['required'] ), 'instructions' => $entry['instructions'] ?? '', 'description' => [ 'label' => $label, 'purpose' => 'Editorial content for ' . $label . '.', 'value_type' => ( 'halo' === $entry['provider'] ? Nova_WordPress_Halo_Fields::value_type( $entry ) : Nova_Bridge_Suite_Layout_Custom_Fields::value_type( $entry['type'] ) ), 'constraints' => [] ] ];
+                $draft['posting_fields'][$path] = array_intersect_key( $entry, array_flip( [ 'provider', 'key', 'name', 'type', 'schema' ] ) );
+                if ( 'halo' === $entry['provider'] ) { $draft['fields'][$path]['instructions'] = Nova_WordPress_Halo_Fields::instructions( $entry ) . ' ' . ( $entry['instructions'] ?? '' ); }
                 $draft['target_descriptors'][$path] = [ 'path' => $path, 'builder' => 'custom_field' ];
             }
             foreach ( Nova_WordPress_Layout_SEO::selections( $recipe ) as $path => $entry ) {
@@ -218,11 +219,15 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 if ( 'protected' === $binding['mode'] ) { continue; }
                 $value = 'leave_empty' === $binding['mode'] ? '' : ( $values[$path] ?? '' );
                 $rich = 'rich_text' === ( $effective['fields'][$path]['description']['value_type'] ?? '' );
-                if ( $rich ? ( ! function_exists( 'wp_kses_post' ) || wp_kses_post( $value ) !== $value ) : preg_match( '/<[^>]*>/', $value ) ) { self::fail( 'Fitted content does not satisfy the saved field or WordPress HTML policy.' ); }
+                if ( 'halo' !== ( $binding['provider'] ?? '' ) && ( $rich ? ( ! function_exists( 'wp_kses_post' ) || wp_kses_post( $value ) !== $value ) : preg_match( '/<[^>]*>/', $value ) ) ) { self::fail( 'Fitted content does not satisfy the saved field or WordPress HTML policy.' ); }
                 if ( 'custom_field' === $binding['kind'] ) {
                     if ( array_key_exists( $path, $values ) || 'leave_empty' === $binding['mode'] ) {
                         if ( 'seo' === $binding['provider'] && '' === trim( $value ) && 'leave_empty' !== $binding['mode'] ) { continue; }
-                        $custom[$binding['name']] = array_intersect_key( $binding, array_flip( [ 'provider', 'key', 'type' ] ) ) + [ 'value' => $value ];
+                        if ( 'halo' === $binding['provider'] && 'string' !== $binding['type'] && '' === $value ) {
+                            if ( 'leave_empty' !== $binding['mode'] && empty( $effective['fields'][$path]['required'] ) ) { continue; }
+                            if ( 'leave_empty' === $binding['mode'] ) { $value = [ 'array' => '[]', 'boolean' => 'false', 'integer' => '0' ][$binding['type']]; }
+                        }
+                        $custom[$binding['name']] = array_intersect_key( $binding, array_flip( [ 'provider', 'key', 'type', 'schema' ] ) ) + [ 'value' => $value ];
                     }
                     continue;
                 }

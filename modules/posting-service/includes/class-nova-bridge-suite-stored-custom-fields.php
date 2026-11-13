@@ -3,6 +3,7 @@
 defined( 'ABSPATH' ) || exit;
 require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
 require_once __DIR__ . '/class-nova-wordpress-stored-seo.php';
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-halo-fields.php';
 
 final class Nova_Bridge_Suite_Stored_Custom_Fields {
     private static function error( string $message ): WP_Error {
@@ -22,6 +23,12 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
         foreach ( $fields as $name => $binding ) {
             $provider = $binding['provider'] ?? '';
             if ( 'seo' === $provider ) { $checked = Nova_WordPress_Stored_SEO::check( $name, $binding, $id ); if ( is_wp_error( $checked ) ) { return $checked; } continue; }
+            if ( 'halo' === $provider ) {
+                $checked = Nova_WordPress_Halo_Fields::check( $type, $id, $binding + [ 'name' => $name ] );
+                if ( is_wp_error( $checked ) ) { return $checked; }
+                if ( $writing ) { $conflict = self::sync_conflict( $binding['key'], $binding, $id ); if ( $conflict ) { return self::error( $conflict ); } }
+                continue;
+            }
             if ( ! in_array( $provider, [ 'acf', 'meta' ], true ) || ! is_string( $binding['value'] ?? null ) || ! isset( $catalog[$provider][$name] ) || is_protected_meta( $name, 'post' ) ) {
                 return self::error( 'A mapped custom field is no longer available on the target post type: ' . $name );
             }
@@ -83,6 +90,12 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
         $payload = Nova_Bridge_Suite_Content_Transport::validate_payload( $input, $type, $id, $template );
         if ( is_wp_error( $payload ) ) { return $payload; }
         foreach ( $fields as $name => &$binding ) {
+            if ( 'halo' === $binding['provider'] ) {
+                $clean = Nova_WordPress_Halo_Fields::normalize( $binding['value'], $binding + [ 'name' => $name ], $type );
+                if ( is_wp_error( $clean ) ) { return $clean; }
+                $binding['value'] = $clean;
+                continue;
+            }
             if ( 'seo' === $binding['provider'] ) { $binding['value'] = sanitize_text_field( $binding['value'] ); continue; }
             if ( 'acf' === $binding['provider'] ) {
                 $binding['value'] = $payload['acf'][$name]['value'];
@@ -102,6 +115,11 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
     public static function snapshot( int $id, array $fields, bool $require_reference = false ) {
         $state = [];
         foreach ( $fields as $name => $binding ) {
+            if ( 'halo' === $binding['provider'] ) {
+                $state[$name] = Nova_WordPress_Halo_Fields::snapshot( $id, $binding );
+                if ( is_wp_error( $state[$name] ) ) { return $state[$name]; }
+                continue;
+            }
             if ( 'seo' === $binding['provider'] ) {
                 $state[$name] = Nova_WordPress_Stored_SEO::read( $id, $name, $binding ); if ( is_wp_error( $state[$name] ) ) { return $state[$name]; } continue;
             }
@@ -128,6 +146,10 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
         $values = [];
         foreach ( $state as $name => $entry ) {
             $values[$name] = $entry['value'] ?? '';
+            if ( 'halo' === $fields[$name]['provider'] && 'string' !== $fields[$name]['type'] && null !== $entry['value'] ) {
+                $value = $fields[$name]['type'] === 'boolean' ? (bool) $entry['value'] : ( $fields[$name]['type'] === 'integer' ? (int) $entry['value'] : $entry['value'] );
+                $values[$name] = wp_json_encode( $value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+            }
         }
         return $values;
     }
@@ -143,9 +165,22 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
         if ( is_wp_error( $input ) ) { return $input; }
         $payload = Nova_Bridge_Suite_Content_Transport::validate_payload( $input, $type, $id, $template );
         if ( is_wp_error( $payload ) ) { return $payload; }
-        $pending = [ 'acf' => [], 'meta' => [] ]; $seo_pending = [];
+        $pending = [ 'acf' => [], 'meta' => [] ]; $seo_pending = []; $halo_pending = [];
         foreach ( $fields as $name => $binding ) {
             $provider = $binding['provider'];
+            if ( 'halo' === $provider ) {
+                $value = $binding['value'];
+                if ( 'optional_second_image_id' === $name && is_string( $value ) ) {
+                    require_once __DIR__ . '/class-nova-bridge-suite-media-importer.php';
+                    $operation = 'halo:' . $plan['operation_id'];
+                    $value = $write ? Nova_Bridge_Suite_Media_Importer::resolve( $operation, $value, $id ) : Nova_Bridge_Suite_Media_Importer::retained( $operation, $value );
+                    if ( ! $value ) { return self::error( 'The HALO image could not be imported.' ); }
+                }
+                if ( Nova_WordPress_Halo_Fields::matches( $current[$name], $value, $binding + [ 'name' => $name ], $type ) ) { continue; }
+                if ( ! $write || $current[$name] !== ( $before[$name] ?? [ 'value' => null, 'reference' => null ] ) ) { return self::error( 'The mapped HALO field changed or was not saved: ' . $name ); }
+                $halo_pending[$name] = $value;
+                continue;
+            }
             $expected = [ 'value' => $binding['value'], 'reference' => 'acf' === $provider ? $binding['key'] : null ];
             if ( $current[$name] === $expected ) { continue; }
             // ACF writes the raw value first, then its field-key reference. A first write can stop between them.
@@ -156,7 +191,11 @@ final class Nova_Bridge_Suite_Stored_Custom_Fields {
             else { $pending[$provider][$name] = $payload[$provider][$name]; }
         }
         foreach ( $seo_pending as $name => $binding ) { $saved = Nova_WordPress_Stored_SEO::write( $id, $name, $binding ); if ( is_wp_error( $saved ) ) { return $saved; } }
-        if ( ! $pending['acf'] && ! $pending['meta'] ) { return true; }
+        if ( $halo_pending ) {
+            $saved = Nova_WordPress_Halo_Fields::write( $id, $halo_pending );
+            if ( is_wp_error( $saved ) ) { return $saved; }
+        }
+        if ( ! $pending['acf'] && ! $pending['meta'] ) { return $halo_pending ? self::finish( $plan, $id, $before, false ) : true; }
         $saved = Nova_Bridge_Suite_Content_Transport::write_fields( get_post( $id ), $pending, true );
         return is_wp_error( $saved ) ? $saved : self::finish( $plan, $id, $before, false );
     }
