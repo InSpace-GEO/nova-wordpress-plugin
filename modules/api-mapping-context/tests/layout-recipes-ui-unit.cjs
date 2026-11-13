@@ -569,6 +569,16 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert(t.host.textContent.includes('Link a translated shared template in Polylang or WPML'));
   assert(!t.host.textContent.includes('Create independent copy for mapping'));
   assert(!t.calls.some(call=>['/save','/draft','/reusable-block'].includes(call.path)));
+  for(const provider of ['translatepress','weglot']) {
+   original.locale_preservation.provider=provider;
+   const managed=await visualMounted({request:async(path,payload,current,choices)=>{
+    if(path==='/catalog') { choices.builders.push({id:'beaver',label:'Beaver Builder',available:true,modes:['static','mixed','rules']}); return clone(choices); }
+    if(path==='/design')return clone(original);
+   }});
+   managed.controller.selectBuilder('beaver');
+   await managed.controller.capture(42);
+   assert(managed.host.textContent.includes('rendered content are managed by '+provider));
+  }
  });
  await test('Elementor globals are explicitly shared until copied and existing content rules survive',async()=>{
   const original=visualDesign();original.reusable_blocks=[{target:'/document/1',label:'Global widget #42 · Contact button',kind:'global',mode:'linked',expandable:true}];

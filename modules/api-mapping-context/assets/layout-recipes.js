@@ -554,8 +554,9 @@
 			return wrap;
 		}
 		function sharedBeaverEditor() {
-			var components = ( controller.state.design.locale_preservation || {} ).shared_templates || [], wrap = node( 'section', undefined, 'nlr-panel' );
-			wrap.append( node( 'h3', 'Linked Beaver components' ), help( 'Each page keeps its shared component linked. Publishing selects the saved template for the page’s language. Edit the text and design in the shared Beaver template.' ) );
+			var snapshot = controller.state.design.locale_preservation || {}, components = snapshot.shared_templates || [], wrap = node( 'section', undefined, 'nlr-panel' );
+			var providerManaged = [ 'translatepress', 'weglot' ].includes( snapshot.provider );
+			wrap.append( node( 'h3', 'Linked Beaver components' ), help( providerManaged ? 'Shared Beaver components stay linked. Existing translations of their rendered content are managed by ' + snapshot.provider + '.' : 'Each page keeps its shared component linked. Publishing selects the saved template for the page’s language. Edit the text and design in the shared Beaver template.' ) );
 			components.forEach( function ( component ) {
 				var row = node( 'section', undefined, 'nlr-reusable-block' );
 				row.append( node( 'h4', component.label || 'Shared Beaver component' ), node( 'strong', 'Keep linked' ) );
