@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.4
+Stable tag: 1.5.5
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.5 =
+* Derive newly generated Weglot originals' slugs from their original-language titles.
+* Retain URL-group source associations across localized and reported URL changes.
+* Reuse the registered original across sibling deliveries and retries after slug resolution.
 
 = 1.5.4 =
 * Apply the mapped taxonomy's registered permalink base to category deliveries that supply an unprefixed slug.
