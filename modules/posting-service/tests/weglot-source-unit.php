@@ -31,6 +31,10 @@ function get_term( $id, $taxonomy ) { return $GLOBALS['native'][$id] ?? null; }
 function get_term_link( $term ) { return 'https://example.test/topic'; }
 function current_user_can( ...$args ) { return $GLOBALS['permitted']; }
 function wp_json_encode( $value ) { return json_encode( $value ); }
+function sanitize_title( $value ) { return trim( strtolower( preg_replace( '/[^a-z0-9]+/i', '-', $value ) ), '-' ); }
+function _truncate_post_slug( $value, $length ) { return substr( $value, 0, $length ); }
+function wp_unique_post_slug( $slug, ...$args ) { return $GLOBALS['slug_taken'] ? $slug . '-2' : $slug; }
+function wp_unique_term_slug( $slug, ...$args ) { return wp_unique_post_slug( $slug ); }
 class Nova_WordPress_Environment {
     public static function key( $key ) { return $key; }
 }
@@ -89,6 +93,7 @@ class Source_Test_Writer {
     }
     public static function apply( $plan, $operation ) {
         ++$GLOBALS['creates'];
+        if ( isset( $plan['target']['target_url'] ) ) { $GLOBALS['native_url'] = $plan['target']['target_url']; }
         $item = new WP_Post();
         if ( $plan['term'] ) { $item = (object) [ 'term_id' => 41, 'taxonomy' => 'product_tag' ]; }
         $GLOBALS['native'][41] = $item;
@@ -109,6 +114,7 @@ function reset_state() {
     $GLOBALS['options'] = $GLOBALS['native'] = $GLOBALS['localized'] = $GLOBALS['originals'] = [];
     $GLOBALS['creates'] = $GLOBALS['locale_writes'] = 0;
     $GLOBALS['existing'] = $GLOBALS['fail_localization'] = false;
+    $GLOBALS['slug_taken'] = false;
     $GLOBALS['permitted'] = true;
     $GLOBALS['provider'] = 'weglot';
     $GLOBALS['drafts'] = [];
@@ -193,4 +199,30 @@ check( Writer::lookup( $demo, $plan['configuration'] ) === 41, 'Existing draft i
 $other = clone $draft; $other->ID = 42;
 $GLOBALS['drafts'][] = $other;
 check( Writer::lookup( $demo, $plan['configuration'] )->code === 'nova_weglot_source_ambiguous', 'Ambiguous draft originals prevent creation' );
+
+reset_state(); $plan = fixture();
+$generate = new ReflectionMethod( Writer::class, 'generated_url' );
+$relocate = new ReflectionMethod( Writer::class, 'relocate' );
+$native = [ 'post_fields' => [ 'title' => 'Peptide Modifications' ], 'target' => [ 'parent' => 0 ] ];
+$url = $generate->invoke( null, $plan['source'], $native );
+check( $url === 'https://example.test/peptide-modifications', 'A new original uses its translated title slug' );
+check( strlen( basename( $generate->invoke( null, $plan['source'], [ 'title' => str_repeat( 'Long title ', 50 ) ] ) ) ) <= 200, 'Generated slugs fit the native storage limit' );
+check( is_wp_error( $generate->invoke( null, $plan['source'], [ 'title' => '' ] ) ), 'An empty translated title cannot create a source slug' );
+$GLOBALS['slug_taken'] = true;
+check( $generate->invoke( null, $plan['source'], $native ) === 'https://example.test/peptide-modifications-2', 'WordPress chooses a unique slug for an occupied title' );
+$GLOBALS['slug_taken'] = false;
+$term = $plan['source']; $term['term'] = true; $term['type'] = 'product_tag'; $term['source_url'] = 'https://example.test/product-tag/beispiel';
+check( $generate->invoke( null, $term, [ 'payload' => [ 'name' => 'Research Peptides' ] ] ) === 'https://example.test/product-tag/research-peptides', 'A taxonomy original uses the translated term title and native base' );
+$plan['source'] = $relocate->invoke( null, $plan['source'], $url );
+$plan['generated_source_url'] = $url;
+$plan['source_plan']['target']['target_url'] = $url;
+$plan['target']['target_url'] = $plan['source']['target_url'];
+unset( $plan['digest'] ); $plan['digest'] = hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $plan ) );
+check( ! is_wp_error( Writer::apply( $plan, $plan['operation_id'] ) ), 'A generated native URL survives first apply validation' );
+check( Writer::lookup( $plan['content'], $plan['configuration'] ) === 41, 'The original translated slug still finds the created source' );
+$sibling = $plan['content']; $sibling['language'] = 'fr-FR'; $sibling['url'] = 'https://example.test/fr/modifications-peptides';
+check( Writer::lookup( $sibling, $plan['configuration'] ) === 41, 'A sibling with its own slug reuses the retained original' );
+$reported = $plan['content']; $reported['url_family']['primary_url'] = 'https://example.test/de/peptide-modifications';
+check( Writer::lookup( $reported, $plan['configuration'] ) === 41, 'A reported canonical primary URL reuses the same source' );
+check( ! is_wp_error( Writer::recover( $plan, $plan['operation_id'] ) ) && $GLOBALS['creates'] === 1, 'A generated URL remains recoverable after association registration' );
 echo "$checks missing-original checks passed\n";

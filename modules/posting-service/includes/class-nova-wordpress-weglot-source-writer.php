@@ -19,6 +19,10 @@ final class Nova_WordPress_Weglot_Source_Writer {
         return hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $value ) );
     }
 
+    private static function group_key( string $site, string $resource, string $family ): string {
+        return Nova_WordPress_Environment::key( 'nova_weglot_group_' . hash( 'sha256', $site . ':' . $resource . ':' . $family ) );
+    }
+
     public static function eligible( array $content ): bool {
         $provider = Nova_Bridge_Suite_Translation_Writer::provider( $content['language'] ?? '' );
         if ( ! is_array( $provider ) || 'weglot' !== $provider['provider'] ) { return false; }
@@ -62,6 +66,20 @@ final class Nova_WordPress_Weglot_Source_Writer {
         if ( is_wp_error( $source ) ) { return $source; }
         if ( $term ) { $source = Nova_WordPress_Taxonomy_Route::url( $source, $type, $provider['source'] ); }
         if ( is_wp_error( $source ) ) { return $source; }
+        $resource = ( $term ? 'taxonomy:' : 'post_type:' ) . $type;
+        $family_id = $family ? 'group:' . $family['url_group_id'] : 'demo:' . $source;
+        $key = Nova_WordPress_Environment::key( 'nova_weglot_source_' . hash( 'sha256', $content['site_id'] . ':' . $resource . ':' . $source ) );
+        $record = self::record( self::group_key( $content['site_id'], $resource, $family_id ) );
+        if ( null === $record ) { $record = self::record( $key ); }
+        if ( null !== $record ) {
+            if ( ! is_array( $record ) || ( $record['family'] ?? '' ) !== $family_id ||
+                ( $record['resource'] ?? '' ) !== $resource || ( $record['site_id'] ?? '' ) !== $content['site_id'] ||
+                ! is_string( $record['source_url'] ?? null ) ) {
+                return self::error( 'ownership', 'This original belongs to a different retained URL group.' );
+            }
+            $source = Nova_Bridge_Suite_Translation_Writer::delivery_url( $record['source_url'], $provider['source'] );
+            if ( is_wp_error( $source ) ) { return $source; }
+        }
         $localized = Nova_Bridge_Suite_Translation_Writer::translated_url( $provider, $source );
         if ( is_wp_error( $localized ) ) { return $localized; }
         $intended = Nova_Bridge_Suite_Translation_Writer::delivery_url( $content['url'], $content['language'] );
@@ -76,11 +94,9 @@ final class Nova_WordPress_Weglot_Source_Writer {
         if ( Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ) && $intended !== $localized['identity'] ) {
             return self::error( 'url', 'The demo URL does not identify the resolved Weglot source.' );
         }
-        $resource = ( $term ? 'taxonomy:' : 'post_type:' ) . $type;
         return [ 'provider' => $provider, 'resource' => $resource, 'type' => $type, 'term' => $term,
             'source_url' => $source, 'target_url' => $localized['identity'], 'site_id' => $content['site_id'],
-            'family' => $family ? 'group:' . $family['url_group_id'] : 'demo:' . $source,
-            'key' => Nova_WordPress_Environment::key( 'nova_weglot_source_' . hash( 'sha256', $content['site_id'] . ':' . $resource . ':' . $source ) ),
+            'family' => $family_id, 'key' => $key,
             'test' => Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ) ];
     }
 
@@ -100,6 +116,7 @@ final class Nova_WordPress_Weglot_Source_Writer {
         $source = self::descriptor( $content, $configuration );
         if ( is_wp_error( $source ) ) { return $source; }
         $record = self::record( $source['key'] );
+        if ( null === $record ) { $record = self::record( self::group_key( $source['site_id'], $source['resource'], $source['family'] ) ); }
         if ( null !== $record && ( ! is_array( $record ) || ( $record['family'] ?? '' ) !== $source['family'] ||
             ( $record['resource'] ?? '' ) !== $source['resource'] || ( $record['site_id'] ?? '' ) !== $source['site_id'] ) ) {
             return self::error( 'ownership', 'This original belongs to a different retained URL group.' );
@@ -254,6 +271,26 @@ final class Nova_WordPress_Weglot_Source_Writer {
         }
     }
 
+    /** Give a new original the slug WordPress derives from its original-language title. */
+    private static function generated_url( array $source, array $native ) {
+        $title = $native['post_fields']['title'] ?? $native['title'] ?? $native['payload']['name'] ?? '';
+        $slug = rtrim( _truncate_post_slug( sanitize_title( $title ), 200 ), '-' );
+        if ( '' === $slug ) { return self::error( 'slug', 'The translated original needs a usable native title.' ); }
+        $parent = (int) ( $native['target']['parent'] ?? 0 );
+        $slug = $source['term']
+            ? wp_unique_term_slug( $slug, (object) [ 'taxonomy' => $source['type'], 'parent' => $parent ] )
+            : wp_unique_post_slug( $slug, 0, 'publish', $source['type'], $parent );
+        return preg_replace( '#/[^/]+/?$#', '/' . rawurlencode( rawurldecode( $slug ) ), $source['source_url'] );
+    }
+
+    private static function relocate( array $source, string $url ) {
+        $url = Nova_Bridge_Suite_Translation_Writer::delivery_url( $url, $source['provider']['source'] );
+        if ( is_wp_error( $url ) ) { return $url; }
+        $localized = Nova_Bridge_Suite_Translation_Writer::translated_url( $source['provider'], $url );
+        return is_wp_error( $localized ) ? $localized
+            : array_replace( $source, [ 'source_url' => $url, 'target_url' => $localized['identity'] ] );
+    }
+
     public static function plan( array $content, array $configuration, array $context ) {
         $source = self::descriptor( $content, $configuration );
         if ( is_wp_error( $source ) ) { return $source; }
@@ -268,6 +305,7 @@ final class Nova_WordPress_Weglot_Source_Writer {
             return self::error( 'target_changed', 'The original changed after policy selection.' );
         }
         $source_plan = null;
+        $generated_url = null;
         $writer = self::WRITERS[$configuration['mode']];
         if ( ! $id ) {
             $original = $content;
@@ -298,6 +336,20 @@ final class Nova_WordPress_Weglot_Source_Writer {
                 return $writer::plan( $original, $original_config, $native_context );
             } );
             if ( is_wp_error( $source_plan ) ) { return $source_plan; }
+            if ( ! $source['test'] ) {
+                $generated_url = self::in_original_language( $source, static function () use ( $source, $source_plan ) {
+                    return self::generated_url( $source, $source_plan );
+                } );
+                if ( is_wp_error( $generated_url ) ) { return $generated_url; }
+                $source = self::relocate( $source, $generated_url );
+                if ( is_wp_error( $source ) ) { return $source; }
+                $original['url'] = $source['source_url'];
+                if ( array_key_exists( 'url', $original['content'] ) ) { $original['content']['url'] = $original['url']; }
+                $source_plan = self::in_original_language( $source, static function () use ( $writer, $original, $original_config, $native_context ) {
+                    return $writer::plan( $original, $original_config, $native_context );
+                } );
+                if ( is_wp_error( $source_plan ) ) { return $source_plan; }
+            }
         }
         $content['url'] = $source['target_url'];
         $plan = [ 'format' => self::FORMAT, 'operation_id' => $context['operation_id'], 'source' => $source,
@@ -305,6 +357,7 @@ final class Nova_WordPress_Weglot_Source_Writer {
             'content' => $content, 'configuration' => $configuration, 'context' => $context,
             'provider' => $source['provider'] + ( $source['term'] ? [ 'taxonomy' => $source['type'] ] : [] ),
             'target' => [ 'target_url' => $source['target_url'] ], 'desired_status' => $context['desired_status'] ];
+        if ( null !== $generated_url ) { $plan['generated_source_url'] = $generated_url; }
         if ( strlen( wp_json_encode( $plan ) ) > 1572864 ) { return self::error( 'size', 'The original and translation exceed the recoverable journal size.' ); }
         $plan['digest'] = self::digest( $plan );
         return $plan;
@@ -320,6 +373,14 @@ final class Nova_WordPress_Weglot_Source_Writer {
         if ( ( $plan['format'] ?? '' ) !== self::FORMAT || ( $plan['operation_id'] ?? '' ) !== $operation ||
             ! hash_equals( self::digest( $unsigned ), $plan['digest'] ?? '' ) ) { return self::error( 'plan', 'The original-language plan changed.' ); }
         $source = self::descriptor( $plan['content'], $plan['configuration'] );
+        if ( ! is_wp_error( $source ) && isset( $plan['generated_source_url'] ) &&
+            null === self::record( $source['key'] ) &&
+            null === self::record( self::group_key( $source['site_id'], $source['resource'], $source['family'] ) ) ) {
+            if ( ( $plan['source_plan']['target']['target_url'] ?? null ) !== $plan['generated_source_url'] ) {
+                return self::error( 'plan', 'The original slug differs from its frozen native plan.' );
+            }
+            $source = self::relocate( $source, $plan['generated_source_url'] );
+        }
         return ! is_wp_error( $source ) && $source === $plan['source'] ? true : self::error( 'configuration_changed', 'The Weglot source or language URL changed.' );
     }
 
@@ -371,12 +432,15 @@ final class Nova_WordPress_Weglot_Source_Writer {
         }
         $valid = self::check_source( $source, $journal['source_id'] );
         if ( is_wp_error( $valid ) ) { return $valid; }
-        $registered = self::record( $source['key'] );
         $association = array_intersect_key( $source, array_flip( [ 'site_id', 'family', 'resource', 'source_url' ] ) ) + [ 'native_id' => $journal['source_id'] ];
-        if ( null !== $registered && $registered !== $association ) { return self::error( 'ownership', 'Another original owns this source URL.' ); }
-        if ( null === $registered ) {
-            $saved = self::save( $source['key'], $association );
-            if ( is_wp_error( $saved ) ) { return $saved; }
+        $canonical_key = Nova_WordPress_Environment::key( 'nova_weglot_source_' . hash( 'sha256', $source['site_id'] . ':' . $source['resource'] . ':' . $source['source_url'] ) );
+        foreach ( array_unique( [ $source['key'], $canonical_key, self::group_key( $source['site_id'], $source['resource'], $source['family'] ) ] ) as $association_key ) {
+            $registered = self::record( $association_key );
+            if ( null !== $registered && $registered !== $association ) { return self::error( 'ownership', 'Another original owns this source URL group.' ); }
+            if ( null === $registered ) {
+                $saved = self::save( $association_key, $association );
+                if ( is_wp_error( $saved ) ) { return $saved; }
+            }
         }
         $translator = self::translation_writer( $plan );
         $mutated = null !== $plan['source_plan'];
