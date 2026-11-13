@@ -110,6 +110,7 @@ final class Nova_WordPress_Translation_Fields {
                     }
                 }
                 $fields['meta']['_elementor_data'] = wp_json_encode( $tree, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+                if ( isset( $fields['native_media'] ) ) { $fields['native_media']['payload']['elementor_data'] = $tree; }
             }
             if ( 'gutenberg' === $builder && isset( $compiled['compiled_blueprint'] ) ) {
                 $blueprint = $compiled['compiled_blueprint']; $block_fields = []; $replaced = [];
@@ -145,6 +146,20 @@ final class Nova_WordPress_Translation_Fields {
             $fields['ownership'] = $ownership;
             $fields = self::preserve_owned_content( $fields, $previous );
         }
+        return $fields;
+    }
+
+    /** Media imports may replace mapped remote URLs with their local attachment URLs. */
+    public static function refresh_elementor_ownership( array $fields, array $tree ): array {
+        if ( ! isset( $fields['ownership']['elements'] ) ) { return $fields; }
+        foreach ( $fields['ownership']['elements'] as $id => &$specs ) {
+            foreach ( $specs as &$spec ) {
+                $value = self::element_setting( $tree, (string) $id, $spec['path'] );
+                if ( is_string( $value ) ) { $spec['hash'] = hash( 'sha256', $value ); }
+            }
+            unset( $spec );
+        }
+        unset( $specs );
         return $fields;
     }
 

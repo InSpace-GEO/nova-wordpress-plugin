@@ -298,6 +298,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
             $document = wp_json_encode( $resolved['payload']['elementor_data'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
             if ( false === $document ) { return self::error( 'field_unsupported', 'The localized Elementor document could not be encoded.' ); }
             $fields['meta']['_elementor_data'] = $document;
+            $fields = Nova_WordPress_Translation_Fields::refresh_elementor_ownership( $fields, $resolved['payload']['elementor_data'] );
         }
         if ( array_key_exists( 'featured', $resolved ) ) { $fields['meta']['_thumbnail_id'] = (string) $resolved['featured']; }
         return $fields;
