@@ -141,12 +141,22 @@ final class Nova_Bridge_Suite_Writing_Adapter {
             if ( ! in_array( $rule['value_type'], [ 'text', 'rich_text', 'url', 'email' ], true ) ) { return self::error( 'fitted_writer', 'This compound value still requires a verified typed native writer.' ); }
             $value = $values[ $id ];
             if ( ! is_string( $value ) || 1 !== preg_match( '//u', $value ) || false !== strpos( $value, "\0" ) ) { return self::error( 'fitted_type', 'A fitted scalar must contain valid UTF-8 text.' ); }
-            if ( '' !== $value && ( ( 'url' === $rule['value_type'] && ( false === filter_var( $value, FILTER_VALIDATE_URL ) || ! preg_match( '#^https?://#i', $value ) ) ) || ( 'email' === $rule['value_type'] && false === filter_var( $value, FILTER_VALIDATE_EMAIL ) ) ) ) { return self::error( 'fitted_type', 'A fitted URL or email is invalid.' ); }
+            if ( '' !== $value && ( ( 'url' === $rule['value_type'] && ! self::fitted_url( $value ) ) || ( 'email' === $rule['value_type'] && false === filter_var( $value, FILTER_VALIDATE_EMAIL ) ) ) ) { return self::error( 'fitted_type', 'A fitted URL or email is invalid.' ); }
             $text = 'rich_text' === $rule['value_type'] ? html_entity_decode( strip_tags( $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) : $value;
             if ( isset( $rule['constraints']['max_length'] ) && preg_match_all( '/./us', $text ) > $rule['constraints']['max_length'] ) { return self::error( 'fitted_length', 'A fitted value exceeds its character limit: ' . $rule['label'] ); }
             $result[ $path ] = $value;
         }
         return $result;
+    }
+
+    private static function fitted_url( string $value ): bool {
+        if ( str_starts_with( $value, '/' ) ) {
+            $decoded = rawurldecode( $value );
+            return 1 === preg_match( '//u', $decoded ) && ! str_starts_with( $decoded, '//' ) &&
+                ! preg_match( '/[\\\\\x{0000}-\x{0020}\x{007f}-\x{009f}]/u', $decoded ) &&
+                ! preg_match( '/%(?![a-fA-F0-9]{2})/', $value );
+        }
+        return false !== filter_var( $value, FILTER_VALIDATE_URL ) && 1 === preg_match( '#^https?://#i', $value );
     }
 
     /** Exact wire input. Fitting instructions go to V3; native IDs and guards stay local. */
