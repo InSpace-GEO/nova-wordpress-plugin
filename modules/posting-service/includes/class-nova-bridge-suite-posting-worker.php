@@ -409,10 +409,11 @@ final class Nova_Bridge_Suite_Posting_Worker {
                     if ( $retained_translation || null !== $provider ) {
                         if ( ! $stored_layout && ! $owned_cpt && ! $static_term ) { return $this->native_failure( $job, $snapshot, 'nova_translation_mapping_unsupported', [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ); }
                         $writer_name = $static_term ? 'dictionary_term_translation' : 'dictionary_translation';
-                        if ( 'weglot_source' === $retained_writer || Nova_WordPress_Weglot_Source_Writer::eligible( $snapshot ) ) {
+                        if ( 'weglot_source' === $retained_writer ||
+                            ( ! isset( $job['payload']['plan'] ) && Nova_WordPress_Weglot_Source_Writer::eligible( $snapshot ) ) ) {
                             $writer_name = 'weglot_source';
                         }
-                        if ( ! $retained_translation ) {
+                        if ( ! $retained_translation || $writer_name !== $retained_writer ) {
                             $job = $this->save_payload( $job, [ 'configuration' => $configuration, 'native_writer' => $writer_name ], 'received' );
                             if ( is_wp_error( $job ) ) { return $job; }
                         }

@@ -2514,16 +2514,18 @@ final class Nova_Bridge_Suite_Content_Context {
 		$result['summary']['active']   = true;
 		$result['summary']['provider'] = $provider;
 		foreach ( $keys as $key => $meta_key ) {
+			$direct = isset( $write_args[ $meta_key ] );
+			$field_writable = $usable && ( $direct || $bridge );
 			$pointer = self::segments_to_pointer( [ '@seo', $provider, $key ] );
 			$result['fields'][ $pointer ] = self::make_capability_field( $pointer, 'title' === $key ? 'SEO title' : 'Meta description', 'string', 'textual', [
-				'source' => 'seo', 'origin' => 'seo_provider', 'availability' => $bridge ? 'available' : 'potential',
-				'availability_reason' => $bridge ? '' : 'taxonomy_seo_not_writable', 'writable' => $bridge,
-				'could_be_enabled' => ! $bridge, 'transport' => 'nova_meta_bridge', 'provider' => $provider,
+				'source' => 'seo', 'origin' => 'seo_provider', 'availability' => $field_writable ? 'available' : 'potential',
+				'availability_reason' => $field_writable ? '' : 'taxonomy_seo_not_writable', 'writable' => $field_writable,
+				'could_be_enabled' => ! $field_writable, 'transport' => $direct ? 'wordpress' : 'nova_meta_bridge', 'provider' => $provider,
 				'role' => 'title' === $key ? 'seo_title' : 'seo_description', 'route' => $route . '/{id}',
-				'request_path' => '/meta_all/' . $meta_key, 'methods' => $methods,
-				'write_status' => $bridge ? 'bridge_writable' : 'not_exposed',
+				'request_path' => ( $direct ? '/' : '/meta_all/' ) . $meta_key, 'methods' => $methods,
+				'write_status' => $field_writable ? 'bridge_writable' : 'not_exposed',
 			] );
-			$result['summary']['writable'] += $bridge ? 1 : 0;
+			$result['summary']['writable'] += $field_writable ? 1 : 0;
 		}
 
 		return $result;

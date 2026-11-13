@@ -47,6 +47,19 @@ final class Nova_WordPress_Localized_Terms {
         if ( isset( $wp_query->queried_object ) ) {
             $wp_query->queried_object = $replace( $wp_query->queried_object );
         }
+        if ( ! $trp && isset( $native['name'] ) ) {
+            $title = $renderer->value( '@term/name' );
+            add_filter( 'elementor/widget/render_content', static function ( $html ) use ( $id, $title ) {
+                if ( ! is_string( $html ) || (int) get_queried_object_id() !== $id ) { return $html; }
+                return preg_replace_callback( '~(<h1\b[^>]*>)(.*?)(</h1>)~is', static function ( $match ) use ( $title ) {
+                    $text = trim( html_entity_decode( strip_tags( $match[2] ), ENT_QUOTES, 'UTF-8' ) );
+                    if ( $text !== trim( $title ) || preg_match( '/\bdata-wg-notranslate(?:\s|=|>)/i', $match[1] ) ) {
+                        return $match[0];
+                    }
+                    return substr( $match[1], 0, -1 ) . ' data-wg-notranslate>' . $match[2] . $match[3];
+                }, $html );
+            }, 20 );
+        }
         self::seo( $id, $fields, $trp );
     }
 

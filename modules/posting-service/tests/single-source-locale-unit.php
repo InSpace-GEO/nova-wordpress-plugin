@@ -26,6 +26,7 @@ function wp_kses_post( $v ) { return $v; }
 function add_filter( ...$args ) {}
 function add_action( ...$args ) {}
 function esc_attr( $v ) { return htmlspecialchars( $v, ENT_QUOTES ); }
+function esc_html( $v ) { return htmlspecialchars( $v, ENT_QUOTES ); }
 function get_the_ID() { return 41; }
 function get_queried_object_id() { return 41; }
 function is_admin() { return false; }
@@ -159,6 +160,9 @@ check( $original->post_title === 'Stone' && ! get_post_meta( 41, 'blog_intro', t
 check( Nova_WordPress_Weglot::get( 41, 'de' )['title'] === 'Stein', 'Wrong language payload' );
 $visitor = 'de'; $wg = new Nova_WordPress_Weglot(); $renderer = new Nova_WordPress_Weglot_Renderer( $wg, $wg ); $renderer->resolve_payload();
 check( $renderer->filter_title( 'Stone', 41 ) === 'Stein' && $renderer->filter_post_metadata( null, 41, 'blog_intro', true ) === [ '<p>Ein Stein.</p>' ], 'Rendered Weglot fields mismatch' );
+check( $renderer->filter_elementor_title( '<h1 class="elementor-heading-title">Stone</h1>' ) === '<h1 class="elementor-heading-title" data-wg-notranslate>Stein</h1>', 'A shared Elementor H1 uses and protects the delivered title' );
+check( $renderer->filter_elementor_title( '<h1>Unrelated section</h1>' ) === '<h1>Unrelated section</h1>', 'An unrelated custom heading retains its own content' );
+check( $renderer->filter_elementor_title( '<h2>Stone</h2>' ) === '<h2>Stone</h2>', 'Only the main heading is replaced' );
 $visitor = 'en'; $renderer = new Nova_WordPress_Weglot_Renderer( $wg, $wg ); $renderer->resolve_payload(); check( $renderer->filter_title( 'Stone', 41 ) === 'Stone', 'English visitor saw German title' );
 $meta[41]['_nova_weglot_i18n_de']['title'] = 'external change';
 check( is_wp_error( Writer::verify( $plan, $done ) ), 'External edits went undetected' );
