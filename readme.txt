@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.2
+Stable tag: 1.5.3
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.3 =
+* Create a missing Weglot original from translated deliveries using Weglot's translation API and the saved WordPress layout.
+* Support source creation for pages, mapped post types, WooCommerce categories and product tags, with recoverable native writes and shared locale associations.
+* Reuse existing originals and retain draft previews, localized custom fields and resolved language URLs.
 
 = 1.5.2 =
 * Allow Weglot test translations to use the original post's draft status and editor preview.
