@@ -5,6 +5,7 @@ require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-posting-url-scope.php';
 require_once __DIR__ . '/class-nova-bridge-suite-shared-layouts.php';
 require_once __DIR__ . '/class-nova-bridge-suite-category-recipe.php';
+require_once __DIR__ . '/class-nova-wordpress-taxonomy-route.php';
 
 final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     public const MODE = 'static_recipe_v1';
@@ -262,6 +263,8 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
     }
     public static function creation_target( string $url, ?string $language, string $taxonomy = 'product_cat' ) {
         $url = Nova_Bridge_Suite_Posting_Url_Scope::canonical_site_url( $url, $language ?? '' );
+        $url = Nova_WordPress_Taxonomy_Route::url( $url, $taxonomy, $language );
+        if ( is_wp_error( $url ) ) { return $url; }
         return Nova_Bridge_Suite_Mapped_Content_Target::creation( 'taxonomy:' . $taxonomy, $url, $language );
     }
     public static function policy( array $snapshot, array $profile ) {
@@ -270,6 +273,8 @@ final class Nova_Bridge_Suite_Static_Recipe_Adapter {
         if ( ( $profile['projection']['format'] ?? '' ) === Nova_Bridge_Suite_Category_Recipe::FORMAT ) {
             $taxonomy = Nova_Bridge_Suite_Category_Recipe::taxonomy( $profile['record'] );
             $url = Nova_Bridge_Suite_Posting_Url_Scope::canonical_site_url( $snapshot['url'], $snapshot['language'] ?? '' );
+            $url = Nova_WordPress_Taxonomy_Route::url( $url, $taxonomy, $snapshot['language'] ?? null );
+            if ( is_wp_error( $url ) ) { return $url; }
             $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $url, 'taxonomy:' . $taxonomy, $snapshot['language'] ?? null );
             if ( ! is_wp_error( $found ) ) {
                 $id = $found['reference_id'];

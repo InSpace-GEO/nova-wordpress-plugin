@@ -1,6 +1,7 @@
 <?php
 /** Create a missing Weglot original, then commit the delivered locale on that source. */
 defined( 'ABSPATH' ) || exit;
+require_once __DIR__ . '/class-nova-wordpress-taxonomy-route.php';
 
 final class Nova_WordPress_Weglot_Source_Writer {
     public const FORMAT = 'nova.weglot-original/v1';
@@ -33,6 +34,13 @@ final class Nova_WordPress_Weglot_Source_Writer {
             return self::error( 'scope', 'A missing original requires a supported, same-site Weglot delivery.' );
         }
         $provider = Nova_Bridge_Suite_Translation_Writer::provider( $content['language'] );
+        $term = 'static_recipe_v1' === $configuration['mode'];
+        if ( $term && ( $configuration['projection']['format'] ?? '' ) !== Nova_Bridge_Suite_Category_Recipe::FORMAT ) {
+            return self::error( 'mapping', 'The original requires a supported scalar taxonomy mapping.' );
+        }
+        $type = $term ? Nova_Bridge_Suite_Category_Recipe::taxonomy( $configuration['record'] )
+            : ( $configuration['local']['routing']['post_type'] ?? $configuration['local']['stored_layout']['post_type'] ?? '' );
+        if ( '' === $type ) { return self::error( 'mapping', 'The mapping has no native source destination.' ); }
         $pinned = $configuration['local']['routing']['locale'] ?? '';
         if ( '' !== $pinned && strtolower( str_replace( '_', '-', $pinned ) ) !== strtolower( str_replace( '_', '-', $content['language'] ) ) ) {
             return self::error( 'locale', 'The delivery differs from the approved mapping language.' );
@@ -52,24 +60,22 @@ final class Nova_WordPress_Weglot_Source_Writer {
         $source = Nova_WordPress_Weglot::url( $valid, $provider['source'] );
         $source = Nova_Bridge_Suite_Translation_Writer::delivery_url( $source, $provider['source'] );
         if ( is_wp_error( $source ) ) { return $source; }
+        if ( $term ) { $source = Nova_WordPress_Taxonomy_Route::url( $source, $type, $provider['source'] ); }
+        if ( is_wp_error( $source ) ) { return $source; }
         $localized = Nova_Bridge_Suite_Translation_Writer::translated_url( $provider, $source );
         if ( is_wp_error( $localized ) ) { return $localized; }
         $intended = Nova_Bridge_Suite_Translation_Writer::delivery_url( $content['url'], $content['language'] );
+        if ( $term && is_string( $intended ) ) { $intended = Nova_WordPress_Taxonomy_Route::url( $intended, $type, $content['language'] ); }
+        $root_demo = Nova_Bridge_Suite_Translation_Writer::delivery_url( $content['url'], $provider['source'] );
+        if ( $term && is_string( $root_demo ) ) { $root_demo = Nova_WordPress_Taxonomy_Route::url( $root_demo, $type, $provider['source'] ); }
         if ( is_wp_error( $intended ) && ! $family && Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ) &&
-            Nova_Bridge_Suite_Translation_Writer::delivery_url( $content['url'], $provider['source'] ) === $source ) {
+            $root_demo === $source ) {
             $intended = $localized['identity'];
         }
         if ( is_wp_error( $intended ) ) { return $intended; }
         if ( Nova_Bridge_Suite_Publication_Policy::test_url( $content['url'] ) && $intended !== $localized['identity'] ) {
             return self::error( 'url', 'The demo URL does not identify the resolved Weglot source.' );
         }
-        $term = 'static_recipe_v1' === $configuration['mode'];
-        if ( $term && ( $configuration['projection']['format'] ?? '' ) !== Nova_Bridge_Suite_Category_Recipe::FORMAT ) {
-            return self::error( 'mapping', 'The original requires a supported scalar taxonomy mapping.' );
-        }
-        $type = $term ? Nova_Bridge_Suite_Category_Recipe::taxonomy( $configuration['record'] )
-            : ( $configuration['local']['routing']['post_type'] ?? $configuration['local']['stored_layout']['post_type'] ?? '' );
-        if ( '' === $type ) { return self::error( 'mapping', 'The mapping has no native source destination.' ); }
         $resource = ( $term ? 'taxonomy:' : 'post_type:' ) . $type;
         return [ 'provider' => $provider, 'resource' => $resource, 'type' => $type, 'term' => $term,
             'source_url' => $source, 'target_url' => $localized['identity'], 'site_id' => $content['site_id'],

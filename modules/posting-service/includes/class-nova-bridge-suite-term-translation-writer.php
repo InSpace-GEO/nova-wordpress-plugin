@@ -1,6 +1,7 @@
 <?php
 /** Localized editorial fields on a shared WooCommerce category. */
 defined( 'ABSPATH' ) || exit;
+require_once __DIR__ . '/class-nova-wordpress-taxonomy-route.php';
 
 final class Nova_Bridge_Suite_Term_Translation_Writer {
     public const FORMAT = 'nova.localized-term/v1';
@@ -45,6 +46,8 @@ final class Nova_Bridge_Suite_Term_Translation_Writer {
             }
             $source_url = Nova_Bridge_Suite_Translation_Writer::delivery_url( $family['primary_url'], $family['primary_language'] );
             if ( is_wp_error( $source_url ) ) { return $source_url; }
+            $source_url = Nova_WordPress_Taxonomy_Route::url( $source_url, $taxonomy, $family['primary_language'] );
+            if ( is_wp_error( $source_url ) ) { return $source_url; }
             $found = Nova_Bridge_Suite_Mapped_Content_Target::resolve( $source_url, 'taxonomy:' . $taxonomy );
             if ( is_wp_error( $found ) ) {
                 return 'nova_mapped_target_not_found' === $found->get_error_code()
@@ -62,6 +65,8 @@ final class Nova_Bridge_Suite_Term_Translation_Writer {
             return self::error( 'source_identity', 'The original category does not have the URL supplied by its URL group.' );
         }
         $intended = Nova_Bridge_Suite_Translation_Writer::delivery_url( $content['url'] ?? '', $content['language'] );
+        if ( is_wp_error( $intended ) ) { return $intended; }
+        $intended = Nova_WordPress_Taxonomy_Route::url( $intended, $taxonomy, $content['language'] );
         if ( is_wp_error( $intended ) ) { return $intended; }
         $localized = Nova_Bridge_Suite_Translation_Writer::translated_url( $provider, $source_url );
         if ( is_wp_error( $localized ) ) { return $localized; }
