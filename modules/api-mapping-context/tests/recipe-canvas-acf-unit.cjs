@@ -54,4 +54,7 @@ check(canvas.locate(document, {locator: {strategy: 'value_match', text: 'First p
 const curly = String.fromCharCode(0x2019), dash = String.fromCharCode(0x2013);
 const quoted = element('p', {}, main, 'Our pergola' + curly + 's ' + dash + ' made to measure');
 check(canvas.locate(document, field({text: "Our pergola's - made to measure"}), config).node === quoted, 'Curly quotes and dashes added by WordPress still match the stored text');
+const faq = element('details', {}, main);
+const question = element('summary', {}, faq, 'A distinct FAQ question?');
+check(canvas.locate(document, field({text: 'A distinct FAQ question?'}), config).node === question, 'A native FAQ summary is a selectable ACF text field');
 console.log(`PASS ${checks} ACF value-match canvas checks`);

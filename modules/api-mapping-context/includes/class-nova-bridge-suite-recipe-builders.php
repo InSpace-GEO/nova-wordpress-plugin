@@ -267,6 +267,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             case 'gutenberg':
                 require_once $adapters . 'gutenberg-document.php';
                 require_once $adapters . 'gutenberg-html.php';
+                require_once $adapters . 'gutenberg-acf.php';
                 break;
         }
     }
@@ -307,6 +308,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 if ( 'gutenberg' === $this->builder && $discover_custom_html ) {
                     $blueprint['document'] = Nova_Mapping_Gutenberg_HTML::capture( $blueprint['document'] );
                 }
+                if ( 'gutenberg' === $this->builder && Nova_Mapping_Gutenberg_ACF::has_blocks( $blueprint['document'] ) ) { $blueprint['meta'] += Nova_Mapping_Gutenberg_ACF::capture_meta( $post_id ); }
             } elseif ( 'beaver' === $this->builder ) {
                 if ( ! function_exists( 'nova_mapping_bb_get_layout_nodes' ) || ! get_post_meta( $post_id, '_fl_builder_enabled', true ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'The selected item does not contain an active Beaver layout.' ); }
                 $blueprint['document'] = self::arrays( nova_mapping_bb_compact_tree( nova_mapping_bb_capture_arrays( nova_mapping_bb_flat_to_tree( nova_mapping_bb_get_layout_nodes( $post_id ) ) ) ) );
@@ -546,6 +548,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         $result = [ 'fields' => [], 'containers' => [] ];
         $nodes = $native['document'] ?? $native; $prefix = isset( $native['document'] ) ? '/document' : '';
         $this->walk_inventory( $nodes, $prefix, $result );
+        if ( 'gutenberg' === $this->builder && isset( $native['meta'] ) ) { $result['fields'] = array_merge( $result['fields'], Nova_Mapping_Gutenberg_ACF::meta_fields( $native['meta'] ) ); }
         if ( 'wpbakery' === $this->builder && isset( $native['document'] ) ) { $result['fields'] = array_merge( $result['fields'], Nova_Mapping_Salient::fields( $native['meta'] ?? [] ) ); }
         return $result;
     }
@@ -656,6 +659,12 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 if ( 'divi5' === $this->builder ) {
                     foreach ( nova_mapping_divi5_editorial_fields( $node ) as list( $control, $format, $kind ) ) {
                         $add( $path . '/attrs/' . $control, $format, $kind );
+                    }
+                } elseif ( str_starts_with( $name, 'acf/' ) ) {
+                    // Each scalar is independent. An empty mapped value must never remove
+                    // the ACF block containing its unselected siblings and layout controls.
+                    foreach ( Nova_Mapping_Gutenberg_ACF::fields( $node, $path, $node_protected ) as $field ) {
+                        $result['fields'][] = $field + [ 'context' => $node_context ];
                     }
                 } elseif ( 'core/html' === $name && isset( $node[Nova_Mapping_Gutenberg_HTML::SLOTS] ) ) {
                     foreach ( Nova_Mapping_Gutenberg_HTML::fields( $node, $path, $node_protected ) as $field ) {
