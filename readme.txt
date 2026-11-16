@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.7
+Stable tag: 1.5.8
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.8 =
+* Allow stored-layout publishing when another unpublished draft has the same slug.
+* Recover retained drafts after a permalink check failed, including handover to a newer delivery version.
+* Preserve other drafts and continue checking published, scheduled, private and pending URL conflicts.
 
 = 1.5.7 =
 * Protect delivered locale fields from repeat Weglot translation, including native excerpts and mixed Elementor widgets.

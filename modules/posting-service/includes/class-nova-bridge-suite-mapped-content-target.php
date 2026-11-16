@@ -154,7 +154,7 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         if ( $segments ) { $parentUrl = $wanted['origin'] . $sides[0] . implode( '/', $segments ) . $sides[1]; $resolved = self::resolve( $parentUrl, $resource, null, $language_home ); if ( is_wp_error( $resolved ) ) { return $resolved; } $parent = $resolved['reference_id']; }
         $occupied = self::resolve( $url, null, null, $language_home ); if ( ! is_wp_error( $occupied ) ) { return self::error( 'target_exists', 'The planned URL already belongs to an existing native item.' ); } if ( 'nova_mapped_target_not_found' !== $occupied->get_error_code() ) { return $occupied; }
         // Dated posts are not found by their undated URL. WordPress would rename a second post with this slug.
-        if ( $dated && get_posts( [ 'post_type' => 'post', 'name' => $slug, 'post_status' => 'any', 'posts_per_page' => 1, 'offset' => 0, 'fields' => 'ids', 'suppress_filters' => true ] ) ) { return self::error( 'target_exists', 'A post with this slug already exists.' ); }
+        if ( $dated && get_posts( [ 'post_type' => 'post', 'name' => $slug, 'post_status' => [ 'publish', 'future', 'private', 'pending' ], 'posts_per_page' => 1, 'offset' => 0, 'fields' => 'ids', 'suppress_filters' => true ] ) ) { return self::error( 'target_exists', 'A post with this slug already exists.' ); }
         return [ 'slug' => $slug, 'parent' => $parent, 'target_url' => $wanted['identity'] ] + ( null !== $language ? [ 'language' => $language, 'native_language' => $native_language ] : [] );
     }
     private static function routing_resources() {

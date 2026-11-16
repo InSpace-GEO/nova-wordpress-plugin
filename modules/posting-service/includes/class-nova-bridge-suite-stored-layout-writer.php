@@ -8,6 +8,7 @@ require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-provider.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-layout-language.php';
 require_once __DIR__ . '/class-nova-bridge-suite-translation-source.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-custom-fields.php';
+require_once __DIR__ . '/class-nova-bridge-suite-draft-slug.php';
 
 final class Nova_Bridge_Suite_Stored_Layout_Writer_Failure extends RuntimeException {
     public $reason;
@@ -301,9 +302,8 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     private static function check_url( array $plan, int $id ): void {
         if ( 'publish' === get_post_status( $id ) ) { $url = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::native_url( 'post_type:' . $plan['post_type'], 'post', $id ) ); }
         else {
-            if ( ! function_exists( 'get_sample_permalink' ) && is_file( ABSPATH . 'wp-admin/includes/post.php' ) ) { require_once ABSPATH . 'wp-admin/includes/post.php'; }
-            if ( ! function_exists( 'get_sample_permalink' ) ) { self::fail( 'permalink', 'WordPress cannot verify the draft future permalink.' ); }
-            $sample = get_sample_permalink( $id ); $url = str_replace( [ '%pagename%', '%postname%', '%' . $plan['post_type'] . '%' ], $sample[1] ?? '', $sample[0] ?? '' );
+            $url = Nova_Bridge_Suite_Draft_Slug::permalink( $id );
+            if ( '' === $url ) { self::fail( 'permalink', 'WordPress cannot verify the draft future permalink.' ); }
             if ( isset( $plan['target']['native_language'] ) ) { $url = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::draft_url( $url, $plan['target'] ) ); }
         }
         $actual = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ) );
@@ -409,8 +409,10 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 }
                 $record['state'] = 'saved'; self::checkpoint( $key, $record ); self::check_url( $plan, $id );
                 if ( get_post_status( $id ) !== $plan['desired_status'] ) {
-                    if ( ! in_array( get_post_status( $id ), [ 'draft', 'publish' ], true ) || wp_unique_post_slug( $plan['target']['slug'], $id, $plan['desired_status'], $plan['post_type'], $plan['target']['parent'] ) !== $plan['target']['slug'] ) { self::fail( 'publication', 'The page status or planned slug changed before publication.' ); }
-                    $record['state'] = 'publishing'; self::checkpoint( $key, $record ); self::checked( wp_update_post( [ 'ID' => $id, 'post_status' => $plan['desired_status'] ], true ) );
+                    Nova_Bridge_Suite_Draft_Slug::for_post( $id, static function () use ( $plan, $id, &$record, $key ) {
+                        if ( ! in_array( get_post_status( $id ), [ 'draft', 'publish' ], true ) || wp_unique_post_slug( $plan['target']['slug'], $id, $plan['desired_status'], $plan['post_type'], $plan['target']['parent'] ) !== $plan['target']['slug'] ) { self::fail( 'publication', 'The page status or planned slug changed before publication.' ); }
+                        $record['state'] = 'publishing'; self::checkpoint( $key, $record ); self::checked( wp_update_post( [ 'ID' => $id, 'post_status' => $plan['desired_status'] ], true ) );
+                    } );
                 }
                 return self::complete( $plan, $record );
             } ) ); } );

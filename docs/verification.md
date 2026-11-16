@@ -1,5 +1,13 @@
 # Release verification
 
+## 1.5.8 draft permalink recovery candidate
+
+All 171 local PHP and Node suites passed against WordPress 7.1.4 core. Added regression checks cover draft and auto-draft collisions, retained-operation replay, predecessor retirement and successor adoption. Published, private, scheduled and pending collisions remain rejected. The scoped query filter is removed after successful and interrupted calls and applies only to the current post's native slug lookup.
+
+On WordPress staging with PHP 8.1.34, the baseline reproduced a saved draft's `nova_layout_writer_permalink` failure and repeated it on retry. The candidate passed 23 checks using real WordPress storage and the real worker, stored-layout writer and core recipe adapter. It recovered the same failed operation, preserved its frozen plan and post ID, reconciled a predecessor for a higher-version delivery, and published new posts beside unrelated same-slug drafts under fixed-prefix and dated permalink structures. Unrelated drafts and non-draft collision targets retained their original data.
+
+The posting-service responses and delivery journal were simulated. For candidate recovery cases, a temporary sample-permalink filter reproduced the older failure before being removed for recovery. Plugin activation and permalink settings were request-local. Fixture posts and operation options were cleaned up. Live client delivery recovery remains to be verified after installation.
+
 ## 1.5.2
 
 All 166 local PHP and Node suites passed. Coverage includes Weglot demo drafts, source identity and URL checks, original-content preservation, permissions, replay, source-state changes, and existing TranslatePress behavior.

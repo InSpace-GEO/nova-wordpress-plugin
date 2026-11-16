@@ -3,6 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
+require_once __DIR__ . '/class-nova-bridge-suite-draft-slug.php';
 final class Nova_Bridge_Suite_Stored_Layout_Language {
     private static function error( string $message ): WP_Error {
         return new WP_Error( 'nova_stored_layout_language', $message, [ 'status' => 409 ] );
@@ -204,7 +205,10 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         $context = 'core' === self::provider() ? [ 'provider' => 'core', 'code' => self::locale( $language ) ] : self::context( $language, $post->post_type, $url );
         if ( is_wp_error( $context ) ) { return $context; }
         $wanted = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url );
-        $native = self::in_language( $context, static function () use ( $resource, $id ) { return Nova_Bridge_Suite_Mapped_Content_Target::native_url( $resource, 'post', $id ); } );
+        $native = self::in_language( $context, static function () use ( $resource, $id, $post ) {
+            return 'draft' === ( $post->post_status ?? '' ) ? Nova_Bridge_Suite_Draft_Slug::permalink( $id ) : Nova_Bridge_Suite_Mapped_Content_Target::native_url( $resource, 'post', $id );
+        } );
+        if ( 'draft' === ( $post->post_status ?? '' ) && 'core' !== $context['provider'] ) { $native = self::draft_url( $native, [ 'native_language' => $context ] ); }
         $actual = is_wp_error( $native ) ? $native : Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $native );
         if ( is_wp_error( $wanted ) || is_wp_error( $actual ) || ( $actual['identity'] !== $wanted['identity'] && ! Nova_Bridge_Suite_Mapped_Content_Target::same_native_url( $actual['identity'], $wanted['identity'], $resource ) ) || null !== parse_url( $url, PHP_URL_QUERY ) ) { return self::error( 'The existing post must own the exact delivery URL.' ); }
         $target = [ 'slug' => $post->post_name, 'parent' => (int) $post->post_parent, 'target_url' => $wanted['identity'], 'language' => $language, 'native_language' => $context ];
