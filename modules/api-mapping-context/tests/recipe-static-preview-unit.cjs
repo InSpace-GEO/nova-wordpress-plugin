@@ -41,3 +41,15 @@ const canvasDoc = {documentElement:html,body,querySelectorAll:selector => select
 assert.equal(prepareStaticLayout(win,canvasDoc),1,'Elementor Canvas page roots reveal animated content.');
 assert.equal(animatedContent.properties.visibility,'visible');
 assert.equal(prepareStaticLayout(win,canvasDoc),0,'Canvas reveal is idempotent.');
+
+const textRoot = node({}, body);
+const scrollText = node({opacity:'0',display:'block',transform:'matrix(1, 0, 0, 1, -50, 0)',transitionDuration:'0.45s'}, textRoot);
+const deliberatelyHidden = node({opacity:'0',display:'block',transform:'none',transitionDuration:'0s'}, textRoot);
+const closedAnswer = node({opacity:'0',display:'block',transform:'none',transitionDuration:'0.4s'}, textRoot);
+closedAnswer.getBoundingClientRect = () => ({width:600,height:0});
+textRoot.querySelectorAll = selector => selector.startsWith('h1,') ? [scrollText,deliberatelyHidden,closedAnswer] : [];
+const textDoc = {documentElement:html,body,querySelectorAll:() => [textRoot]};
+assert.equal(prepareStaticLayout(win,textDoc),1,'Content-named scroll animations reveal their sized text.');
+assert.equal(scrollText.properties.opacity,'1');
+assert.deepEqual(deliberatelyHidden.properties,{});
+assert.deepEqual(closedAnswer.properties,{});

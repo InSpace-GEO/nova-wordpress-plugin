@@ -1,5 +1,11 @@
 # Release verification
 
+## 1.5.9
+
+All 172 local PHP and Node suites passed. Review regressions cover ACF field length and required-value checks, native validation filters, and collapsed FAQ answers hidden by responsive CSS.
+
+The installable ZIP passed 32 checks on WordPress 7.1.4 with ACF Pro 6.8.0.1. The checks cover nested block and post-level field capture, native rendering, exact sibling and field-reference preservation, stored delivery compilation, repeated known-ID writes, saved-template drafts, recovery and native ACF validation rejection. The staging fixture used a reconstructed field schema and renderer with a supplied block document. The source site's theme was unavailable. Earlier isolated-browser checks verified introduction, description and FAQ highlights at desktop and mobile widths.
+
 ## 1.5.8 draft permalink recovery candidate
 
 All 171 local PHP and Node suites passed against WordPress 7.1.4 core. Added regression checks cover draft and auto-draft collisions, retained-operation replay, predecessor retirement and successor adoption. Published, private, scheduled and pending collisions remain rejected. The scoped query filter is removed after successful and interrupted calls and applies only to the current post's native slug lookup.

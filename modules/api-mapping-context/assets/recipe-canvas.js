@@ -60,7 +60,9 @@
                 container.style.setProperty( 'height', Math.max( 200, Math.min( 1200, Number( container.getAttribute( 'data-height' ) ) || 400 ) ) + 'px', 'important' ); changed++;
             } );
 			// Builders and themes hide entrance-animated content until their scripts run; those scripts are disabled here.
-			main.querySelectorAll( reveal ).forEach( function ( item ) {
+			var animated = new Set( main.querySelectorAll( reveal ) );
+			var candidates = new Set( Array.from( animated ).concat( Array.from( main.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,[class*="text"]' ) ) ) );
+			candidates.forEach( function ( item ) {
 				// Only carousels inside the content count; themes also put words like "slider" in body classes.
 				var inSlider = function ( node ) { var slider = node.closest( sliders ); return !! slider && slider !== main && main.contains( slider ); };
 				if ( item.closest( excluded ) || inSlider( item ) || item.getAttribute( 'data-nova-static-reveal' ) === '1' ) { return; }
@@ -68,6 +70,9 @@
 					var parentStyle = win.getComputedStyle( parent ); if ( parentStyle.display === 'none' || parentStyle.visibility === 'hidden' ) { return; }
 				}
 				var style = win.getComputedStyle( item );
+				// Some themes name their scroll-revealed text by content, with no
+				// animation class. Require a sized, transitioned, translated element.
+				if ( ! animated.has( item ) && ( style.opacity !== '0' || ! style.transform || style.transform === 'none' || ! String( style.transitionDuration || '' ).split( ',' ).some( function ( duration ) { return parseFloat( duration ) > 0; } ) || ! item.getBoundingClientRect().height ) ) { return; }
 				if ( style.display === 'none' || ( style.opacity !== '0' && style.visibility !== 'hidden' ) ) { return; }
 				var show = function ( node ) { node.setAttribute( 'data-nova-static-reveal', '1' ); [ [ 'opacity', '1' ], [ 'visibility', 'visible' ], [ 'transform', 'none' ], [ 'animation', 'none' ], [ 'transition', 'none' ] ].forEach( function ( rule ) { node.style.setProperty( rule[0], rule[1], 'important' ); } ); changed++; };
 				show( item );
@@ -209,7 +214,7 @@
 		} else {
 			var expected = normalizeText( locator.text ); if ( expected.length < 3 ) { return null; }
 			roots.forEach( function ( root ) {
-				root.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,li,a,button,span,strong,em,b,i,small,blockquote,figcaption,label,dt,dd,td,th,div,section,article,aside' ).forEach( function ( node ) {
+				root.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,li,a,button,span,strong,em,b,i,small,blockquote,figcaption,label,summary,dt,dd,td,th,div,section,article,aside' ).forEach( function ( node ) {
 					if ( ! matches.includes( node ) && normalizeText( node.textContent ) === expected ) { matches.push( node ); }
 				} );
 			} );
@@ -218,7 +223,18 @@
 			matches = matches.filter( function ( node ) { return ! excluded( node ); } );
 		}
 		// Responsive themes print hidden copies for other screen sizes; only a shown element counts.
-		var view = document.defaultView; if ( view && view.getComputedStyle ) { matches = matches.filter( function ( node ) { return visible( node, view ); } ); }
+		var view = document.defaultView;
+		if ( view && view.getComputedStyle ) {
+			var shown = matches.filter( function ( node ) { return visible( node, view ); } );
+			matches = shown.length ? shown : matches.filter( function ( node ) {
+				if ( ! node.closest( 'details:not([open])' ) || node.closest( '[hidden],[aria-hidden="true"]' ) ) { return false; }
+				for ( var ancestor = node; ancestor; ancestor = ancestor.parentElement ) {
+					var style = view.getComputedStyle( ancestor );
+					if ( style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0' ) { return false; }
+				}
+				return true;
+			} );
+		}
 		return matches.length === 1 ? { node: matches[0], owner: matches[0], precision: locator.precision === 'region' ? 'region' : 'field' } : null;
 	}
 	// The singular post may use a template's ID, while related cards repeat the same excerpt/image.
@@ -356,7 +372,7 @@
 			selected = id; marked.forEach( function ( node ) { node.classList.remove( 'nrc-selected' ); } );
 			var target = targets.get( id ) || containerTargets.get( id );
 			if ( ! target ) { return false; }
-			if ( scroll && target.customHtml ) {
+			if ( scroll && ( target.customHtml || target.node.closest( 'details' ) ) ) {
 				var details = target.node.closest( 'details' );
 				while ( details ) { details.open = true; details = details.parentElement && details.parentElement.closest( 'details' ); }
 			}

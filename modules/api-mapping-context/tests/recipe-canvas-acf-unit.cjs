@@ -54,4 +54,16 @@ check(canvas.locate(document, {locator: {strategy: 'value_match', text: 'First p
 const curly = String.fromCharCode(0x2019), dash = String.fromCharCode(0x2013);
 const quoted = element('p', {}, main, 'Our pergola' + curly + 's ' + dash + ' made to measure');
 check(canvas.locate(document, field({text: "Our pergola's - made to measure"}), config).node === quoted, 'Curly quotes and dashes added by WordPress still match the stored text');
+const faq = element('details', {}, main);
+const question = element('summary', {}, faq, 'A distinct FAQ question?');
+check(canvas.locate(document, field({text: 'A distinct FAQ question?'}), config).node === question, 'A native FAQ summary is a selectable ACF text field');
+const answer = element('p', {}, faq, 'A collapsed answer.');
+answer.closest = selector => selector === 'details:not([open])' ? faq : null;
+answer.getClientRects = () => [];
+const view = {getComputedStyle: node => ({display:node === faq && faq.hidden ? 'none' : 'block',visibility:'visible',opacity:'1'})};
+document.defaultView = view;
+check(canvas.locate(document, field({text:'A collapsed answer.'}), config).node === answer, 'A collapsed answer is available to the inspector');
+faq.hidden = true;
+check(canvas.locate(document, field({text:'A collapsed answer.'}), config) === null, 'Responsive-hidden FAQ content is never selected');
+delete document.defaultView;
 console.log(`PASS ${checks} ACF value-match canvas checks`);

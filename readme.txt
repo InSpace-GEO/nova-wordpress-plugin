@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.8
+Stable tag: 1.5.9
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.9 =
+* Map nested content in ACF Gutenberg blocks and their post-level descriptions and FAQ fields.
+* Highlight ACF content in the reference preview, including scroll-animated introductions and collapsed FAQ answers.
+* Enforce native ACF field validation and refresh cached field values after native writes.
+* Preserve unselected content, design settings, field references and older saved layouts.
 
 = 1.5.8 =
 * Allow stored-layout publishing when another unpublished draft has the same slug.
