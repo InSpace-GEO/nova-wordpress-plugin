@@ -4,7 +4,18 @@ require __DIR__ . '/recipe-builders-unit.php';
 
 function acf_get_block_type( $name ) { return 'acf/content-sections' === $name ? [ 'name' => $name ] : null; }
 function acf_get_block_fields( $block ) { return $GLOBALS['block_schema']; }
-function acf_get_field( $key ) { return $GLOBALS['post_acf_schema'][$key] ?? null; }
+function acf_get_field( $key ) {
+    $walk = static function ( $fields ) use ( &$walk, $key ) {
+        foreach ( $fields as $field ) {
+            if ( $field['key'] === $key ) { return $field; }
+            $found = $walk( $field['sub_fields'] ?? [] ); if ( $found ) { return $found; }
+            foreach ( $field['layouts'] ?? [] as $layout ) { $found = $walk( $layout['sub_fields'] ?? [] ); if ( $found ) { return $found; } }
+        }
+        return null;
+    };
+    return $walk( array_merge( $GLOBALS['block_schema'] ?? [], $GLOBALS['post_acf_schema'] ?? [] ) );
+}
+function acf_validate_value( $value, $field, $path ) { return $value !== 'Provider rejects this'; }
 function acf_flush_value_cache( $id, $name ) { $GLOBALS['acf_flushed'][] = [ $id, $name ]; }
 $GLOBALS['block_schema'] = [ [ 'key' => 'field_sections', 'name' => 'sections', 'type' => 'flexible_content', 'label' => 'Sections', 'layouts' => [
     [ 'name' => 'intro', 'label' => 'Introduction', 'sub_fields' => [
@@ -79,4 +90,12 @@ recipe_assert( Nova_Mapping_Gutenberg_ACF::capture_meta( 700 ) === $native['meta
 $GLOBALS['recipe_denied'] = [ 'edit_post_meta' ];
 recipe_assert( Nova_Mapping_Gutenberg_ACF::capture_meta( 700 ) === [], 'Capture honors post metadata permissions' );
 $GLOBALS['recipe_denied'] = [];
+
+$GLOBALS['post_acf_schema']['field_faq']['sub_fields'][1]['maxlength'] = 6;
+recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::compile( $meta_recipe, [ 'answer' => 'Too long for this field' ], 'acf-length' ) ), 'Native ACF length limits are enforced before writing' );
+unset( $GLOBALS['post_acf_schema']['field_faq']['sub_fields'][1]['maxlength'] );
+$GLOBALS['post_acf_schema']['field_faq']['sub_fields'][1]['required'] = true;
+recipe_assert( is_wp_error( $adapter->bind( $native, $meta_recipe['bindings'][0], '' ) ), 'Required ACF fields cannot be emptied' );
+unset( $GLOBALS['post_acf_schema']['field_faq']['sub_fields'][1]['required'] );
+recipe_assert( is_wp_error( $adapter->bind( $native, $meta_recipe['bindings'][0], 'Provider rejects this' ) ), 'Native ACF validation filters apply before writing' );
 echo "PASS ACF block scalar capture, nested rows, compile, native write and preservation\n";

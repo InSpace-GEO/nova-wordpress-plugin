@@ -61,6 +61,20 @@ final class Nova_Mapping_Gutenberg_ACF {
         return $fields;
     }
 
+    public static function validate_value( array $field, $value ) {
+        $schema = function_exists( 'acf_get_field' ) ? acf_get_field( $field['acf_key'] ) : null;
+        if ( ! is_array( $schema ) || ( $schema['type'] ?? '' ) !== $field['kind'] || ! is_string( $value ) ) {
+            return new WP_Error( 'nova_acf_block_schema', 'The mapped ACF field definition changed. Capture the design again.' );
+        }
+        if ( ( ! empty( $schema['required'] ) && '' === trim( $value ) )
+            || ( ! empty( $schema['maxlength'] ) && preg_match_all( '/./us', $value ) > (int) $schema['maxlength'] )
+            || ( 'email' === $schema['type'] && '' !== $value && ! filter_var( $value, FILTER_VALIDATE_EMAIL ) )
+            || ( function_exists( 'acf_validate_value' ) && ! acf_validate_value( $value, $schema, $field['target'] ) ) ) {
+            return new WP_Error( 'nova_acf_block_value', 'The mapped value does not satisfy the installed ACF field rules for ' . $field['label'] . '.' );
+        }
+        return true;
+    }
+
     private static function walk( array $schema, array $data, string $prefix, string $path, string $label, bool $protected, array &$fields, int $depth = 0 ): void {
         if ( $depth > 16 ) { return; }
         foreach ( $schema as $field ) {

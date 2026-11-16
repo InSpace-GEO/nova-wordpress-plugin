@@ -756,6 +756,15 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     public function bind( array $native, array $binding, $value, array $context = [] ) {
         $checked = $this->validate_binding( $native, $binding ); if ( is_wp_error( $checked ) ) { return $checked; }
         $target = $binding['target'];
+        if ( 'gutenberg' === $this->builder ) {
+            foreach ( $this->fields( $native ) as $field ) {
+                if ( $field['target'] === $target && isset( $field['acf_key'] ) ) {
+                    $checked = Nova_Mapping_Gutenberg_ACF::validate_value( $field, $value );
+                    if ( is_wp_error( $checked ) ) { return $checked; }
+                    break;
+                }
+            }
+        }
         $original = Nova_Bridge_Suite_Recipe_Engine::get( $native, $target );
         $heading = ( 'divi4' === $this->builder || 'divi5' === $this->builder || ( 'wpbakery' === $this->builder && '/text' === substr( $target, -5 ) ) ) && self::heading_html( (string) $original );
         if ( $heading ) {

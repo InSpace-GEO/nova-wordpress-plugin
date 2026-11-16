@@ -226,7 +226,14 @@
 		var view = document.defaultView;
 		if ( view && view.getComputedStyle ) {
 			var shown = matches.filter( function ( node ) { return visible( node, view ); } );
-			matches = shown.length ? shown : matches.filter( function ( node ) { return node.closest( 'details:not([open])' ) && ! node.closest( '[hidden],[aria-hidden="true"]' ); } );
+			matches = shown.length ? shown : matches.filter( function ( node ) {
+				if ( ! node.closest( 'details:not([open])' ) || node.closest( '[hidden],[aria-hidden="true"]' ) ) { return false; }
+				for ( var ancestor = node; ancestor; ancestor = ancestor.parentElement ) {
+					var style = view.getComputedStyle( ancestor );
+					if ( style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0' ) { return false; }
+				}
+				return true;
+			} );
 		}
 		return matches.length === 1 ? { node: matches[0], owner: matches[0], precision: locator.precision === 'region' ? 'region' : 'field' } : null;
 	}
