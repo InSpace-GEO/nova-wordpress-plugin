@@ -54,6 +54,7 @@ function do_action( $key, $value ) {
 class Nova_Bridge_Suite_Document_Mapping {
     public static function resources() { return [ [ 'id'=>'post_type:post', 'type'=>'post_type', 'post_type'=>'post', 'availability'=>'available', 'can_inspect_existing'=>true ] ]; }
 }
+require_once __DIR__ . '/native-target-query-fixture.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-mapped-content-target.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-language.php';
 $checks = $assignments = 0;

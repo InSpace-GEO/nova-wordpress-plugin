@@ -42,7 +42,8 @@
                     if ( /^https?:\/\//i.test( intended ) ) { var link = node( 'a', intended ); link.href = intended; link.target = '_blank'; link.rel = 'noopener noreferrer'; urlCell.appendChild( link ); }
                     else { urlCell.textContent = intended || '\u2014'; }
                     row.appendChild( urlCell );
-                    row.appendChild( node( 'td', current ? [ job.state, job.phase ].filter( Boolean ).join( ' / ' ).replace( /_/g, ' ' ) : 'Historical protocol: manual review required' ) ); var issue = typeof job.last_error === 'string' ? job.last_error : ''; if ( issue && typeof job.last_error_detail === 'string' && job.last_error_detail ) { issue += ': ' + job.last_error_detail; } row.appendChild( node( 'td', issue ) );
+                    var status = job.publication_outcome === 'failed' ? 'Publication failed' : [ job.state, job.phase ].filter( Boolean ).join( ' / ' ).replace( /_/g, ' ' );
+                    row.appendChild( node( 'td', current ? status : 'Historical protocol: manual review required' ) ); var issue = typeof job.last_error === 'string' ? job.last_error : ''; if ( issue && typeof job.last_error_detail === 'string' && job.last_error_detail ) { issue += ': ' + job.last_error_detail; } row.appendChild( node( 'td', issue ) );
                     var action = node( 'td' );
                     if ( current && 'blocked' === job.state ) { action.appendChild( button( 'Resume safely', async function () {
                         if ( busy ) { return; } busy = true;
