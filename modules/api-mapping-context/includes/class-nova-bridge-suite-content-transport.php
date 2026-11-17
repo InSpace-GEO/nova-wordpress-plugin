@@ -198,9 +198,100 @@ final class Nova_Bridge_Suite_Content_Transport {
 		return array_filter( $fields, 'is_array' );
 	}
 
+    /** True only when every rule group can be evaluated against sibling values and none passes. */
+    public static function acf_field_hidden( array $field, array $siblings, array $values ): bool {
+        $logic = $field['conditional_logic'] ?? [];
+        if ( ! $logic ) { return false; }
+        $names = []; foreach ( $siblings as $sibling ) { if ( isset( $sibling['key'], $sibling['name'] ) ) { $names[$sibling['key']] = $sibling['name']; } }
+        foreach ( $logic as $group ) {
+            if ( ! is_array( $group ) || ! $group ) { return false; }
+            $passes = true;
+            foreach ( $group as $rule ) {
+                $key = is_array( $rule ) ? ( $rule['field'] ?? '' ) : '';
+                if ( ! isset( $names[$key] ) ) { return false; }
+                if ( ! array_key_exists( $key, $values ) && ! array_key_exists( $names[$key], $values ) ) { return false; }
+                $match = self::rule_matches( $values[$key] ?? $values[$names[$key]] ?? null, (string) ( $rule['operator'] ?? '' ), $rule['value'] ?? '' );
+                if ( null === $match ) { return false; }
+                if ( ! $match ) { $passes = false; break; }
+            }
+            if ( $passes ) { return false; }
+        }
+        return true;
+    }
+    /** ACF's own rule operators; null for one this check cannot evaluate, which keeps the field required. */
+    private static function rule_matches( $value, string $operator, $expected ): ?bool {
+        $list = is_array( $value ) ? array_values( $value ) : ( in_array( $value, [ null, false ], true ) ? [] : [ $value ] );
+        $list = array_values( array_filter( array_map( static function ( $item ) { return is_scalar( $item ) ? ( true === $item ? '1' : (string) $item ) : ''; }, $list ), static function ( $item ) { return '' !== $item; } ) );
+        $expected = is_scalar( $expected ) ? (string) $expected : '';
+        $equal = in_array( $expected, $list, true ) || ( ! $list && '' === $expected );
+        $contains = false; foreach ( $list as $item ) { if ( '' !== $expected && false !== strpos( $item, $expected ) ) { $contains = true; } }
+        switch ( $operator ) {
+            case '==': return $equal;
+            case '!=': return ! $equal;
+            case '==empty': return ! $list;
+            case '!=empty': return (bool) $list;
+            case '==contains': return $contains;
+            case '!=contains': return ! $contains;
+        }
+        return null;
+    }
     public static function validate_named_acf( array $input, array $schema ) {
         if ( strlen( wp_json_encode( $input ) ) > 2097152 || count( $input ) > 500 ) { return self::error( 'The declared ACF fields exceed the size limit.' ); }
-        $out = []; foreach ( $input as $name => $value ) { if ( ! isset( $schema[$name] ) || ! self::safe_acf_field( $schema[$name] ) ) { return self::error( 'Unknown or protected ACF field: ' . $name ); } $field = $schema[$name]; $checked = self::validate_acf_value( $value, $field, 'acf.' . $name ); if ( is_wp_error( $checked ) ) { return $checked; } if ( function_exists( 'acf_validate_value' ) && ! acf_validate_value( $checked, $field, 'acf.' . $name ) ) { return self::error( 'ACF validation failed for ' . $name ); } $out[$name] = [ 'field' => $field, 'value' => $checked ]; } return $out;
+        $out = [];
+        foreach ( $input as $name => $value ) {
+            if ( ! isset( $schema[$name] ) || ! self::safe_acf_field( $schema[$name] ) ) { return self::error( 'Unknown or protected ACF field: ' . $name ); }
+            $field = $schema[$name];
+            $hidden = self::acf_field_hidden( $field, $schema, $input );
+            $validation_field = $field;
+            if ( $hidden ) { $validation_field['required'] = false; }
+            $checked = self::validate_acf_value( $value, $validation_field, 'acf.' . $name );
+            if ( is_wp_error( $checked ) ) { return $checked; }
+            $valid = $hidden ? true : self::validate_native_acf( $checked, $field, 'acf.' . $name, 'ACF validation failed for ' . $name );
+            if ( is_wp_error( $valid ) ) { return $valid; }
+            $out[$name] = [ 'field' => $field, 'value' => $checked ];
+        }
+        return $out;
+    }
+
+    /** Hidden inputs are absent in ACF's editor validation, but their stored values still travel with the layout. */
+    private static function acf_validation_value( $value, array $field ) {
+        $type = $field['type'] ?? '';
+        if ( ! is_array( $value ) || ! in_array( $type, [ 'group', 'repeater', 'flexible_content' ], true ) ) { return $value; }
+        $rows = 'group' === $type ? [ $value ] : $value;
+        foreach ( $rows as &$row ) {
+            $siblings = $field['sub_fields'] ?? [];
+            if ( 'flexible_content' === $type ) {
+                foreach ( $field['layouts'] ?? [] as $layout ) {
+                    if ( ( $row['acf_fc_layout'] ?? '' ) === $layout['name'] ) { $siblings = $layout['sub_fields'] ?? []; break; }
+                }
+            }
+            $values = $row;
+            foreach ( $siblings as $child ) {
+                $key = $child['key'];
+                if ( ! array_key_exists( $key, $row ) ) { continue; }
+                if ( self::acf_field_hidden( $child, $siblings, $values ) ) { unset( $row[$key] ); }
+                else { $row[$key] = self::acf_validation_value( $row[$key], $child ); }
+            }
+        }
+        unset( $row );
+        return 'group' === $type ? $rows[0] : $rows;
+    }
+
+    /** Include only errors added by this validation call, preserving ACF's request-wide error state. */
+    private static function validate_native_acf( $value, array $field, string $path, string $message ) {
+        if ( ! function_exists( 'acf_validate_value' ) ) { return true; }
+        $before = function_exists( 'acf_get_validation_errors' ) ? (array) acf_get_validation_errors() : [];
+        $valid = acf_validate_value( self::acf_validation_value( $value, $field ), $field, $path );
+        $errors = function_exists( 'acf_get_validation_errors' ) ? (array) acf_get_validation_errors() : [];
+        $details = [];
+        foreach ( array_slice( $errors, count( $before ) ) as $error ) {
+            $input = $error['input'] ?? null;
+            if ( ! is_string( $input ) || ( $input !== $path && 0 !== strpos( $input, $path . '[' ) ) ) { continue; }
+            $detail = is_string( $error['message'] ?? null ) ? sanitize_text_field( $error['message'] ) : '';
+            if ( '' !== $detail ) { $details[] = $detail; }
+        }
+        if ( $valid && ! $details ) { return true; }
+        return self::error( $details ? rtrim( $message, '.' ) . '. ' . implode( ' ', array_unique( $details ) ) : $message );
     }
     public static function read_named_acf( array $schema, $object_id ): array { $out = []; foreach ( $schema as $name => $field ) { if ( self::safe_acf_field( $field ) ) { $out[$name] = self::acf_response_value( get_field( $field['key'], $object_id, false ), $field ); } } return $out; }
     public static function verify_named_acf( array $entries, $object_id ) { foreach ( $entries as $name => $entry ) { if ( function_exists( 'acf_flush_value_cache' ) ) { acf_flush_value_cache( $object_id, $name ); } if ( ! self::acf_value_matches( $entry['value'], get_field( $entry['field']['key'], $object_id, false ), $entry['field'] ) ) { return self::error( 'ACF did not retain the translated value for ' . $name, 409 ); } } return true; }
@@ -337,9 +428,13 @@ final class Nova_Bridge_Suite_Content_Transport {
 			if ( ! isset( $catalog['acf'][ $name ] ) ) { return self::error( 'Unknown, protected, or inapplicable ACF field: ' . $name ); }
 			if ( ! self::can_write_acf( $post_type, $post_id, $name ) ) { return self::error( 'ACF meta authorization denied: ' . $name, 403 ); }
 			$field = $catalog['acf'][ $name ];
-			$normalized = self::validate_acf_value( $item, $field, 'meta_all.acf.' . $name );
+			$hidden = self::acf_field_hidden( $field, $catalog['acf'], $acf_input );
+			$validation_field = $field;
+			if ( $hidden ) { $validation_field['required'] = false; }
+			$normalized = self::validate_acf_value( $item, $validation_field, 'meta_all.acf.' . $name );
 			if ( is_wp_error( $normalized ) ) { return $normalized; }
-			if ( function_exists( 'acf_validate_value' ) && ! acf_validate_value( $normalized, $field, 'meta_all.acf.' . $name ) ) { return self::error( 'ACF validation failed for ' . $name . '.' ); }
+			$valid = $hidden ? true : self::validate_native_acf( $normalized, $field, 'meta_all.acf.' . $name, 'ACF validation failed for ' . $name . '.' );
+			if ( is_wp_error( $valid ) ) { return $valid; }
 			$result['acf'][ $name ] = [ 'field' => $field, 'value' => $normalized ];
 		}
 		return $result;
@@ -474,7 +569,9 @@ final class Nova_Bridge_Suite_Content_Transport {
 		$out = [];
 		foreach ( $value as $name => $item ) {
 			if ( ! isset( $known[ $name ] ) ) { return self::error( 'Unknown nested ACF field: ' . $path . '.' . $name ); }
-			$checked = self::validate_acf_value( $item, $known[ $name ], $path . '.' . $name, $depth + 1 );
+			$field = $known[ $name ];
+			if ( self::acf_field_hidden( $field, $children, $value ) ) { $field['required'] = false; }
+			$checked = self::validate_acf_value( $item, $field, $path . '.' . $name, $depth + 1 );
 			if ( is_wp_error( $checked ) ) { return $checked; }
 			foreach ( $keys[ $name ] as $key ) { $out[ $key ] = $checked; }
 		}

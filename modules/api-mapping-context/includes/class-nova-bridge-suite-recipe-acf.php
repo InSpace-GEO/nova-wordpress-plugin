@@ -453,7 +453,7 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         if ( $depth > 12 ) { return self::error( 'The installed custom-field structure exceeds its supported nesting depth.', 422 ); }
         foreach ( $fields as $field ) {
             $value = $values[$field['name']] ?? null; $next = $path . '/' . self::escape( $field['name'] ); $type = $field['type'];
-            $required = ! empty( $field['required'] ) && ! self::hidden( $conditions[$field['key'] ?? ''] ?? [], $fields, $values );
+            $required = ! empty( $field['required'] ) && ! Nova_Bridge_Suite_Content_Transport::acf_field_hidden( [ 'conditional_logic' => $conditions[$field['key'] ?? ''] ?? [] ], $fields, $values );
             if ( 'group' === $type && is_array( $value ) ) { $checked = self::validate_constraints( $field['sub_fields'] ?? [], $value, $next, $depth + 1, $conditions ); if ( is_wp_error( $checked ) ) { return $checked; } }
             elseif ( in_array( $type, [ 'repeater', 'flexible_content' ], true ) && is_array( $value ) ) {
                 $minimum = max( (int) ( $field['min'] ?? 0 ), $required ? 1 : 0 ); $maximum = min( 500, (int) ( ( $field['max'] ?? 0 ) ?: 500 ) );
@@ -502,41 +502,6 @@ final class Nova_Bridge_Suite_Recipe_ACF {
             foreach ( (array) ( $field['layouts'] ?? [] ) as $layout ) { $out += self::conditions( (array) ( $layout['sub_fields'] ?? [] ), $depth + 1 ); }
         }
         return $out;
-    }
-    /** True only when every rule group can be evaluated against sibling values and none passes. */
-    private static function hidden( array $logic, array $siblings, array $values ): bool {
-        if ( ! $logic ) { return false; }
-        $names = []; foreach ( $siblings as $sibling ) { if ( isset( $sibling['key'], $sibling['name'] ) ) { $names[$sibling['key']] = $sibling['name']; } }
-        foreach ( $logic as $group ) {
-            if ( ! is_array( $group ) || ! $group ) { return false; }
-            $passes = true;
-            foreach ( $group as $rule ) {
-                $key = is_array( $rule ) ? ( $rule['field'] ?? '' ) : '';
-                if ( ! isset( $names[$key] ) ) { return false; }
-                $match = self::rule_matches( $values[$names[$key]] ?? null, (string) ( $rule['operator'] ?? '' ), $rule['value'] ?? '' );
-                if ( null === $match ) { return false; }
-                if ( ! $match ) { $passes = false; break; }
-            }
-            if ( $passes ) { return false; }
-        }
-        return true;
-    }
-    /** ACF's own rule operators; null for one this check cannot evaluate, which keeps the field required. */
-    private static function rule_matches( $value, string $operator, $expected ): ?bool {
-        $list = is_array( $value ) ? array_values( $value ) : ( in_array( $value, [ null, false ], true ) ? [] : [ $value ] );
-        $list = array_values( array_filter( array_map( static function ( $item ) { return is_scalar( $item ) ? ( true === $item ? '1' : (string) $item ) : ''; }, $list ), static function ( $item ) { return '' !== $item; } ) );
-        $expected = is_scalar( $expected ) ? (string) $expected : '';
-        $equal = in_array( $expected, $list, true ) || ( ! $list && '' === $expected );
-        $contains = false; foreach ( $list as $item ) { if ( '' !== $expected && false !== strpos( $item, $expected ) ) { $contains = true; } }
-        switch ( $operator ) {
-            case '==': return $equal;
-            case '!=': return ! $equal;
-            case '==empty': return ! $list;
-            case '!=empty': return (bool) $list;
-            case '==contains': return $contains;
-            case '!=contains': return ! $contains;
-        }
-        return null;
     }
     public function finalize( array $blueprint, string $seed, array $context = [] ) {
         $validated = $this->validate_blueprint( $blueprint ); if ( is_wp_error( $validated ) ) { return $validated; }
