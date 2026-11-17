@@ -16,7 +16,7 @@ class WP_Term { static function get_instance($id,$taxonomy){return get_term($id,
 function get_term($id,$taxonomy=''){return (object)['term_id'=>$id,'term_taxonomy_id'=>$id+100];}
 function get_taxonomy($name){return $name==='product_cat' ? (object)['rewrite'=>['hierarchical'=>true]] : null;}
 function get_post_type_object($name){return in_array($name,['page','post'],true)?(object)['hierarchical'=>$name==='page']:null;}
-class Rewrite {function get_extra_permastruct($name){return '/product-category/%product_cat%/';}function get_page_permastruct(){return '/%pagename%/';}} $wp_rewrite=new Rewrite();
+class Rewrite {public $structures=[];function get_extra_permastruct($name){return $this->structures[$name] ?? '/product-category/%product_cat%/';}function get_page_permastruct(){return '/%pagename%/';}} $wp_rewrite=new Rewrite();
 class Nova_Bridge_Suite_Document_Mapping {static function resources(){return [['id'=>'post_type:page','type'=>'post_type','post_type'=>'page','availability'=>'available','can_inspect_existing'=>true],['id'=>'taxonomy:product_cat','type'=>'taxonomy','taxonomy'=>'product_cat','availability'=>'available','can_inspect_existing'=>true]];}}
 function apply_filters($name,$v,...$args){
  if($name==='wpml_current_language'){return $GLOBALS['native_language']??'nl';}
@@ -138,5 +138,32 @@ $wpdb->forced_ids = null;
 $wpdb->last_error = 'Simulated database lookup failure';
 bad(Target::resolve($links[15000]), 'target_scan');
 $wpdb->last_error = '';
+
+// Legacy term-link filters and non-segment rewrite tokens must retain full ownership checks.
+foreach (['category' => 'category_link', 'post_tag' => 'tag_link'] as $taxonomy => $hook) {
+    $extra_taxonomies[$taxonomy] = $taxonomy;
+    $wp_rewrite->structures[$taxonomy] = '/topics/%' . $taxonomy . '%/';
+    $term_id = 17000;
+    $term_types[$term_id] = $taxonomy;
+    $native_slugs[$term_id] = 'internal-term-slug';
+    $term_links[$term_id] = 'https://site.example/sub/rewritten-' . $taxonomy . '/';
+    $permalink_filters = [$hook];
+    check(good(Target::resolve($term_links[$term_id]), 'Resolve a legacy term-link filter.')['reference_id'] === $term_id, 'A taxonomy-specific filter can replace its complete native slug.');
+    $links[17001] = $term_links[$term_id];
+    bad(Target::resolve($links[17001]), 'target_ambiguous');
+    unset($links[17001], $term_links[$term_id]);
+}
+$permalink_filters = [];
+$wp_rewrite->structures['product_cat'] = '/topics/%product_cat%.html';
+$term_types[17002] = 'product_cat'; $native_slugs[17002] = 'wood';
+$term_links[17002] = 'https://site.example/sub/topics/wood.html';
+check(good(Target::resolve($term_links[17002]), 'Resolve a suffixed term permalink.')['reference_id'] === 17002, 'A native taxonomy rewrite may embed the slug in a path segment.');
+$links[17003] = $term_links[17002];
+bad(Target::resolve($links[17003]), 'target_ambiguous');
+unset($links[17003], $term_links[17002]);
+$wp_rewrite->structures['private_rest'] = '/cases/%private_rest%.html';
+$native_slugs[17004] = 'case-study'; $post_types[17004] = 'private_rest';
+$links[17004] = 'https://site.example/sub/cases/case-study.html';
+check(good(Target::resolve($links[17004]), 'Resolve a suffixed custom post permalink.')['reference_id'] === 17004, 'Custom post types retain embedded-slug rewrite support.');
 
 echo "PASS $checks mapped URL ownership and routing checks.\n";

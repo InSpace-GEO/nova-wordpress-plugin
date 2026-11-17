@@ -184,17 +184,29 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         return [ 'slugs' => array_values( $slugs ), 'ids' => array_values( $ids ) ];
     }
 
-    /** Arbitrary permalink callbacks may replace the native slug entirely. */
+    /** Custom links and embedded rewrite tokens can hide the native slug. */
     private static function filtered_links( string $kind, string $name ): bool {
-        if ( 'taxonomy' === $kind ) { $hooks = [ 'term_link', 'pre_term_link' ]; }
-        elseif ( 'page' === $name ) { $hooks = [ 'page_link', '_get_page_link' ]; }
-        elseif ( 'post' === $name ) {
-            $structure = (string) get_option( 'permalink_structure', '' );
-            if ( '' !== $structure && ! preg_match( '#(?:^|/)(?:%postname%|%post_id%)(?:/|$)#', $structure ) ) { return true; }
+        global $wp_rewrite;
+        $structure = ''; $tokens = '';
+        if ( 'taxonomy' === $kind ) {
+            $hooks = [ 'term_link', 'pre_term_link' ];
+            if ( 'category' === $name ) { $hooks[] = 'category_link'; }
+            if ( 'post_tag' === $name ) { $hooks[] = 'tag_link'; }
+            $structure = $wp_rewrite->get_extra_permastruct( $name );
+            $tokens = preg_quote( '%' . $name . '%', '#' );
+        } elseif ( 'page' === $name ) {
+            $hooks = [ 'page_link', '_get_page_link' ];
+            $structure = $wp_rewrite->get_page_permastruct(); $tokens = '%pagename%';
+        } elseif ( 'post' === $name ) {
             $hooks = [ 'post_link', 'pre_post_link' ];
+            $structure = get_option( 'permalink_structure', '' ); $tokens = '%postname%|%post_id%';
+        } elseif ( 'attachment' === $name ) { $hooks = [ 'attachment_link' ]; }
+        else {
+            $hooks = [ 'post_type_link' ];
+            $structure = $wp_rewrite->get_extra_permastruct( $name );
+            $tokens = preg_quote( '%' . $name . '%', '#' );
         }
-        elseif ( 'attachment' === $name ) { $hooks = [ 'attachment_link' ]; }
-        else { $hooks = [ 'post_type_link' ]; }
+        if ( is_string( $structure ) && '' !== $structure && ! preg_match( '#(?:^|/)(?:' . $tokens . ')(?:/|$)#', $structure ) ) { return true; }
         $hooks[] = 'wpml_permalink';
         foreach ( $hooks as $hook ) { if ( false !== has_filter( $hook ) ) { return true; } }
         return false;

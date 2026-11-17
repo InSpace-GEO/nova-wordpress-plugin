@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.17
+Stable tag: 1.5.18
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.18 =
+* Resolve exact native URLs on large sites using targeted slug and ID lookups.
+* Include public post types and taxonomies independently of REST exposure.
+* Preserve hierarchy, language and collision checks for custom permalink filters and structures.
+* Show publication failures clearly in the delivery status table.
 
 = 1.5.17 =
 * Accept safe root-relative links in fitted URL fields and native scalar URL destinations.
