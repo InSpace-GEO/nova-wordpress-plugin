@@ -364,7 +364,8 @@
             createHaloDraft: function ( operation ) { return run( async function () {
                 if ( ! state.id || dirty() ) { throw new Error( state.mode === 'article' ? 'Save the article rules before creating a review draft.' : 'Save the HALO mapping before creating its preview draft.' ); }
                 seedSavedSamples();
-                var payload = state.pendingReview || { id: state.id, revision: state.revision, content: copy( state.content ), title: ( state.mode === 'article' ? 'Article preview - ' : 'HALO preview - ' ) + state.label, operation_id: operation };
+                var title = state.mode === 'article' && typeof state.content.title === 'string' && state.content.title.trim() ? state.content.title : ( state.mode === 'article' ? 'Article preview - ' : 'HALO preview - ' ) + state.label;
+                var payload = state.pendingReview || { id: state.id, revision: state.revision, content: copy( state.content ), title: title, operation_id: operation };
                 if ( ! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( payload.operation_id ) ) { throw new Error( 'A valid preview operation is required.' ); }
                 state.pendingReview = payload;
                 if ( options.rememberDraft ) { options.rememberDraft( { id: payload.id, revision: payload.revision, operation_id: payload.operation_id } ); }
@@ -770,6 +771,9 @@
         function articleEditor( state ) {
             var section = node( 'section', undefined, 'nlr-article-rules' ), article = state.recipe.article;
             section.append( node( 'h3', 'How NOVA content becomes blocks' ), help( 'Each element in the article becomes the Gutenberg block shown below. Open a row to adjust its settings.' ) );
+            section.append( check( 'The theme displays the page title', article.theme_displays_title === true, function ( enabled ) {
+                controller.edit( function () { article.theme_displays_title = enabled; } );
+            }, 'Remove an opening H1 when it repeats the page title. Other headings keep their configured levels. A different opening H1 is kept and flagged for review.' ) );
             var labels = node( 'div', undefined, 'nlr-transform-labels' );
             labels.append( node( 'span', 'From NOVA' ), node( 'span', '' ), node( 'span', 'On your page · Gutenberg' ) ); section.append( labels );
             [
@@ -801,7 +805,7 @@
             } );
             section.append( field( 'Other content', select( [ { value: 'html', label: 'Keep in a Custom HTML block' }, { value: 'reject', label: 'Require review before publishing' } ], article.rules.fallback, function ( value ) { controller.edit( function () { article.rules.fallback = value; } ); } ), 'Keep other layouts together in a Custom HTML block, or pause publishing so you can review them.' ) );
             var samples = node( 'details' ); samples.setAttribute( 'data-nlr-view-key', 'article-preview-inputs' );
-            samples.append( node( 'summary', 'Try an example article' ), field( 'NOVA article HTML', input( state.content.body || '', function ( value ) { controller.edit( function () { state.content.body = value; }, false ); }, true ) ), button( 'Preview with site styling', function () { controller.previewArticle(); }, false, state.busy ) );
+            samples.append( node( 'summary', 'Try an example article' ), field( 'NOVA page title', input( state.content.title || '', function ( value ) { controller.edit( function () { state.content.title = value; }, false ); } ) ), field( 'NOVA article HTML', input( state.content.body || '', function ( value ) { controller.edit( function () { state.content.body = value; }, false ); }, true ) ), button( 'Preview with site styling', function () { controller.previewArticle(); }, false, state.busy ) );
             samples.append( help( 'Uses the active theme’s content styles. Create a review draft to check the complete page layout.' ) );
             if ( state.articlePreview ) { var frame = node( 'iframe' ); frame.title = 'Site-styled Gutenberg article preview'; frame.setAttribute( 'sandbox', 'allow-same-origin' ); frame.srcdoc = state.articlePreview; frame.style.width = '100%'; frame.style.height = '480px'; samples.append( frame ); }
             section.append( samples );

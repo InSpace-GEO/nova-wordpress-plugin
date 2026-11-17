@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.12
+Stable tag: 1.5.13
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.13 =
+* Add a title-display setting to Dynamic Gutenberg templates, enabled for new templates.
+* Omit a repeated opening H1 when the theme displays the page title, while preserving section headings.
+* Keep different opening headings and additional title media for review.
+* Preserve existing saved template behavior until the setting is explicitly enabled and saved.
 
 = 1.5.12 =
 * Keep one publishing default when replacing a sole destination with a fixed URL prefix.
