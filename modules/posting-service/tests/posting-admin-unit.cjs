@@ -8,7 +8,7 @@ const source = fs.readFileSync(path.join(__dirname, '../../api-mapping-context/a
 let checks = 0;
 function check(condition, message) { checks++; assert.ok(condition, message); }
 class Element {
-    constructor(tag) { this.tag = tag; this.textContent = ''; this.children = []; this.attributes = {}; this.events = {}; }
+    constructor(tag) { this.tag = tag; this.textContent = ''; this.children = []; this.attributes = {}; this.events = {}; this.style = {}; }
     appendChild(child) { this.children.push(child); return child; }
     prepend(child) { this.children.unshift(child); }
     replaceChildren(...children) { this.children = children; }
@@ -49,5 +49,10 @@ async function fixture(status, later = []) {
     check(failed.host.all().some(item => item.attributes.role === 'alert' && item.textContent === 'Refresh the Mapping page.') && failed.host.attributes['aria-busy'] === 'false', 'Failed authorization recheck displays the safe error and releases busy state');
     await failed.button('Refresh publishing status').events.click();
     check(failed.calls.length === 3, 'Operator can refresh after a failed recheck');
+    const delivery = { protocol: 'nova.delivery-snapshot/v1', content_id: 'test-delivery', state: 'complete', phase: 'committed', last_error: 'native_failure', publication_outcome: 'failed' };
+    const failedDelivery = await fixture({ enabled: true, jobs: [delivery], discovery: {} });
+    check(failedDelivery.text().includes('Publication failed') && !failedDelivery.text().includes('complete / committed'), 'A completed failure report clearly identifies publication failure');
+    const successDelivery = await fixture({ enabled: true, jobs: [{ ...delivery, last_error: '', publication_outcome: 'succeeded' }], discovery: {} });
+    check(successDelivery.text().includes('complete / committed') && !successDelivery.text().includes('Publication failed'), 'Successful delivery status is preserved');
     process.stdout.write(`PASS ${checks} publishing status UI checks.\n`);
 })().catch(error => { process.stderr.write(error.stack + '\n'); process.exitCode = 1; });

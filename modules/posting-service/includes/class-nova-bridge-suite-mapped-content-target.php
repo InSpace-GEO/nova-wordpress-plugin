@@ -4,7 +4,6 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-posting-actor.php';
 final class Nova_Bridge_Suite_Mapped_Content_Target {
     private const BATCH = 250;
-    private const MAX_OBJECTS = 10000;
     private static function error( string $code, string $message, int $status = 422 ): WP_Error { return new WP_Error( 'nova_mapped_' . $code, $message, [ 'status' => $status, 'error_code' => $code ] ); }
     /** Same identity rules as the mapped service; no redirects or basename aliases. */
     public static function normalize_url( $url ) {
@@ -158,44 +157,112 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         return [ 'slug' => $slug, 'parent' => $parent, 'target_url' => $wanted['identity'] ] + ( null !== $language ? [ 'language' => $language, 'native_language' => $native_language ] : [] );
     }
     private static function routing_resources() {
-        if ( current_user_can( 'manage_options' ) ) {
-            return array_filter( Nova_Bridge_Suite_Document_Mapping::resources(), static function ( $resource ) {
-                return ! empty( $resource['can_inspect_existing'] ) && empty( $resource['coming_soon'] ) && 'available' === ( $resource['availability'] ?? '' );
-            } );
-        }
-        if ( ! Nova_Bridge_Suite_Posting_Actor::eligible( get_current_user_id() ) ) { return self::error( 'permission', 'The configured publishing user cannot inspect site URLs.', 403 ); }
-        // Delivery needs native URLs for collision detection, including items the actor cannot
-        // edit. The administrator's mapping catalog also exposes field metadata and stays private.
-        $types = array_filter( get_post_types( [ 'public' => true, 'show_ui' => true ], 'objects' ), 'nova_bridge_suite_is_editorial_post_type' );
+        if ( ! current_user_can( 'manage_options' ) && ! Nova_Bridge_Suite_Posting_Actor::eligible( get_current_user_id() ) ) { return self::error( 'permission', 'The configured publishing user cannot inspect site URLs.', 403 ); }
+        // URL ownership includes public objects outside the REST mapping catalog and
+        // objects this actor cannot edit. Permissions are checked after collisions.
         $resources = [];
-        foreach ( [ 'post_type' => array_keys( $types ), 'taxonomy' => get_taxonomies( [ 'public' => true, 'show_ui' => true ] ) ] as $kind => $names ) {
+        foreach ( [ 'post_type' => get_post_types( [ 'public' => true ], 'names' ), 'taxonomy' => get_taxonomies( [ 'public' => true ] ) ] as $kind => $names ) {
             foreach ( $names as $name ) { $resources[] = [ 'type' => $kind, $kind => $name, 'id' => $kind . ':' . $name ]; }
         }
         return $resources;
     }
 
-    /** Enumerate actual native links, preserving hierarchy, taxonomy and language. */
+    /** Native slugs and IDs are candidate hints only; the complete URL decides ownership. */
+    private static function url_candidates( string $url ): array {
+        $parts = wp_parse_url( $url ); $values = explode( '/', trim( $parts['path'] ?? '', '/' ) );
+        $query = []; parse_str( $parts['query'] ?? '', $query );
+        foreach ( $query as $value ) { if ( is_string( $value ) ) { $values = array_merge( $values, explode( '/', $value ) ); } }
+        $slugs = []; $ids = [];
+        foreach ( $values as $value ) {
+            foreach ( [ $value, rawurldecode( $value ), sanitize_title( rawurldecode( $value ) ), sanitize_title( $value, '', 'query' ) ] as $slug ) {
+                if ( '' !== $slug ) { $slugs[$slug] = $slug; }
+            }
+            if ( ctype_digit( $value ) && (int) $value > 0 ) { $ids[(int) $value] = (int) $value; }
+        }
+        foreach ( [ 'page_on_front', 'page_for_posts' ] as $option ) { $id = (int) get_option( $option ); if ( $id > 0 ) { $ids[$id] = $id; } }
+        $id = (int) url_to_postid( $url ); if ( $id > 0 ) { $ids[$id] = $id; }
+        return [ 'slugs' => array_values( $slugs ), 'ids' => array_values( $ids ) ];
+    }
+
+    /** Custom links and embedded rewrite tokens can hide the native slug. */
+    private static function filtered_links( string $kind, string $name ): bool {
+        global $wp_rewrite;
+        $structure = ''; $tokens = '';
+        if ( 'taxonomy' === $kind ) {
+            $hooks = [ 'term_link', 'pre_term_link' ];
+            if ( 'category' === $name ) { $hooks[] = 'category_link'; }
+            if ( 'post_tag' === $name ) { $hooks[] = 'tag_link'; }
+            $structure = $wp_rewrite->get_extra_permastruct( $name );
+            $tokens = preg_quote( '%' . $name . '%', '#' );
+        } elseif ( 'page' === $name ) {
+            $hooks = [ 'page_link', '_get_page_link' ];
+            $structure = $wp_rewrite->get_page_permastruct(); $tokens = '%pagename%';
+        } elseif ( 'post' === $name ) {
+            $hooks = [ 'post_link', 'pre_post_link' ];
+            $structure = get_option( 'permalink_structure', '' ); $tokens = '%postname%|%post_id%';
+        } elseif ( 'attachment' === $name ) { $hooks = [ 'attachment_link' ]; }
+        else {
+            $hooks = [ 'post_type_link' ];
+            $structure = $wp_rewrite->get_extra_permastruct( $name );
+            $tokens = preg_quote( '%' . $name . '%', '#' );
+        }
+        if ( is_string( $structure ) && '' !== $structure && ! preg_match( '#(?:^|/)(?:' . $tokens . ')(?:/|$)#', $structure ) ) { return true; }
+        $hooks[] = 'wpml_permalink';
+        foreach ( $hooks as $hook ) { if ( false !== has_filter( $hook ) ) { return true; } }
+        return false;
+    }
+
+    /** Read indexed native candidates without WP_Query pagination or language filters. */
+    private static function candidate_ids( array $resource, array $candidates, int $after, bool $filtered ) {
+        global $wpdb;
+        $term = 'taxonomy' === $resource['type']; $name = $resource[$term ? 'taxonomy' : 'post_type'];
+        $table = '`' . str_replace( '`', '``', $term ? $wpdb->terms : $wpdb->posts ) . '`';
+        $column = $term ? 'item.term_id' : 'item.ID'; $slug = $term ? 'item.slug' : 'item.post_name';
+        $args = [ $name, $after ];
+        if ( $term ) {
+            $taxonomy = '`' . str_replace( '`', '``', $wpdb->term_taxonomy ) . '`';
+            $from = "$table AS item INNER JOIN $taxonomy AS taxonomy ON taxonomy.term_id=item.term_id";
+            $where = 'taxonomy.taxonomy=%s AND item.term_id>%d';
+        } else {
+            $from = "$table AS item";
+            $statuses = "'publish','draft','private','pending','future'" . ( 'attachment' === $name ? ",'inherit'" : '' );
+            $where = "item.post_type=%s AND item.ID>%d AND item.post_status IN ($statuses)";
+        }
+        if ( ! $filtered ) {
+            $selectors = [];
+            if ( $candidates['slugs'] ) { $selectors[] = $slug . ' IN (' . implode( ',', array_fill( 0, count( $candidates['slugs'] ), '%s' ) ) . ')'; $args = array_merge( $args, $candidates['slugs'] ); }
+            if ( $candidates['ids'] ) { $selectors[] = $column . ' IN (' . implode( ',', array_fill( 0, count( $candidates['ids'] ), '%d' ) ) . ')'; $args = array_merge( $args, $candidates['ids'] ); }
+            $where .= ' AND (' . ( $selectors ? implode( ' OR ', $selectors ) : '1=0' ) . ')';
+        }
+        $args[] = self::BATCH;
+        $ids = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT $column FROM $from WHERE $where ORDER BY $column ASC LIMIT %d", ...$args ) );
+        return is_array( $ids ) && count( $ids ) <= self::BATCH && empty( $wpdb->last_error ) ? $ids : self::error( 'target_scan', 'Native URL candidates could not be inspected.', 503 );
+    }
+
+    /** Resolve native candidates, preserving exact hierarchy, taxonomy and language. */
     public static function resolve( string $url, ?string $resource_hint = null, ?string $language = null, ?string $language_home = null ) {
         $wanted = self::owned_url( $url, $language_home ); if ( is_wp_error( $wanted ) ) { return $wanted; }
-        $matches = []; $inspected = 0; $resources = self::routing_resources();
+        $matches = []; $resources = self::routing_resources();
         if ( is_wp_error( $resources ) ) { return $resources; }
+        $candidates = self::url_candidates( $wanted['identity'] );
         foreach ( $resources as $resource ) {
             $term = 'taxonomy' === $resource['type']; $name = $resource[$term ? 'taxonomy' : 'post_type'];
-            for ( $offset = 0; ; $offset += self::BATCH ) {
-                $ids = $term ? get_terms( [ 'taxonomy' => $name, 'hide_empty' => false, 'fields' => 'ids', 'number' => self::BATCH, 'offset' => $offset, 'orderby' => 'term_id', 'order' => 'ASC', 'suppress_filter' => true, 'wpml_skip_filters' => true, 'lang' => '' ] ) : get_posts( [ 'post_type' => $name, 'post_status' => [ 'publish', 'draft', 'private', 'pending', 'future' ], 'fields' => 'ids', 'numberposts' => self::BATCH, 'posts_per_page' => self::BATCH, 'offset' => $offset, 'orderby' => 'ID', 'order' => 'ASC', 'suppress_filters' => true, 'no_found_rows' => true ] );
-                if ( is_wp_error( $ids ) || ! is_array( $ids ) ) { return self::error( 'target_scan', 'Native URL candidates could not be inspected.', 503 ); }
+            $filtered = self::filtered_links( $resource['type'], $name ); $after = 0;
+            do {
+                $ids = self::candidate_ids( $resource, $candidates, $after, $filtered );
+                if ( is_wp_error( $ids ) ) { return $ids; }
                 foreach ( $ids as $id ) {
-                    if ( ++$inspected > self::MAX_OBJECTS ) { return self::error( 'target_scan_limit', 'Exact URL ownership could not be proven within the bounded native inventory.', 503 ); }
-                    $id = is_object( $id ) ? (int) ( $term ? $id->term_id : $id->ID ) : (int) $id;
+                    $id = (int) $id;
+                    if ( $id <= $after ) { return self::error( 'target_scan', 'Native URL candidate traversal did not advance.', 503 ); }
+                    $after = $id;
                     $native = self::native_url( $resource['id'], $term ? 'term' : 'post', $id ); if ( is_wp_error( $native ) ) { continue; } $identity = self::normalize_url( $native );
                     if ( is_wp_error( $identity ) || $identity['identity'] !== $wanted['identity'] ) { continue; }
                     $key = ( $term ? 'term:' : 'post:' ) . $id; $matches[$key] = [ 'resource_id' => $resource['id'], 'reference_type' => $term ? 'term' : 'post', 'reference_id' => $id, 'url' => $native ];
+                    if ( count( $matches ) > 1 ) { return self::error( 'target_ambiguous', 'Several native items claim this URL. Resolve their canonical links before rewriting.', 409 ); }
                 }
-                if ( count( $ids ) < self::BATCH ) { break; }
-            }
+            } while ( count( $ids ) === self::BATCH );
         }
         if ( ! $matches ) { return self::error( 'target_not_found', 'No editable native item has this exact site URL.', 404 ); }
-        if ( count( $matches ) !== 1 ) { return self::error( 'target_ambiguous', 'Several native items claim this URL. Resolve their canonical links before rewriting.', 409 ); }
         $target = reset( $matches ); $target['requested_url'] = $wanted['identity'];
         if ( null !== $resource_hint && $resource_hint !== $target['resource_id'] ) { return self::error( 'target_resource_mismatch', 'The URL belongs to a different native destination.', 409 ); }
         if ( ! current_user_can( 'term' === $target['reference_type'] ? 'edit_term' : 'edit_post', $target['reference_id'] ) ) { return self::error( 'target_permission', 'The configured mapping actor cannot edit the resolved native item.', 403 ); }

@@ -26,6 +26,7 @@ function get_permalink( $id ) { return $GLOBALS['links'][$id] ?? ''; }
 function get_post( $id ) { return $GLOBALS['native_posts'][$id] ?? null; }
 class Language_Rewrite { public $structure = '/%pagename%/'; public function get_page_permastruct() { return $this->structure; } public function get_extra_permastruct( $type ) { return '/cases/%case_study%/'; } }
 class Nova_Bridge_Suite_Document_Mapping { public static function resources() { return array_map( static function ( $type ) { return [ 'id' => 'post_type:' . $type, 'type' => 'post_type', 'post_type' => $type, 'availability' => 'available', 'can_inspect_existing' => true ]; }, [ 'page', 'post', 'case_study' ] ); } }
+require_once __DIR__ . '/native-target-query-fixture.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-mapped-content-target.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-language.php';
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-writer.php';

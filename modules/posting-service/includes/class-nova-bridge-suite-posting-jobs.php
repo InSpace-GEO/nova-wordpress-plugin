@@ -413,7 +413,21 @@ class Nova_Bridge_Suite_Posting_Jobs {
     }
 
     public function summaries( string $site_id ) {
-        $rows = $this->db->get_results( $this->db->prepare( "SELECT id,content_id,version,protocol,state,phase,target_id,attempts,next_attempt,last_error,COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.native_error_detail')),''),JSON_UNQUOTE(JSON_EXTRACT(payload,'$.failure_message'))) AS last_error_detail,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.content.url')) AS intended_url,created_at,updated_at FROM {$this->table} WHERE site_id=%s ORDER BY CASE WHEN state='blocked' THEN 0 WHEN state<>'complete' THEN 1 ELSE 2 END,CASE WHEN state<>'complete' THEN id END ASC,id DESC LIMIT 100", $site_id ), ARRAY_A );
+        $sql = "SELECT id,content_id,version,protocol,state,phase,target_id,attempts,next_attempt,last_error,
+            COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.native_error_detail')),''),
+                JSON_UNQUOTE(JSON_EXTRACT(payload,'$.failure_message'))) AS last_error_detail,
+            CASE
+                WHEN state='complete' AND phase='committed'
+                    AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.pending_event.kind'))='publication_failed' THEN 'failed'
+                WHEN state='complete' AND phase='committed'
+                    AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.pending_event.kind'))='publication_succeeded' THEN 'succeeded'
+                ELSE NULL
+            END AS publication_outcome,
+            JSON_UNQUOTE(JSON_EXTRACT(payload,'$.content.url')) AS intended_url,created_at,updated_at
+            FROM {$this->table} WHERE site_id=%s
+            ORDER BY CASE WHEN state='blocked' THEN 0 WHEN state<>'complete' THEN 1 ELSE 2 END,
+                CASE WHEN state<>'complete' THEN id END ASC,id DESC LIMIT 100";
+        $rows = $this->db->get_results( $this->db->prepare( $sql, $site_id ), ARRAY_A );
         return is_array( $rows ) && empty( $this->db->last_error ) ? $rows : $this->error();
     }
 
