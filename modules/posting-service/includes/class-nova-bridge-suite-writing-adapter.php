@@ -149,7 +149,7 @@ final class Nova_Bridge_Suite_Writing_Adapter {
         return $result;
     }
 
-    private static function fitted_url( string $value ): bool {
+    public static function fitted_url( string $value ): bool {
         if ( str_starts_with( $value, '/' ) ) {
             $decoded = rawurldecode( $value );
             return 1 === preg_match( '//u', $decoded ) && ! str_starts_with( $decoded, '//' ) &&

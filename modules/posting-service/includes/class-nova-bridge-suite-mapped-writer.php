@@ -156,7 +156,13 @@ final class Nova_Bridge_Suite_Mapped_Writer {
         foreach ( $writes as $write ) {
             $target = $write['target']; $value = $write['value'];
             if ( ! is_string( $value ) ) { self::fail( 'value_adapter', 'This direct writer only accepts scalar text values. Image, link and list targets need a verified typed adapter.' ); }
-            if ( '' !== $value && ( ( 'email' === ( $target['value_type'] ?? '' ) && false === filter_var( $value, FILTER_VALIDATE_EMAIL ) ) || ( 'url' === ( $target['value_type'] ?? '' ) && ( false === filter_var( $value, FILTER_VALIDATE_URL ) || ! preg_match( '#^https?://#i', $value ) ) ) ) ) { self::fail( 'target_value', 'The generated scalar is invalid for its native email or URL field.' ); }
+            if ( '' !== $value && 'email' === ( $target['value_type'] ?? '' ) && false === filter_var( $value, FILTER_VALIDATE_EMAIL ) ) { self::fail( 'target_value', 'The generated scalar is invalid for its native email field.' ); }
+            if ( '' !== $value && 'url' === ( $target['value_type'] ?? '' ) ) {
+                $valid_url = $destination
+                    ? Nova_Bridge_Suite_Writing_Adapter::fitted_url( $value )
+                    : false !== filter_var( $value, FILTER_VALIDATE_URL ) && 1 === preg_match( '#^https?://#i', $value );
+                if ( ! $valid_url ) { self::fail( 'target_value', 'The generated scalar is invalid for its native URL field.' ); }
+            }
             foreach ( $guards as $protected ) { if ( self::overlaps( $target, $protected ) ) { self::fail( 'protected_overlap', 'A planned replacement overlaps a protected native component.' ); } }
             foreach ( $footprints as $other ) { if ( self::overlaps( $target, $other ) ) { self::fail( 'physical_overlap', 'Two generated bindings resolve to the same or overlapping physical target.' ); } }
             $footprints[] = $target;
