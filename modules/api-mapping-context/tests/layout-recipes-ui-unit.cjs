@@ -46,6 +46,7 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
    if(path==='/design'){assert.equal(payload.mode,'article');assert.equal(payload.reference_id,0);return native;}
    if(path.startsWith('/profile?id='))return {id:'00000000-0000-4000-8000-000000000001',revision:1,resource_id:'post_type:page',posting_page_type:'service',label:'Page content template',recipe:clone(t.controller.state.recipe),design:native,content:clone(t.controller.state.content),posting_support:{supported:true}};
    if(path==='/preview')return {preview_document:'<html><body><h3>Native preview</h3></body></html>',warnings:[]};
+   if(path==='/draft')return {id:501,status:'draft',edit_url:'https://site.example/wp-admin/post.php?post=501'};
    if(path==='/save')return {id:'00000000-0000-4000-8000-000000000001',revision:1,resource_id:payload.resource_id,posting_page_type:payload.posting_page_type,default_saved:true,recipe:clone(payload.recipe),posting_support:{supported:true}};
    throw Error('Unexpected '+path);
   }});
@@ -87,11 +88,15 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   const heading=controlFor(t,'Heading levels'); heading.value='4';heading.events.change();t.flushFrames();
   const classes=controlFor(t,'Paragraph CSS classes');classes.value='article-copy';classes.events.input();
   assert.equal(t.controller.state.recipe.article.rules.heading.level,4);
+  const sampleTitle=controlFor(t,'NOVA page title');sampleTitle.value='Sample article title';sampleTitle.events.input();
   await t.controller.previewArticle();t.flushFrames();assert(t.host.all().some(e=>e.title==='Site-styled Gutenberg article preview'&&e.getAttribute('sandbox')==='allow-same-origin'));
+  assert.equal(t.calls.filter(call=>call.path==='/preview').at(-1).payload.input.content.title,'Sample article title');
   assert.equal(t.calls.filter(call=>call.path==='/preview').at(-1).payload.input.content.halo.service_intro_rich_text,'<p>Preview introduction.</p>');
   await t.controller.save();assert.equal(t.calls.find(c=>c.path==='/save').payload.recipe.article.rules.paragraph.class_name,'article-copy');
   assert.equal(t.calls.find(c=>c.path==='/save').payload.recipe.article.theme_displays_title,true);
   t.flushFrames();assert(t.host.all().some(e=>e.tag==='button'&&e.textContent==='Create review draft'));
+  await t.controller.createHaloDraft('00000000-0000-4000-8000-000000000999');
+  assert.equal(t.calls.filter(call=>call.path==='/draft').at(-1).payload.title,'Sample article title');
   const savedRecipe=clone(t.controller.state.recipe);await t.controller.reload();
   assert.deepEqual(t.controller.state.recipe.article,savedRecipe.article);assert.equal(t.controller.state.mode,'article');
   t.controller.selectResource('taxonomy:product_cat');assert.equal(t.controller.state.mode,'static');assert.equal(t.controller.state.builder,'core');assert(t.controller.next());
