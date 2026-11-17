@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.13
+Stable tag: 1.5.14
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.14 =
+* Respect ACF conditional visibility when validating saved layouts and publishing native content.
+* Handle hidden parent groups and conditions controlled by ancestor fields while preserving stored values.
+* Keep visible required fields enforced and include native ACF rejection details.
+* Validate conditional text controls against the values that will be stored.
 
 = 1.5.13 =
 * Add a title-display setting to Dynamic Gutenberg templates, enabled for new templates.
