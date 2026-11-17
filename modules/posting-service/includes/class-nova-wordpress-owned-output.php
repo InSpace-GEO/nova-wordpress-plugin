@@ -104,7 +104,8 @@ final class Nova_WordPress_Owned_Output {
         $blueprint = $ownership['blueprint'];
         $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( 'gutenberg' );
         foreach ( $ownership['fields'] as $field ) {
-            $blueprint = $adapter->bind( $blueprint, $field['binding'], self::mark( $field['value'], $field['binding']['format'] ?? 'text' ) );
+            $value = self::mark( $field['value'], $field['binding']['format'] ?? 'text' );
+            $blueprint = ! empty( $field['binding']['article_fragment'] ) ? Nova_Mapping_Gutenberg_Article::bind_owned_fragment( $blueprint, $field['binding'], $value ) : $adapter->bind( $blueprint, $field['binding'], $value );
             if ( is_wp_error( $blueprint ) ) { return $html; }
         }
         $result = $adapter->finalize( $blueprint, 'localized-render' );

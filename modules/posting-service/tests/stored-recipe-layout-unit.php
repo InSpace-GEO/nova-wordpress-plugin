@@ -22,6 +22,7 @@ function wp_kses_post( $value ) { return preg_replace( '#<script\b[^>]*>.*?</scr
 function wp_strip_all_tags( $value ) { return strip_tags( $value ); }
 function sanitize_text_field( $value ) { return trim( strip_tags( $value ) ); }
 function esc_html( $value ) { return htmlspecialchars( (string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' ); }
+function esc_attr( $value ) { return esc_html( $value ); }
 function current_user_can( ...$args ) { return true; }
 function get_post_type_object( $type ) { return (object) [ 'cap' => (object) [ 'create_posts' => 'edit_posts', 'edit_posts' => 'edit_posts' ] ]; }
 function no_live_io(): void { ++$GLOBALS['live_io_attempts']; throw new RuntimeException( 'Saved recipe compilation must not read an example, write data, or call HTTP.' ); }
@@ -333,4 +334,37 @@ $ranges=array_column($owned_output['ownership_ranges'],null,'path');
 check($ranges[$owned_path]['owned'] && !$ranges[$owned_path]['preserve'],'Actual supplied destination paths are owned');
 check(!$ranges['/document/sections/1/body']['owned'] && $ranges['/document/sections/1/body']['preserve'],'Unmapped source paths remain preserved');
 
-echo 'PASS ' . $checks . " generic stored-recipe layout assertions\n";
+$article_adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( 'gutenberg' );
+$article_starter = good( $article_adapter->starter( 'article' ), 'Build content-driven article' );
+$article_record = record( 'gutenberg', 'post', $article_starter['blueprint'], $article_starter['suggested_bindings'] );
+$article_record['recipe']['article'] = Nova_Mapping_Gutenberg_Article::defaults();
+$article_draft = good( Layout::from_recipe( $article_record ), 'Project article delivery' );
+$article_wire = good( Writing::template_input( $article_draft ), 'Project complete article sources' );
+check( $article_wire['definition']['version'] === 1 && array_column( $article_wire['mapping']['fields'], 'source_field' ) === [ 'h1', 'content' ], 'Article delivery copies the complete content without model selection' );
+$article_values = fitted( [ '/title' => 'Article', '/document/0/innerHTML' => '<h3>Original H3</h3><p>Body.</p><table><tbody><tr><td>Cell</td></tr></tbody></table>' ] );
+$article_output = good( Layout::compile( $article_draft, $article_values, 'article-delivery', '', true ), 'Compile fitted article' );
+$article_blocks = parse_blocks( $article_output['writer_payload']['native_document'] )[0]['innerBlocks'];
+check( array_column( $article_blocks, 'blockName' ) === [ 'core/heading', 'core/paragraph', 'core/table' ], 'Article creates native elements' );
+check( $article_blocks[0]['attrs']['level'] === 3, 'Article preserves heading level' );
+check( $article_draft['stored_layout']['article'] === $article_record['recipe']['article'], 'Renderer rules pinned into the stored layout' );
+$article_tampered = $article_draft; $article_tampered['article']['rules']['heading']['level'] = 2;
+check( is_wp_error( Layout::compile( $article_tampered, $article_values, 'article-delivery' ) ), 'Frozen article rules reject out-of-band edits' );
+$article_changed = $article_record; $article_changed['revision']++; $article_changed['recipe']['article']['rules']['heading']['level'] = 4;
+$article_changed_draft = good( Layout::from_recipe( $article_changed ), 'New article revision' );
+check( $article_changed_draft['stored_layout']['digest'] !== $article_draft['stored_layout']['digest'], 'New rules create a distinct immutable digest' );
+$old_again = good( Layout::compile( $article_draft, $article_values, 'article-delivery' ), 'Retry older article revision' );
+check( $old_again['writer_payload'] === $article_output['writer_payload'], 'Old revision retry keeps its exact output' );
+check( count( Nova_Mapping_Gutenberg_Article::ownership_fields( $article_output['compiled_blueprint'], '/document/0' ) ) === 3, 'Native article leaves support translation ownership' );
+$article_record['recipe']['article']['target'] = '/document/1';
+array_unshift( $article_record['recipe']['blueprint']['document'], [ 'blockName' => 'core/paragraph', 'attrs' => [], 'innerBlocks' => [], 'innerHTML' => '<p>Fixed introduction.</p>', 'innerContent' => [ '<p>Fixed introduction.</p>' ] ] );
+$article_record['recipe']['bindings'][0]['target'] = '/document/1/innerHTML';
+$with_sibling = good( Layout::from_recipe( $article_record ), 'Article with fixed sibling' );
+$with_sibling_output = good( Layout::compile( $with_sibling, fitted( [ '/title' => 'Article', '/document/1/innerHTML' => '<h3>Article body</h3>' ] ), 'article-sibling' ), 'Compile fixed sibling' );
+check( parse_blocks( $with_sibling_output['writer_payload']['native_document'] )[0]['innerHTML'] === '<p>Fixed introduction.</p>', 'Article conversion preserves fixed siblings' );
+
+$article_record['recipe']['omissions'] = [ [ 'target' => '/document/0' ] ];
+$without_sibling = good( Layout::from_recipe( $article_record ), 'Article after omitted sibling' );
+$shifted = good( Layout::compile( $without_sibling, fitted( [ '/title' => 'Article', '/document/1/innerHTML' => '<h3>Shifted article</h3>' ] ), 'article-shifted', '', true ), 'Compile shifted article' );
+check( $shifted['article_target'] === '/document/0' && str_contains( $shifted['writer_payload']['native_document'], 'Shifted article' ), 'Article and ownership follow omitted preceding siblings' );
+
+ echo 'PASS ' . $checks . " generic stored-recipe layout assertions\n";

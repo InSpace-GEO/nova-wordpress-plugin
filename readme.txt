@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.9
+Stable tag: 1.5.10
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,13 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.10 =
+* Create content-driven Gutenberg pages with native paragraphs, headings, lists, tables, quotes, images and separators.
+* Configure element styling through visual NOVA-to-Gutenberg mapping rows and familiar block icons.
+* Start new setups with Static template and use Dynamic template for content-driven Gutenberg rules.
+* Preview articles with the active theme's styles, global settings, fonts and custom CSS.
+* Preserve existing saved field mappings, repeated regions, publishing revisions and retry behavior.
 
 = 1.5.9 =
 * Map nested content in ACF Gutenberg blocks and their post-level descriptions and FAQ fields.
