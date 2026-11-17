@@ -88,6 +88,12 @@ foreach ( [ 'masterclass-first', 'pages-first', 'legacy-masterclass-first', 'leg
     check( $conflict['status'] === 'failed' && strpos( $conflict['message'], 'Both WordPress destinations use root URLs' ) !== false && $client->mutations === $before, 'Identical root patterns conflict before mutation.' );
     $conflict = sync_route( $client, $connection, $overlap );
     check( $conflict['status'] === 'failed' && strpos( $conflict['message'], '/masterclass/' ) !== false && $client->mutations === $before, 'Identical fixed prefixes conflict before mutation.' );
+    $replacement = route_recipe( $record, 'page', 5 );
+    $replaced = sync_route( $client, $connection, $replacement );
+    check( $replaced['status'] === 'synced' && $replaced['default_selected'] && $client->defaults['service'] === $replaced['template_id'], 'Choosing a new creation layout for the same Pages destination replaces its approved default without a URL conflict.' );
+    check( $replaced['template_id'] !== $page_id && Nova_Bridge_Suite_Layout_URL_Routes::index( $client->routes )['service:/masterclass/']['template_id'] === $cpt_id, 'Replacing the same destination preserves the other native destination route.' );
+    $before = $client->mutations;
+    check( sync_route( $client, $connection, $replacement )['status'] === 'synced' && $client->mutations === $before, 'Retrying the replacement keeps its remote identity.' );
 }
 update_option( 'home', 'https://wordpress.example/eindhoven' );
 check( Nova_Bridge_Suite_Layout_URL_Routes::selector( 'post_type:masterclass' ) === [ 'path_prefix' => '/eindhoven/masterclass/', 'installation_path' => '/eindhoven/' ], 'Subdirectory installs provide their canonical origin path separately from their native route.' );

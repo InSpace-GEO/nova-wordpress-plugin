@@ -200,6 +200,13 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             $title = sanitize_text_field( $title ); if ( '' === trim( $title ) || strlen( $title ) > 1000 ) { self::fail( 'title', 'The fitted layout needs a nonempty page title.' ); }
             $post_fields['title'] = $title; $provider = self::provider( $type, $payload, $status, $builder );
             $before = $target_id ? self::native_state( $target_id, $payload['theme_presentation'] ?? null, $payload['elementor_document_settings'] ?? null, $builder, $payload ) : null;
+            if ( isset( $local['article'] ) && $before ) {
+                $excerpt_path = Nova_Bridge_Suite_Recipe_Native_Media::EXCERPT;
+                $excerpt_field = $local['fields'][$excerpt_path] ?? null;
+                if ( ! $excerpt_field || ( 'adapt' === $excerpt_field['mode'] && ! array_key_exists( Nova_Bridge_Suite_Writing_Adapter::field_id( $excerpt_path ), $values ) ) ) {
+                    $post_fields['excerpt'] = $before['excerpt'];
+                }
+            }
             if ( $target_id && ( $before['type'] !== $type || ! in_array( $before['status'], [ 'draft', 'publish' ], true ) || $before['slug'] !== $target['slug'] || $before['parent'] !== $target['parent'] ) ) { self::fail( 'target_changed', 'The existing page identity or status changed during planning.' ); }
             if ( $target_id && ! current_user_can( 'edit_post', $target_id ) ) { self::fail( 'permission', 'The configured actor cannot edit the retained page.' ); }
             // The page's current owner (another delivery, mapping or environment) is frozen in native_before;

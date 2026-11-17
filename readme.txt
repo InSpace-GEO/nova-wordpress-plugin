@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.10
+Stable tag: 1.5.11
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.11 =
+* Restore featured-image, excerpt and additional scalar field controls in Dynamic Gutenberg templates.
+* Keep SEO metadata and inline image descriptions available alongside content-driven blocks.
+* Preserve an existing excerpt when a Dynamic delivery omits its source value.
+* Replace an approved default for the same WordPress destination without reporting a conflicting root URL.
 
 = 1.5.10 =
 * Create content-driven Gutenberg pages with native paragraphs, headings, lists, tables, quotes, images and separators.
