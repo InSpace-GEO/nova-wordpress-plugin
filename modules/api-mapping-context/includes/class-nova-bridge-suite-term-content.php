@@ -1,6 +1,7 @@
 <?php
 /** Authenticated existing-term editorial transport. This API never creates taxonomy items. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-wordpress-environment.php';
 
 final class Nova_Bridge_Suite_Term_Content {
     private const STORE = 'nova_bridge_layout_recipes_v1';
@@ -44,7 +45,7 @@ final class Nova_Bridge_Suite_Term_Content {
         $id = $context['profile_id'] ?? null; $revision = $context['revision'] ?? 0;
         if ( null === $id && ! $revision ) { return null; }
         if ( ! is_string( $id ) || ! preg_match( '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iD', $id ) || ! is_int( $revision ) || $revision < 1 ) { return self::error( 'Supply an exact saved mapping profile and revision.', 409 ); }
-        $state = get_option( self::STORE, [] ); $record = is_array( $state ) ? ( $state['profiles'][$id][$revision] ?? null ) : null;
+        $state = get_option( Nova_WordPress_Environment::key( self::STORE ), [] ); $record = is_array( $state ) ? ( $state['profiles'][$id][$revision] ?? null ) : null;
         if ( ! is_array( $state ) || ( $state['format'] ?? '' ) !== 'nova-layout-recipes-store/v1' || ! is_array( $record ) || ( $record['id'] ?? '' ) !== $id || ( $record['revision'] ?? 0 ) !== $revision || ( $record['resource_id'] ?? '' ) !== $resource['id'] || ! in_array( $record['builder'] ?? '', [ 'core', 'acf' ], true ) || ! is_array( $record['recipe']['blueprint'] ?? null ) ) { return self::error( 'That saved mapping revision does not belong to this category destination.', 409 ); }
         $recipe = $record['recipe']; $builder = $recipe['builder'] ?? ''; $blueprint = $recipe['blueprint'];
         if ( $builder !== $record['builder'] || ( $blueprint['taxonomy'] ?? '' ) !== $resource['taxonomy'] || ( 'core' === $builder && ( $blueprint['resource_id'] ?? '' ) !== $resource['id'] ) || ! is_string( $record['seal'] ?? null ) || ! hash_equals( hash_hmac( 'sha256', Nova_Bridge_Suite_Recipe_Engine::json( [ $builder, $blueprint ] ), wp_salt( 'auth' ) ), $record['seal'] ) ) { return self::error( 'The saved category mapping seal or destination could not be verified.', 409 ); }
@@ -71,6 +72,11 @@ final class Nova_Bridge_Suite_Term_Content {
         foreach ( $names as $name ) { if ( ! current_user_can( 'edit_term_meta', $id, $name ) ) { return self::error( 'You cannot access this category custom-field metadata. ' . Nova_Bridge_Suite_Content_Transport::meta_denial( 'term', $id, $name ), 403 ); } } return true;
     }
     public static function read( string $taxonomy, int $id, array $context = [] ) {
+        return self::with_language( $taxonomy, $id, static function () use ( $taxonomy, $id, $context ) {
+            return self::read_in_language( $taxonomy, $id, $context );
+        } );
+    }
+    private static function read_in_language( string $taxonomy, int $id, array $context ) {
         $resource = self::resource( $taxonomy, $id ); if ( is_wp_error( $resource ) ) { return $resource; }
         $capture = self::capture( $resource, $id, $context ); if ( is_wp_error( $capture ) ) { return $capture; }
         $values = self::values( $capture['term_fields'] ); if ( is_wp_error( $values ) ) { return $values; }
@@ -80,7 +86,7 @@ final class Nova_Bridge_Suite_Term_Content {
     }
     /** WordPress applies its comment HTML policy to category descriptions. NOVA rich text uses post HTML. */
     private static function with_category_html( string $taxonomy, bool $description, callable $work ) {
-        $priority = 'product_cat' === $taxonomy && $description && function_exists( 'has_filter' )
+        $priority = in_array( $taxonomy, [ 'product_cat', 'product_tag' ], true ) && $description && function_exists( 'has_filter' )
             ? has_filter( 'pre_term_description', 'wp_filter_kses' ) : false;
         if ( false === $priority ) { return $work(); }
         remove_filter( 'pre_term_description', 'wp_filter_kses', $priority );
@@ -138,6 +144,50 @@ final class Nova_Bridge_Suite_Term_Content {
     private static function uncertain( int $id, array $applied, string $field, bool $restored = false ): WP_Error {
         return new WP_Error( 'nova_term_content_partial', 'A native field setter or readback failed. Some category changes may already be saved; inspect the item before retrying.', [ 'status' => 500, 'term_id' => $id, 'write_status' => 'uncertain', 'applied_fields' => $applied, 'failed_field' => $field, 'failed_field_restored' => $restored, 'review_required' => true ] );
     }
+    public static function validate_payload( string $taxonomy, int $id, array $payload, array $context = [] ) {
+        $expected = self::expected_payload( $taxonomy, $id, $payload, $context );
+        return is_wp_error( $expected ) ? $expected : true;
+    }
+    /** Use the same native sanitizers for planning, saving and recovery readback. */
+    public static function expected_payload( string $taxonomy, int $id, array $payload, array $context = [] ) {
+        $resource = self::resource( $taxonomy, $id ); if ( is_wp_error( $resource ) ) { return $resource; }
+        $plan = self::preflight( $resource, $id, $payload, $context );
+        if ( is_wp_error( $plan ) ) { return $plan; }
+        $expected = $plan['payload'];
+        foreach ( $plan['acf'] as $name => $entry ) { $expected['meta_all']['acf'][$name] = $entry['value']; }
+        return $expected;
+    }
+    /** Compile the same approved scalar destinations for a shared-language view. */
+    public static function localized_fields( string $taxonomy, int $id, array $payload, array $context = [] ) {
+        $resource = self::resource( $taxonomy, $id );
+        if ( is_wp_error( $resource ) ) { return $resource; }
+        $plan = self::preflight( $resource, $id, $payload, $context );
+        if ( is_wp_error( $plan ) ) { return $plan; }
+        $fields = [ 'native' => [], 'meta' => [] ];
+        foreach ( [ 'name', 'description' ] as $key ) {
+            if ( array_key_exists( $key, $plan['payload'] ) ) {
+                $fields['native'][$key] = [ 'provider' => 'native', 'key' => $key,
+                    'type' => 'description' === $key ? 'wysiwyg' : 'text', 'value' => $plan['payload'][$key] ];
+            }
+        }
+        foreach ( $plan['declarations'] as $definition ) {
+            $value = 'rest' === $definition['transport'] ? $plan['payload'][$definition['rest_key']]
+                : $plan['payload'][$definition['transport']][$definition['rest_key']];
+            if ( ! is_string( $value ) || empty( $definition['single'] ) ) {
+                return self::error( 'Shared-language category fields require scalar text destinations.', 409 );
+            }
+            $fields['meta'][$definition['key']] = [ 'provider' => 'meta', 'key' => $definition['key'],
+                'type' => 'wysiwyg', 'value' => $value ];
+        }
+        foreach ( $plan['acf'] as $name => $entry ) {
+            if ( ! is_string( $entry['value'] ) || ! in_array( $entry['field']['type'], [ 'text', 'textarea', 'wysiwyg', 'url', 'email' ], true ) ) {
+                return self::error( 'Shared-language category ACF fields require scalar text destinations.', 409 );
+            }
+            $fields['meta'][$name] = [ 'provider' => 'acf', 'key' => $entry['field']['key'],
+                'type' => $entry['field']['type'], 'value' => $entry['value'] ];
+        }
+        return $fields;
+    }
     private static function replace_multi( int $id, string $key, array $values ): bool {
         try { delete_term_meta( $id, $key ); if ( [] !== get_term_meta( $id, $key, false ) ) { return false; }
             foreach ( $values as $value ) { $result = add_term_meta( $id, $key, wp_slash( $value ) ); if ( is_wp_error( $result ) || false === $result ) { return false; } } return true;
@@ -145,6 +195,34 @@ final class Nova_Bridge_Suite_Term_Content {
     }
     /** All validation precedes native setters. Plugin callbacks do not offer a transaction. */
     public static function apply( string $taxonomy, int $id, array $payload, array $profileContext = [] ) {
+        return self::with_language( $taxonomy, $id, static function () use ( $taxonomy, $id, $payload, $profileContext ) {
+            return self::apply_in_language( $taxonomy, $id, $payload, $profileContext );
+        } );
+    }
+    /** WPML term setters and metadata filters use the current request language. */
+    public static function with_language( string $taxonomy, int $id, callable $work ) {
+        if ( ! function_exists( 'pll_get_term_language' ) && defined( 'ICL_SITEPRESS_VERSION' ) ) {
+            $term = WP_Term::get_instance( $id, $taxonomy );
+            if ( $term && ! is_wp_error( $term ) ) {
+                $details = (array) apply_filters( 'wpml_element_language_details', null, [
+                    'element_id' => $term->term_taxonomy_id, 'element_type' => 'tax_' . $taxonomy,
+                ] );
+                $language = $details['language_code'] ?? null;
+                $previous = apply_filters( 'wpml_current_language', null );
+                if ( is_string( $language ) && '' !== $language && $language !== $previous ) {
+                    try {
+                        do_action( 'wpml_switch_language', $language );
+                        if ( apply_filters( 'wpml_current_language', null ) !== $language ) {
+                            return self::error( 'The native category language could not be activated.', 409 );
+                        }
+                        return $work();
+                    } finally { do_action( 'wpml_switch_language', $previous ); }
+                }
+            }
+        }
+        return $work();
+    }
+    private static function apply_in_language( string $taxonomy, int $id, array $payload, array $profileContext ) {
         $resource = self::resource( $taxonomy, $id ); if ( is_wp_error( $resource ) ) { return $resource; }
         try { $plan = self::preflight( $resource, $id, $payload, $profileContext ); } catch ( Throwable $error ) { return self::error( 'The native field definitions or validators could not prepare this update.', 409 ); }
         if ( is_wp_error( $plan ) ) { return $plan; } $applied = []; $field = 'native content';

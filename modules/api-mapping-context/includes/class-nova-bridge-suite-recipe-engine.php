@@ -3,6 +3,8 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-recipe-native-media.php';
 require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
+require_once __DIR__ . '/class-nova-bridge-suite-layout-locales.php';
+require_once dirname( __DIR__ ) . '/adapters/gutenberg-article.php';
 
 final class Nova_Bridge_Suite_Recipe_Failure extends RuntimeException {
     public $error;
@@ -78,7 +80,8 @@ final class Nova_Bridge_Suite_Recipe_Engine {
     public static function validate( array $recipe ) {
         return self::guard( static function () use ( $recipe ) {
             self::json( $recipe );
-            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields', 'seo_fields', 'omissions' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
+            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields', 'seo_fields', 'omissions', 'locale_values', 'article' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
+            Nova_Bridge_Suite_Layout_Locales::validate_manual( $recipe );
             if ( array_key_exists( 'posting_fields', $recipe ) ) {
                 if ( 'static' !== $recipe['mode'] || 'acf' === $recipe['builder'] ) { self::fail( 'Use a fixed native post layout to map editorial custom fields during delivery.' ); }
                 Nova_Bridge_Suite_Layout_Custom_Fields::selections( $recipe );
@@ -87,6 +90,10 @@ final class Nova_Bridge_Suite_Recipe_Engine {
                 require_once __DIR__ . '/class-nova-wordpress-layout-seo.php';
                 if ( 'static' !== $recipe['mode'] ) { self::fail( 'SEO metadata uses a fixed content layout.' ); }
                 Nova_WordPress_Layout_SEO::selections( $recipe );
+            }
+            if ( isset( $recipe['article'] ) ) {
+                if ( 'gutenberg' !== $recipe['builder'] || 'static' !== $recipe['mode'] || ! is_array( $recipe['article'] ) ) { self::fail( 'Content-driven articles require a fixed Gutenberg article region.' ); }
+                Nova_Mapping_Gutenberg_Article::validate( $recipe['article'], $recipe['blueprint'], $recipe['bindings'] ?? [], $recipe['regions'] ?? [] );
             }
             self::metadata( $recipe ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
             $checked = self::checked( $adapter->validate_blueprint( $recipe['blueprint'] ) );
@@ -150,12 +157,12 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         $targets = self::omission_targets( $recipe['omissions'] );
         if ( ! $targets ) { return; }
         if ( 'static' !== $recipe['mode'] || in_array( $recipe['builder'], [ 'core', 'acf' ], true ) || ! is_callable( [ $adapter, 'describe' ] ) ) { self::fail( 'Removing elements needs a fixed builder layout.' ); }
-        $description = self::checked( $adapter->describe( $recipe['blueprint'] ) ); $elements = [];
-        foreach ( $description['fields'] ?? [] as $field ) { if ( is_string( $field['node_target'] ?? null ) ) { $elements[ $field['node_target'] ] = true; } }
+        $description = self::checked( $adapter->describe( $recipe['blueprint'] ) ); $elements = []; $field_owners = [];
+        foreach ( $description['fields'] ?? [] as $field ) { if ( is_string( $field['node_target'] ?? null ) ) { $elements[ $field['node_target'] ] = true; $field_owners[ $field['target'] ] = $field['node_target']; } }
         foreach ( $targets as $target ) {
             if ( ! isset( $elements[ $target ] ) ) { self::fail( 'Only an element that shows a listed field can be removed.' ); }
             foreach ( $targets as $other ) { if ( $other !== $target && 0 === strpos( $other, $target . '/' ) ) { self::fail( 'An element inside another removed element is already removed.' ); } }
-            foreach ( $recipe['bindings'] ?? [] as $binding ) { if ( $binding['target'] === $target || 0 === strpos( $binding['target'], $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); } }
+            foreach ( $recipe['bindings'] ?? [] as $binding ) { $owner = $field_owners[ $binding['target'] ] ?? $binding['target']; if ( $binding['target'] === $target || 0 === strpos( $binding['target'], $target . '/' ) || $owner === $target || 0 === strpos( $owner, $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); } }
         }
         // Prove that the builder accepts the document without these elements.
         self::checked( $adapter->validate_blueprint( self::apply_omissions( $recipe['blueprint'], $targets, $adapter ) ) );
@@ -232,7 +239,7 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         foreach ( $empty as $target ) {
             $node = $nodes[ $target ] ?? null;
             if ( null === $node || ! self::element_pointer( $node ) ) { continue; }
-            foreach ( $kept as $other ) { if ( $inside( $other, $node ) ) { continue 2; } }
+            foreach ( $kept as $other ) { if ( $inside( $nodes[ $other ] ?? $other, $node ) ) { continue 2; } }
             $removed[ $node ] = true; $vacant = true;
         }
         if ( ! $vacant ) { return $omissions; }
@@ -252,6 +259,8 @@ final class Nova_Bridge_Suite_Recipe_Engine {
                 if ( isset( $removed[ $owner ] ) || isset( $emptied[ $owner ] ) || ! self::element_pointer( $owner ) ) { continue; }
                 $list = self::get( $native, $list_pointer, $found );
                 if ( ! $found || ! self::list_array( $list ) || ! $list ) { continue; }
+                // A visible label can live on its widget while owning a child panel.
+                foreach ( $kept as $other ) { if ( ( $nodes[ $other ] ?? $other ) === $owner ) { continue 2; } }
                 foreach ( $list as $index => $child ) { $pointer = $list_pointer . '/' . $index; if ( ! isset( $removed[ $pointer ] ) && ! isset( $emptied[ $pointer ] ) && ! $filler( $child, $pointer ) ) { continue 2; } }
                 // Nothing this container showed remains.
                 if ( self::column( self::get( $native, $owner ) ) ) { $emptied[ $owner ] = true; }
@@ -338,7 +347,13 @@ final class Nova_Bridge_Suite_Recipe_Engine {
     public static function compile( array $recipe, array $content, string $seed ) {
         return self::guard( static function () use ( $recipe, $content, $seed ) {
             if ( ! self::plain( $seed, 256 ) || '' === $seed ) { self::fail( 'Compilation needs a bounded stable operation identity.' ); }
-            $recipe = self::checked( self::validate( $recipe ) ); $normalized = self::checked( self::normalize( $content ) ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
+            $recipe = self::checked( self::validate( $recipe ) );
+            if ( isset( $recipe['article'] ) ) {
+                $article_binding = array_values( array_filter( $recipe['bindings'], static function ( $binding ) use ( $recipe ) { return $binding['target'] === $recipe['article']['target'] . '/innerHTML'; } ) )[0];
+                $raw = self::get( $content, $article_binding['source'], $found );
+                if ( ! $found || ! is_string( $raw ) || '' === trim( $raw ) || wp_kses_post( $raw ) !== $raw ) { self::fail( 'Supply complete permitted article HTML.' ); }
+            }
+            $normalized = self::checked( self::normalize( $content ) ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
             $state = [ 'warnings' => $normalized['_normalization_warnings'] ?? [], 'regions' => [], 'bindings' => 0, 'instances' => 0, 'generated_bytes' => 0 ];
             $native = self::compile_scope( $recipe['blueprint'], $recipe['bindings'] ?? [], $recipe['regions'] ?? [], $normalized, $adapter, $seed, [], $state, 0 );
             $removed = self::omission_targets( $recipe['omissions'] ?? [] );
@@ -355,7 +370,12 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             }
             $native = self::apply_omissions( $native, $removed, $adapter );
             if ( ! empty( $state['native_media'] ) ) { $state['native_media'] = self::shift_pointers( $state['native_media'], $removed ); }
+            if ( isset( $recipe['article'] ) ) {
+                $article = Nova_Mapping_Gutenberg_Article::render( $native, Nova_Mapping_Gutenberg_Article::after_omissions( $recipe['article'], $removed ), (string) ( $state['post_fields']['title'] ?? $normalized['title'] ?? '' ) );
+                $native = $article['blueprint']; $state['warnings'] = array_merge( $state['warnings'], $article['warnings'] );
+            }
             $result = self::checked( $adapter->finalize( $native, $seed, [ 'recipe' => $recipe, 'content' => $normalized, 'regions' => $state['regions'] ] ) );
+            if ( isset( $recipe['article'] ) ) { $result['preview_html'] = $result['writer_payload']['native_document']; }
             if ( ! is_array( $result ) || ! isset( $result['native_document'], $result['writer_payload'], $result['preview_html'] ) || ! is_array( $result['writer_payload'] ) || ! is_string( $result['preview_html'] ) ) { self::fail( 'The adapter did not return a complete native document, writer payload and structure preview.' ); }
             if ( ! empty( $state['post_fields'] ) ) { $result['post_fields'] = $state['post_fields']; }
             if ( ! empty( $recipe['omissions'] ) ) { $result['omitted'] = count( $recipe['omissions'] ); }
@@ -367,6 +387,8 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             $result['content_schema'] = self::augmented_schema( $recipe, $adapter );
             $result['normalized_content'] = $normalized; $result['engine_version'] = self::VERSION; $result['recipe_digest'] = self::digest( $recipe ); $result['content_digest'] = self::digest( $normalized );
             if ( isset( $recipe['custom_fields'] ) ) { $result['custom_fields'] = $recipe['custom_fields']; }
+            $halo = self::checked( Nova_WordPress_Halo_Fields::compile( $recipe, $normalized ) );
+            if ( $halo ) { $result['halo_fields'] = $halo; $result['preview_html'] .= Nova_WordPress_Halo_Fields::preview( $halo ); }
             $result['plan_digest'] = self::digest( $result ); self::json( $result ); return $result;
         } );
     }
@@ -448,12 +470,13 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         }
         foreach ( $groups as &$group ) { if ( isset( $projection['title_source'] ) ) { $title = self::get( $group, $projection['title_source'], $found ); if ( $found && '' !== $title ) { if ( ! is_string( $title ) ) { self::fail( 'A projected native title must be text.' ); } $group['title'] = $title; $group['title_html'] = htmlspecialchars( $title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' ); } } } unset( $group ); return $groups;
     }
-    private static function scope_schema( array $bindings, array $regions ): array {
+    private static function scope_schema( array $bindings, array $regions, $adapter = null, array $native = [] ): array {
         $schema = [ 'type' => 'object', 'properties' => [], 'additionalProperties' => true ];
         foreach ( $bindings as $binding ) { $type = in_array( $binding['format'], [ 'number', 'boolean' ], true ) ? $binding['format'] : 'string'; self::schema_at( $schema, self::parts( $binding['source'] ), [ 'type' => $type, 'description' => $binding['instructions'] ?? $binding['label'] ?? '', 'x-native-formats' => [ $binding['format'] ] ], $binding['required'] ); }
         foreach ( $regions as $region ) {
-            $item = self::scope_schema( $region['prototype']['bindings'] ?? [], $region['prototype']['regions'] ?? [] );
-            if ( isset( $region['variants'] ) ) { $choices = []; foreach ( $region['variants'] as $name => $prototype ) { $variant = self::scope_schema( $prototype['bindings'] ?? [], $prototype['regions'] ?? [] ); self::schema_at( $variant, self::parts( $region['variant_by'] ), [ 'type' => 'string', 'enum' => [ $name ] ], true ); $choices[] = $variant; } $item = [ 'oneOf' => $choices ]; }
+            $item = self::scope_schema( $region['prototype']['bindings'] ?? [], $region['prototype']['regions'] ?? [], $adapter, $region['prototype']['native'] );
+            if ( isset( $region['variants'] ) ) { $choices = []; foreach ( $region['variants'] as $name => $prototype ) { $variant = self::scope_schema( $prototype['bindings'] ?? [], $prototype['regions'] ?? [], $adapter, $prototype['native'] ); self::schema_at( $variant, self::parts( $region['variant_by'] ), [ 'type' => 'string', 'enum' => [ $name ] ], true ); $choices[] = $variant; } $item = [ 'oneOf' => $choices ]; }
+            if ( $adapter && method_exists( $adapter, 'region_content_schema' ) ) { $item = self::checked( $adapter->region_content_schema( $native, $region, $item ) ); }
             if ( isset( $region['projection'] ) ) { self::schema_at( $item, self::parts( $region['projection']['group_by'] ), [ 'type' => 'string', 'description' => 'Explicit contiguous device grouping key; omit for one section per group.' ], false ); if ( isset( $region['projection']['title_source'] ) ) { self::schema_at( $item, self::parts( $region['projection']['title_source'] ), [ 'type' => 'string', 'description' => 'Optional short projected navigation/section title.' ], false ); } }
             if ( 'optional' === $region['kind'] && 'parent' === ( $region['context'] ?? 'item' ) ) { $schema = self::merge_schema( $schema, $item ); $parts = self::parts( $region['source'] ); if ( ! self::schema_get( $schema, $parts ) ) { self::schema_at( $schema, $parts, [ 'anyOf' => [ [ 'type' => 'boolean' ], [ 'type' => 'array' ], [ 'type' => 'object' ], [ 'type' => 'null' ] ], 'description' => $region['instructions'] ?? $region['label'] ?? '' ], false ); } else { self::schema_at( $schema, $parts, [ 'description' => $region['instructions'] ?? $region['label'] ?? '' ], false ); } }
             else { $value = 'repeat' === $region['kind'] ? [ 'type' => 'array', 'items' => $item, 'maxItems' => $region['max_items'] ] : [ 'anyOf' => [ $item, [ 'type' => 'null' ], [ 'type' => 'boolean' ] ] ]; $value['description'] = $region['instructions'] ?? $region['label'] ?? ''; self::schema_at( $schema, self::parts( $region['source'] ), $value, false ); }
@@ -491,8 +514,9 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         return $merged;
     }
     private static function augmented_schema( array $recipe, $adapter ): array {
-        $schema = self::scope_schema( $recipe['bindings'] ?? [], $recipe['regions'] ?? [] );
+        $schema = self::scope_schema( $recipe['bindings'] ?? [], $recipe['regions'] ?? [], $adapter, $recipe['blueprint'] );
         if ( method_exists( $adapter, 'augment_content_schema' ) ) { $schema = self::checked( $adapter->augment_content_schema( $recipe, $schema ) ); if ( ! is_array( $schema ) || ( $schema && self::list_array( $schema ) ) ) { self::fail( 'A native schema adapter must return the complete content-schema object.' ); } }
+        $schema = Nova_WordPress_Halo_Fields::content_schema( $recipe, $schema );
         self::json( $schema ); return $schema;
     }
     public static function content_schema( array $recipe ) { return self::guard( static function () use ( $recipe ) { self::checked( self::validate( $recipe ) ); return self::augmented_schema( $recipe, self::checked( self::adapter( $recipe['builder'] ) ) ); } ); }

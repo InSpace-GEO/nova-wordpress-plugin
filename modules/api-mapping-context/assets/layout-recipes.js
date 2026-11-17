@@ -9,14 +9,15 @@
 	}
 }( typeof window === 'undefined' ? null : window, function () {
 	'use strict';
-	var MODES = [ { id: 'static', label: 'Static template', description: 'Use the same fields and the same number of elements on every page or post. Choose which content fields are required.' }, { id: 'dynamic', label: 'Dynamic template', description: 'Let content change the number of items. Use optional regions for empty content and keep fixed surrounding fields where you need them.' } ];
-	function displayMode( mode ) { return mode === 'static' ? 'static' : 'dynamic'; }
+	var MODES = [ { id: 'static', label: 'Static template', description: 'Map content into the fields and sections of an existing design or a native starter.' }, { id: 'dynamic', label: 'Dynamic template', description: 'Define how content elements become native blocks. Each article determines their number and order. Currently available for Gutenberg.' } ];
+	function displayMode( mode ) { return [ 'article', 'dynamic' ].includes( mode ) ? 'dynamic' : 'static'; }
 	function modeLabel( mode ) { return displayMode( mode ) === 'static' ? 'Static template' : 'Dynamic template'; }
 	var STEPS = [ 'Destination & approach', 'Choose a design', 'Content rules' ];
 	function copy( value ) { return value === undefined ? undefined : JSON.parse( JSON.stringify( value ) ); }
 	function same( a, b ) { return JSON.stringify( a ) === JSON.stringify( b ); }
-	function defaultPageType( resourceId ) { return resourceId === 'post_type:post' ? 'informative' : resourceId === 'taxonomy:product_cat' ? 'category' : 'service'; }
-	function hasPageType( resourceId ) { return resourceId.startsWith( 'post_type:' ) || resourceId === 'taxonomy:product_cat'; }
+	function isProductTaxonomy( resourceId ) { return [ 'taxonomy:product_cat', 'taxonomy:product_tag' ].includes( resourceId ); }
+	function defaultPageType( resourceId ) { return resourceId === 'post_type:post' ? 'informative' : isProductTaxonomy( resourceId ) ? 'category' : 'service'; }
+	function hasPageType( resourceId ) { return resourceId.startsWith( 'post_type:' ) || isProductTaxonomy( resourceId ); }
 	function suggestedDestination( type, resources ) { var preferred = type === 'informative' ? 'post_type:post' : type === 'category' && resources.some( function ( item ) { return item.id === 'taxonomy:product_cat' && manualResource( item ); } ) ? 'taxonomy:product_cat' : 'post_type:page'; return resources.find( function ( item ) { return item.id === preferred && manualResource( item ); } ); }
 	function pageTypeLabel( type ) { return type === 'informative' ? 'Informative' : type === 'category' ? 'Category' : 'Service'; }
 	function selectedPageTypes( state ) { return state.postingPageTypes || [ state.postingPageType ]; }
@@ -29,7 +30,7 @@
 	function canonicalDeclaration( value ) { if ( Array.isArray( value ) ) { return value.map( canonicalDeclaration ); } if ( value && typeof value === 'object' ) { var result = Object.create( null ); Object.keys( value ).sort().forEach( function ( key ) { result[ key ] = canonicalDeclaration( value[ key ] ); } ); return result; } return value; }
 	function message( value ) { return typeof value === 'string' ? value : value && value.message || 'This template needs review. Your changes are kept.'; }
 	function manualResource( item ) { return !! item && ! item.system_managed && ! item.coming_soon && item.post_type !== 'product' && item.id !== 'post_type:product' && item.creation_supported !== false; }
-	function builderChoices( builders, resource, mode ) { return builders.filter( function ( item ) { return ( ! resource || resource.type !== 'taxonomy' && resource.kind !== 'term' || [ 'core', 'acf' ].includes( item.id ) ) && ( ! resource || ! Array.isArray( resource.builder_ids ) || resource.builder_ids.includes( item.id ) ) && ( ! item.modes || item.modes.includes( mode ) ); } ); }
+	function builderChoices( builders, resource, mode ) { return builders.filter( function ( item ) { return ( ! [ 'article', 'dynamic' ].includes( mode ) || item.id === 'gutenberg' ) && ( ! resource || resource.type !== 'taxonomy' && resource.kind !== 'term' || [ 'core', 'acf' ].includes( item.id ) ) && ( ! resource || ! Array.isArray( resource.builder_ids ) || resource.builder_ids.includes( item.id ) ) && ( ! item.modes || item.modes.includes( mode === 'dynamic' ? 'article' : mode ) ); } ); }
 	function pointerParts( path ) { if ( typeof path !== 'string' || ! /^\//.test( path ) || /~(?![01])/.test( path ) ) { throw new Error( 'This content role has an unsupported source.' ); } var parts = path.slice( 1 ).split( '/' ).map( function ( part ) { return part.replace( /~1/g, '/' ).replace( /~0/g, '~' ); } ); if ( parts.length > 48 || parts.some( function ( part ) { return [ '__proto__', 'prototype', 'constructor' ].includes( part ); } ) ) { throw new Error( 'This content role is unavailable.' ); } return parts; }
 	function contentValue( content, path ) { return pointerParts( path ).reduce( function ( value, key ) { return value && typeof value === 'object' && Object.prototype.hasOwnProperty.call( value, key ) ? value[ key ] : undefined; }, content ); }
 	function setContentValue( content, path, value ) { var parts = pointerParts( path ), cursor = content; parts.forEach( function ( key, index ) { if ( index === parts.length - 1 ) { cursor[ key ] = value; } else { if ( ! cursor[ key ] || typeof cursor[ key ] !== 'object' ) { cursor[ key ] = {}; } cursor = cursor[ key ]; } } ); }
@@ -89,7 +90,7 @@
 		} ); return content;
 	}
 	function fieldInside( field, region ) { var prefix = region.target + '/', suffix = field.target.startsWith( prefix ) ? field.target.slice( prefix.length ).split( '/' )[ 0 ] : ''; return /^[0-9]+$/.test( suffix ) && Number( suffix ) >= region.start && Number( suffix ) < region.start + region.count; }
-	function pairedTitleInside( field, region, builder ) { if ( builder !== 'elementor' || ! region.target.endsWith( '/elements' ) ) { return false; } var parent = region.target.slice( 0, -9 ), prefix = parent + '/settings/tabs/', suffix = field.target.startsWith( prefix ) ? field.target.slice( prefix.length ) : '', match = /^([0-9]+)\/tab_title$/.exec( suffix ); return !! match && Number( match[1] ) >= region.start && Number( match[1] ) < region.start + region.count; }
+	function pairedTitleInside( field, region, builder ) { if ( builder !== 'elementor' || ! region.target.endsWith( '/elements' ) ) { return false; } var parent = region.target.slice( 0, -9 ), prefix = parent + '/settings/', suffix = field.target.startsWith( prefix ) ? field.target.slice( prefix.length ) : '', match = /^(?:tabs\/([0-9]+)\/tab_title|items\/([0-9]+)\/item_title)$/.exec( suffix ), index = match ? Number( match[1] || match[2] ) : -1; return !! match && index >= region.start && index < region.start + region.count; }
 	function overlap( a, b ) { return a.target === b.target && ( a.count === 0 || b.count === 0 || a.start < b.start + b.count && b.start < a.start + a.count ) || fieldInside( { target: a.target }, b ) || fieldInside( { target: b.target }, a ); }
 	function moveBindings( owner, region, builder ) { owner.bindings = ( owner.bindings || [] ).filter( function ( binding ) { if ( pairedTitleInside( binding, region, builder ) ) { return false; } if ( ! fieldInside( binding, region ) ) { return true; } var suffix = binding.target.slice( region.target.length + 1 ).split( '/' ), index = Number( suffix.shift() ) - ( region.prototype_start === undefined ? region.start : region.prototype_start ), relative = '/' + index + ( suffix.length ? '/' + suffix.join( '/' ) : '' ), next = ( region.prototype.bindings || [] ).find( function ( item ) { return item.target === relative; } ); if ( next ) { next.instructions = binding.instructions || next.instructions; next.label = binding.label || next.label; next.required = binding.required; if ( binding.source.startsWith( '/custom/' ) ) { next.source = binding.source; } } return false; } ); }
 	function ancestorContext( scope, target ) { for ( var region of scope.regions || [] ) { if ( region === target || region.id === target.id ) { return { regions: [ region ], variants: [ null ] }; } for ( var name of [ '' ].concat( Object.keys( region.variants || {} ) ) ) { var found = ancestorContext( name ? region.variants[ name ] : region.prototype, target ); if ( found ) { return { regions: [ region ].concat( found.regions ), variants: [ name || null ].concat( found.variants ) }; } } } return null; }
@@ -103,16 +104,25 @@
 		var ids = new Set(); result.resources.forEach( function ( item ) { if ( ! item || typeof item.id !== 'string' || typeof item.label !== 'string' || ids.has( item.id ) ) { throw new Error( 'A destination could not be verified.' ); } ids.add( item.id ); } );
 		ids = new Set(); result.builders.forEach( function ( item ) { if ( ! item || typeof item.id !== 'string' || typeof item.label !== 'string' || ids.has( item.id ) ) { throw new Error( 'A builder could not be verified.' ); } ids.add( item.id ); } ); return copy( result );
 	}
+	function editorialField( field ) {
+		var key = field.custom_field_key || field.key || field.name || '';
+		return ! /^(?:_nova_|nova_batch_|yoast_head(?:_json)?$|barcode$)/i.test( key ) && ! /_translation_snapshots$/i.test( key );
+	}
 	function designResult( result, builder ) {
 		if ( ! result || ! result.blueprint || typeof result.seal !== 'string' || ! result.seal || ! Array.isArray( result.fields ) || ! Array.isArray( result.containers ) ) { throw new Error( 'The native design could not be verified. Nothing was replaced.' ); }
 		if ( result.builder && builder !== 'auto' && result.builder !== builder ) { throw new Error( 'The returned design belongs to a different builder.' ); }
 		result.fields.forEach( function ( field ) { if ( ! field || typeof field.target !== 'string' || typeof field.label !== 'string' ) { throw new Error( 'The design returned an unsupported field.' ); } } );
 		if ( builder === 'auto' && ( ! result.builder || result.builder === 'auto' ) ) { throw new Error( 'The reference builder could not be verified.' ); }
-		return Object.assign( copy( result ), { builder: builder === 'auto' ? result.builder : builder, sources: sources( result.sources ), declared_term_fields: declarationMap( result.declared_term_fields ) } );
+		var design = Object.assign( copy( result ), { builder: builder === 'auto' ? result.builder : builder, sources: sources( result.sources ), declared_term_fields: declarationMap( result.declared_term_fields ) } );
+		// Filter presentation only. Keep the sealed blueprint and saved recipe authority intact.
+		design.fields = design.fields.filter( editorialField );
+		design.excluded_fields = ( design.excluded_fields || [] ).filter( editorialField );
+		if ( Array.isArray( design.preview_fields ) ) { design.preview_fields = design.preview_fields.filter( editorialField ); }
+		return design;
 	}
 	function recipeFrom( design, mode ) {
 		var recipe = design.recipe_preset ? copy( design.recipe_preset ) : { format: 'nova-layout-recipe/v1', builder: design.builder, blueprint: copy( design.blueprint ), bindings: [], regions: [] };
-		recipe.format = 'nova-layout-recipe/v1'; recipe.builder = design.builder; recipe.blueprint = copy( design.blueprint ); recipe.mode = mode; recipe.bindings = recipe.bindings || []; recipe.regions = mode === 'static' ? [] : recipe.regions || []; return recipe;
+		recipe.format = 'nova-layout-recipe/v1'; recipe.builder = design.builder; recipe.blueprint = copy( design.blueprint ); recipe.mode = mode === 'article' ? 'static' : mode; recipe.bindings = recipe.bindings || []; recipe.regions = [ 'static', 'article' ].includes( mode ) ? [] : recipe.regions || []; return recipe;
 	}
 	function storedPresentationKeys( design ) { return Object.keys( design.blueprint.theme_presentation && design.blueprint.theme_presentation.meta || {} ).sort(); }
 	function setPresentationKeys( design, keys ) {
@@ -137,9 +147,9 @@
 		var checked = copy( result ); [ 'edit_url', 'view_url', 'preview_url' ].forEach( function ( key ) { if ( checked[ key ] ) { var url; try { url = new URL( checked[ key ], origin ); } catch ( error ) { throw new Error( 'The draft returned an unsupported link.' ); } if ( url.origin !== new URL( origin ).origin || ! /^https?:$/.test( url.protocol ) ) { throw new Error( 'The draft returned a link outside this WordPress site.' ); } checked[ key ] = url.href; } } ); return checked;
 	}
 	function safeStorage( win ) { try { return win.sessionStorage; } catch ( error ) { return undefined; } }
-	function operationStore( storage, key ) { return { read: function () { try { var value = JSON.parse( storage.getItem( key ) || 'null' ); return value && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( value.operation_id ) && typeof value.id === 'string' && Number.isInteger( value.revision ) && value.revision > 0 ? value : null; } catch ( error ) { return null; } }, forget: function () { try { storage.removeItem( key ); } catch ( error ) { /* Storage may be disabled by the browser. */ } } }; }
+	function operationStore( storage, key ) { return { read: function () { try { var value = JSON.parse( storage.getItem( key ) || 'null' ); return value && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( value.operation_id ) && typeof value.id === 'string' && Number.isInteger( value.revision ) && value.revision > 0 ? value : null; } catch ( error ) { return null; } }, remember: function ( value ) { try { storage.setItem( key, JSON.stringify( value ) ); } catch ( error ) { /* In-memory recovery remains available. */ } }, forget: function () { try { storage.removeItem( key ); } catch ( error ) { /* Storage may be disabled by the browser. */ } } }; }
 	function createController( options ) {
-		var state = { catalog: null, resourceId: options.resourceId || '', postingPageType: defaultPageType( options.resourceId || '' ), mode: 'mixed', builder: '', design: null, recipe: null, customDesign: null, customEnabled: false, declaredTermFields: {}, regionMeta: {}, step: 1, highestStep: 1, busy: false, feedback: '', error: false, builderConflict: [], label: '', id: '', revision: 0, baseline: '', content: defaultContent( 2 ), reviewDraft: null, designSerial: 0 };
+		var state = { catalog: null, resourceId: options.resourceId || '', postingPageType: defaultPageType( options.resourceId || '' ), mode: 'static', builder: '', design: null, recipe: null, customDesign: null, customEnabled: false, declaredTermFields: {}, regionMeta: {}, step: 1, highestStep: 1, busy: false, feedback: '', error: false, builderConflict: [], label: '', id: '', revision: 0, baseline: '', content: defaultContent( 2 ), reviewDraft: null, haloPreview: null, pendingReview: null, designSerial: 0 };
 		var request = options.request, notify = options.change || function () {}, confirm = options.confirm || function () { return true; };
 		var modeChosen = false, pageTypeChosen = false, replacementApprovals = [];
 		function emit() { notify( state ); }
@@ -156,7 +166,7 @@
 				mergeContent( state.content, seedScope( state.recipe.custom_fields, count, 0, state.content, { fields: state.customDesign.fields, regionMeta: state.regionMeta } ) );
 			}
 		}
-		function change( callback, rerender ) { var previous = fingerprint( state ); callback( state ); if ( state.customEnabled && state.customDesign && state.recipe ) { state.recipe.custom_fields = state.recipe.custom_fields || recipeFrom( state.customDesign, state.mode ); } else if ( state.recipe ) { delete state.recipe.custom_fields; } if ( previous !== fingerprint( state ) ) { invalidate(); } if ( rerender !== false ) { emit(); } else if ( options.inputsChanged ) { options.inputsChanged( state ); } }
+		function change( callback, rerender ) { var previous = fingerprint( state ); callback( state ); state.haloPreview = null; state.articlePreview = null; if ( state.customEnabled && state.customDesign && state.recipe ) { state.recipe.custom_fields = state.recipe.custom_fields || recipeFrom( state.customDesign, state.mode ); } else if ( state.recipe ) { delete state.recipe.custom_fields; } if ( previous !== fingerprint( state ) ) { invalidate(); } if ( rerender !== false ) { emit(); } else if ( options.inputsChanged ) { options.inputsChanged( state ); } }
 		function syncFeedback( result, restored ) {
 			var sync = result.posting_sync; state.postingSync = sync || null; state.postingSupport = result.posting_support || null;
 			var page = state.resourceId.startsWith( 'post_type:' ), confirmed = page ? confirmedPageDefault( sync, state.revision, selectedPageTypes( state ) ) : sync && sync.status === 'synced' && sync.recipe_revision === state.revision && Number.isSafeInteger( sync.template_revision ) && sync.template_revision > 0 && typeof sync.template_id === 'string' && sync.template_id;
@@ -165,7 +175,7 @@
 			else { feedback( 'Creation default saved locally. Its posting-service default has not been confirmed.' + ( result.posting_support && result.posting_support.supported === false && result.posting_support.reason ? ' ' + result.posting_support.reason : '' ) ); }
 		}
 		async function run( callback, showAtSave ) { if ( state.busy ) { return; } state.busy = true; state.builderConflict = []; feedback( '', false ); emit(); try { await callback(); } catch ( error ) { if ( error && error.code === 'nova_recipe_builder_ambiguous' && error.data && Array.isArray( error.data.detected_builders ) ) { state.builderConflict = error.data.detected_builders.filter( function ( id ) { return typeof id === 'string' && supportedBuilder( id ); } ); } feedback( message( error ), true ); } finally { state.feedbackAtSave = !! showAtSave; state.busy = false; emit(); } }
-		function resetDesign() { feedback( '', false ); state.design = null; state.recipe = null; state.customDesign = null; state.customEnabled = false; state.declaredTermFields = {}; state.regionMeta = {}; state.id = ''; state.revision = 0; state.postingSync = null; state.postingSupport = null; state.baseline = ''; state.highestStep = 2; invalidate(); }
+		function resetDesign() { feedback( '', false ); state.articlePreview = null; state.design = null; state.recipe = null; state.customDesign = null; state.customEnabled = false; state.declaredTermFields = {}; state.regionMeta = {}; state.id = ''; state.revision = 0; state.postingSync = null; state.postingSupport = null; state.baseline = ''; state.highestStep = 2; invalidate(); }
 		async function regionMetadata( recipe, design, parent, variant, chain, variants ) { for ( var region of recipe.regions || [] ) { var payload = { design: { blueprint: design.blueprint, seal: design.seal, builder: design.builder }, target: region.target, start: region.start, count: region.count, prototype_start: region.prototype_start === undefined ? region.start : region.prototype_start, prototype_count: region.prototype_count === undefined ? 1 : region.prototype_count, source: region.source, kind: region.kind, label: region.label }; if ( parent ) { payload.parent_region = parent; payload.parent_chain = copy( chain || [ parent ] ); payload.parent_variants = copy( variants || payload.parent_chain.map( function () { return null; } ) ); payload.parent_variants[ payload.parent_variants.length - 1 ] = variant || null; if ( variant ) { payload.variant = variant; } } if ( payload.count === 0 ) { delete payload.prototype_start; delete payload.prototype_count; } var result = await request( '/region', payload ); if ( ! result || ! result.region ) { throw new Error( 'The saved native region could not be inspected. Your saved template is retained.' ); } state.regionMeta[ region.id ] = { limits: copy( result.collection_limits || {} ), fields: copy( result.fields || [] ), containers: copy( result.containers || [] ), sources: sources( result.sources || design.sources ), layouts: copy( result.layouts || [] ), variants_meta: copy( result.variants_meta || {} ) }; await regionMetadata( region.prototype, design, region, undefined, ( chain || [] ).concat( [ region ] ), ( payload.parent_variants || [] ).concat( [ null ] ) ); for ( var name of Object.keys( region.variants || {} ) ) { await regionMetadata( region.variants[ name ], design, region, name, ( chain || [] ).concat( [ region ] ), ( payload.parent_variants || [] ).concat( [ null ] ) ); } } }
 		async function applyPresentationSelection() {
 			var design = state.design, keys = design.pendingPresentationKeys;
@@ -184,7 +194,7 @@
 		async function loadProfile( id, saved ) {
 			var result = saved || await request( '/profile?id=' + encodeURIComponent( id ) );
 			if ( ! result || result.id !== id || ! Number.isInteger( result.revision ) || result.revision < 1 || ! result.recipe || ! result.design || ! manualResource( state.catalog.resources.find( function ( item ) { return item.id === result.resource_id; } ) ) ) { throw new Error( 'This saved template could not be verified. No template was changed.' ); }
-			var design = designResult( result.design, result.recipe.builder ); state.resourceId = result.resource_id; state.postingPageType = result.posting_page_type || defaultPageType( result.resource_id ); state.postingPageTypes = copy( result.posting_page_types || [ state.postingPageType ] ); state.mode = result.recipe.mode; state.builder = result.recipe.builder; state.design = design; state.recipe = copy( result.recipe ); state.customDesign = result.custom_fields_design ? designResult( result.custom_fields_design, 'acf' ) : null; state.customEnabled = !! state.recipe.custom_fields; state.label = result.label || ''; state.id = result.id; state.revision = result.revision; state.regionMeta = copy( result.region_meta || {} ); state.content = copy( result.content || design.sample || defaultContent( 2 ) ); if ( Array.isArray( state.content ) && ! state.content.length ) { state.content = {}; } state.highestStep = STEPS.length; state.step = 3; state.baseline = fingerprint( state );
+			var design = designResult( result.design, result.recipe.builder ); state.resourceId = result.resource_id; state.postingPageType = result.posting_page_type || defaultPageType( result.resource_id ); state.postingPageTypes = copy( result.posting_page_types || [ state.postingPageType ] ); state.mode = result.recipe.article ? 'article' : result.recipe.mode; state.builder = result.recipe.builder; state.design = design; state.recipe = copy( result.recipe ); state.customDesign = result.custom_fields_design ? designResult( result.custom_fields_design, 'acf' ) : null; state.customEnabled = !! state.recipe.custom_fields; state.label = result.label || ''; state.id = result.id; state.revision = result.revision; state.regionMeta = copy( result.region_meta || {} ); state.content = copy( result.content || design.sample || defaultContent( 2 ) ); if ( Array.isArray( state.content ) && ! state.content.length ) { state.content = {}; } state.highestStep = STEPS.length; state.step = 3; state.baseline = fingerprint( state );
 			await regionMetadata( state.recipe, state.design ); if ( state.customEnabled && state.customDesign ) { await regionMetadata( state.recipe.custom_fields, state.customDesign ); }
 			if ( ! result.content || ! Object.keys( result.content ).length ) { seedSavedSamples(); }
 			state.declaredTermFields = declarationMap( design.declared_term_fields ); syncFeedback( result, true );
@@ -192,16 +202,31 @@
 		return {
 			state: state, dirty: dirty, canStep: canStep, resource: resource,
 			init: function () { return run( async function () { state.catalog = catalogResult( await request( '/catalog' ) ); if ( state.resourceId && ! manualResource( resource() ) ) { throw new Error( 'Choose a client-configurable destination from Layouts.' ); } if ( ! state.resourceId ) { var first = state.catalog.resources.find( manualResource ); state.resourceId = first ? first.id : ''; state.postingPageType = defaultPageType( state.resourceId ); } var builder = builderChoices( state.catalog.builders, resource(), state.mode ).find( function ( item ) { return item.available !== false; } ); state.builder = builder ? builder.id : ''; if ( options.profileId ) { await loadProfile( options.profileId ); } } ); },
-			selectResource: function ( id ) { if ( state.busy || id === state.resourceId || ! manualResource( state.catalog.resources.find( function ( item ) { return item.id === id; } ) ) || ( dirty() && ! confirm( 'Change destination and discard this unsaved template?' ) ) ) { return false; } pageTypeChosen = false; state.resourceId = id; state.postingPageType = defaultPageType( id ); state.postingPageTypes = [ state.postingPageType ]; state.label = ''; resetDesign(); if ( ! supportedBuilder( state.builder ) ) { var first = builderChoices( state.catalog.builders, resource(), state.mode ).find( function ( item ) { return item.available !== false; } ); state.builder = first ? first.id : ''; } state.step = 1; emit(); return true; },
-			selectPageType: function ( type ) { if ( state.busy || ! hasPageType( state.resourceId ) || ! [ 'service', 'informative', 'category' ].includes( type ) || state.resourceId === 'taxonomy:product_cat' && type !== 'category' ) { return false; } pageTypeChosen = true; change( function () { state.postingPageType = type; state.postingPageTypes = [ type ]; state.postingSync = null; feedback( 'NOVA page type: ' + pageTypeLabel( type ) + '. Save the layout to confirm its posting-service default.' ); } ); return true; },
+			selectResource: function ( id ) { if ( state.busy || id === state.resourceId || ! manualResource( state.catalog.resources.find( function ( item ) { return item.id === id; } ) ) || ( dirty() && ! confirm( 'Change destination and discard this unsaved template?' ) ) ) { return false; } pageTypeChosen = false; state.resourceId = id; state.postingPageType = defaultPageType( id ); state.postingPageTypes = [ state.postingPageType ]; state.label = ''; if ( [ 'mixed', 'rules' ].includes( state.mode ) ) { state.mode = 'static'; } if ( state.mode === 'article' && ! builderChoices( state.catalog.builders, resource(), 'article' ).some( function ( item ) { return item.available !== false; } ) ) { state.mode = 'static'; } resetDesign(); if ( ! supportedBuilder( state.builder ) ) { var first = builderChoices( state.catalog.builders, resource(), state.mode ).find( function ( item ) { return item.available !== false; } ); state.builder = first ? first.id : ''; } state.step = 1; emit(); return true; },
+			selectPageType: function ( type ) { if ( state.busy || ! hasPageType( state.resourceId ) || ! [ 'service', 'informative', 'category' ].includes( type ) || isProductTaxonomy( state.resourceId ) && type !== 'category' ) { return false; } pageTypeChosen = true; change( function () { state.postingPageType = type; state.postingPageTypes = [ type ]; state.postingSync = null; feedback( 'NOVA page type: ' + pageTypeLabel( type ) + '. Save the layout to confirm its posting-service default.' ); } ); return true; },
 			togglePageType: function ( type, enabled ) {
-				if ( state.busy || ! hasPageType( state.resourceId ) || ! [ 'service', 'informative', 'category' ].includes( type ) || state.resourceId === 'taxonomy:product_cat' ) { return false; }
+				if ( state.busy || ! hasPageType( state.resourceId ) || ! [ 'service', 'informative', 'category' ].includes( type ) || isProductTaxonomy( state.resourceId ) ) { return false; }
 				var types = selectedPageTypes( state ).filter( function ( item ) { return item !== type; } ); if ( enabled ) { types.push( type ); }
 				if ( ! types.length ) { feedback( 'Select at least one NOVA content type.', true ); emit(); return false; }
 				pageTypeChosen = true; replacementApprovals = [];
 				change( function () { state.postingPageTypes = [ 'service', 'informative', 'category' ].filter( function ( item ) { return types.includes( item ); } ); if ( ! state.id ) { state.postingPageType = state.postingPageTypes[0]; } state.postingSync = null; feedback( 'Save to use this layout for ' + selectedTypeLabel( state ) + ' content.' ); } ); return true;
 			},
-			selectMode: function ( mode ) { if ( state.busy || ! [ 'static', 'dynamic', 'mixed', 'rules' ].includes( mode ) ) { return false; } if ( displayMode( mode ) === displayMode( state.mode ) ) { modeChosen = true; return false; } if ( state.recipe && ! confirm( 'Change template type and reload the design? Your unsaved content rules will be replaced.' ) ) { return false; } modeChosen = true; state.mode = mode === 'static' ? 'static' : 'mixed'; resetDesign(); if ( ! supportedBuilder( state.builder ) ) { var first = builderChoices( state.catalog ? state.catalog.builders : [], resource(), state.mode ).find( function ( item ) { return item.available !== false; } ); state.builder = first ? first.id : ''; } state.step = 1; emit(); return true; },
+			selectMode: function ( mode ) {
+                if ( state.busy || ! [ 'static', 'dynamic', 'mixed', 'rules', 'article' ].includes( mode ) ) { return false; }
+                var selected = mode === 'dynamic' ? 'article' : mode;
+                if ( selected === 'article' && ! builderChoices( state.catalog ? state.catalog.builders : [], resource(), 'article' ).some( function ( item ) { return item.available !== false; } ) ) {
+                    feedback( 'Dynamic templates currently require Gutenberg on a WordPress post destination.', true ); emit(); return false;
+                }
+                // Older region-based recipes remain editable under Static without changing their stored mode.
+                if ( selected === state.mode || mode === 'static' && displayMode( state.mode ) === 'static' ) { modeChosen = true; return false; }
+                if ( state.recipe && ! confirm( 'Change template type and reload the design? Your unsaved content rules will be replaced.' ) ) { return false; }
+                modeChosen = true; state.mode = selected; resetDesign();
+                if ( ! supportedBuilder( state.builder ) ) {
+                    var first = builderChoices( state.catalog ? state.catalog.builders : [], resource(), state.mode ).find( function ( item ) { return item.available !== false; } );
+                    state.builder = first ? first.id : '';
+                }
+                state.step = 1; emit(); return true;
+            },
 			selectBuilder: function ( id ) { if ( state.busy || id === state.builder || ! supportedBuilder( id ) || ( state.recipe && ! confirm( 'Change builder and discard this unsaved design?' ) ) ) { return false; } state.builder = id; resetDesign(); emit(); return true; },
 			go: function ( step ) {
 				if ( state.busy || ! canStep( step ) ) { return false; }
@@ -257,12 +282,12 @@
 				var retainedId = state.id, retainedRevision = state.revision;
 				resetDesign(); state.id = retainedId; state.revision = retainedRevision; state.builder = result.builder; defaultPresentationSelection( result ); state.design = result;
 				state.declaredTermFields = declarationMap( result.declared_term_fields ); state.recipe = recipeFrom( result, state.mode ); state.customDesign = result.custom_fields_design ? designResult( result.custom_fields_design, 'acf' ) : null;
-				if ( state.mode === 'static' && state.resourceId.startsWith( 'post_type:' ) && ! Object.prototype.hasOwnProperty.call( state.recipe, 'seo_fields' ) && Object.keys( result.seo_field_choices || {} ).length ) {
+				if ( [ 'static', 'article' ].includes( state.mode ) && state.resourceId.startsWith( 'post_type:' ) && ! Object.prototype.hasOwnProperty.call( state.recipe, 'seo_fields' ) && Object.keys( result.seo_field_choices || {} ).length ) {
 					state.recipe.seo_fields = copy( result.seo_field_choices );
 				}
 				if ( state.customDesign && result.source_reference && result.source_reference.reference_type === 'term' ) { state.customEnabled = true; state.recipe.custom_fields = recipeFrom( state.customDesign, state.mode ); }
 				state.content = copy( result.sample || defaultContent( 2 ) ); state.label = state.label || ( resource().label + ' content template' ); await regionMetadata( state.recipe, state.design ); state.highestStep = STEPS.length; state.step = 3;
-				feedback( ( captured ? 'Design captured. Page content keeps its existing values until you assign a purpose. The original item stays unchanged.' : 'Native starter ready. Choose the fields this template should fill.' ) + ( Object.keys( state.recipe.seo_fields || {} ).length ? ' SEO title and meta description are selected under SEO metadata.' : '' ) );
+				feedback( ( captured ? 'Design captured. Page content keeps its existing values until you assign a purpose. The original item stays unchanged.' : state.mode === 'article' ? 'Gutenberg ready. Configure the rules for each content element.' : 'Native starter ready. Choose the fields this template should fill.' ) + ( Object.keys( state.recipe.seo_fields || {} ).length ? ' SEO title and meta description are selected under SEO metadata.' : '' ) );
 			} ); },
 			edit: function ( callback, rerender ) { if ( ! state.busy && state.recipe ) { change( callback, rerender ); } },
 			selectPresentation: function ( keys ) {
@@ -295,7 +320,7 @@
 				if ( state.customDesign ) { change( function () { state.customEnabled = !! enabled; } ); if ( enabled ) { await regionMetadata( state.recipe.custom_fields, state.customDesign ); } }
 			} ); },
 			declareTermField: function ( key, schema ) { return run( async function () { var source = state.design && state.design.source_reference, declaration = ( state.design && state.design.excluded_fields || [] ).find( function ( field ) { return field.declaration_required === true && field.key === key; } ); if ( ! state.recipe || state.builder !== 'core' || ! source || source.reference_type !== 'term' || ! declaration || typeof key !== 'string' || ! key || key.length > 190 || [ '__proto__', 'constructor', 'prototype' ].includes( key ) || ! schema || typeof schema !== 'object' || Array.isArray( schema ) ) { throw new Error( 'Choose an editable custom category field and confirm its supported content type.' ); } var declared = declarationMap( state.declaredTermFields ); declared[ key ] = copy( schema ); var result = designResult( await request( '/design', { builder: 'core', mode: state.mode, resource_id: state.resourceId, reference_id: source.reference_id, source_reference: copy( source ), source_receipt: state.design.source_receipt, existing_blueprint: copy( state.design.blueprint ), existing_seal: state.design.seal, declared_term_fields: declared, manual_selection: true } ), 'core' ); if ( ! result.source_reference || result.source_reference.reference_id !== source.reference_id || result.source_reference.reference_type !== source.reference_type || result.source_reference.resource_id !== source.resource_id ) { throw new Error( 'The confirmed field did not return the same category. Your mapping is retained.' ); } var confirmed = declarationMap( result.declared_term_fields ); if ( Object.keys( declared ).some( function ( name ) { return ! Object.prototype.hasOwnProperty.call( confirmed, name ) || ! same( canonicalDeclaration( confirmed[ name ] ), canonicalDeclaration( declared[ name ] ) ); } ) ) { throw new Error( 'The requested custom field definition was not returned by the site. Your mapping is retained; capture the category again before retrying.' ); } if ( ( state.recipe.bindings || [] ).some( function ( binding ) { var field = result.fields.find( function ( candidate ) { return candidate.target === binding.target && candidate.writable !== false; } ); return ! field || ! fieldFormats( field ).includes( binding.format ); } ) ) { throw new Error( 'An existing mapped field changed while confirming this custom field. Recapture the example before continuing.' ); } var draft = copy( state.recipe ); draft.blueprint = copy( result.blueprint ); state.recipe = draft; state.design = result; state.declaredTermFields = confirmed; invalidate(); state.highestStep = Math.min( state.highestStep, STEPS.length ); state.step = 3; feedback( 'Custom content field confirmed for this template. Existing mapping choices are retained. Assign its purpose below.' ); } ); },
-			addRegion: function ( scope, requestFields, parent, variant ) { return run( async function () { if ( state.mode === 'static' ) { throw new Error( 'Repeatable regions are available in a Dynamic template.' ); } var design = scope === 'custom' ? state.customDesign : state.design, recipe = scope === 'custom' ? state.recipe.custom_fields : state.recipe; if ( ! design || ! recipe ) { throw new Error( 'Choose a design before adding a region.' ); } var payload = Object.assign( {}, requestFields, { design: { blueprint: design.blueprint, seal: design.seal, builder: design.builder } } ); if ( parent ) { payload.parent_region = copy( parent ); var context = ancestorContext( recipe, parent ) || { regions: [ parent ], variants: [ null ] }; payload.parent_chain = copy( context.regions ); payload.parent_variants = context.variants; if ( variant ) { payload.parent_variants[ payload.parent_variants.length - 1 ] = variant; } if ( variant ) { payload.variant = variant; } } if ( payload.count === 0 ) { delete payload.prototype_start; delete payload.prototype_count; } var result = await request( '/region', payload ); if ( ! result || ! result.region || typeof result.region.id !== 'string' || ! result.region.prototype || ! Array.isArray( result.region.prototype.native ) ) { throw new Error( 'The repeated prototype could not be verified. Your rules are kept.' ); } var owner = parent ? variant && parent.variants ? parent.variants[ variant ] : parent.prototype : recipe; owner.regions = owner.regions || []; if ( owner.regions.some( function ( existing ) { return overlap( existing, result.region ); } ) ) { throw new Error( 'This native group already belongs to a content region. Edit or remove that region first.' ); } var newRegion = copy( result.region ); moveBindings( owner, newRegion, design.builder ); owner.regions.push( newRegion ); state.regionMeta[ result.region.id ] = { limits: copy( result.collection_limits || {} ), fields: copy( result.fields || [] ), containers: copy( result.containers || [] ), sources: sources( result.sources || design.sources ), layouts: copy( result.layouts || [] ), variants_meta: copy( result.variants_meta || {} ) }; invalidate(); feedback( 'Region added. Choose which fields this region should fill.' ); } ); },
+			addRegion: function ( scope, requestFields, parent, variant ) { return run( async function () { if ( [ 'static', 'article' ].includes( state.mode ) ) { throw new Error( 'This template uses fixed fields. Existing saved content regions remain editable in their original templates.' ); } var design = scope === 'custom' ? state.customDesign : state.design, recipe = scope === 'custom' ? state.recipe.custom_fields : state.recipe; if ( ! design || ! recipe ) { throw new Error( 'Choose a design before adding a region.' ); } var payload = Object.assign( {}, requestFields, { design: { blueprint: design.blueprint, seal: design.seal, builder: design.builder } } ); if ( parent ) { payload.parent_region = copy( parent ); var context = ancestorContext( recipe, parent ) || { regions: [ parent ], variants: [ null ] }; payload.parent_chain = copy( context.regions ); payload.parent_variants = context.variants; if ( variant ) { payload.parent_variants[ payload.parent_variants.length - 1 ] = variant; } if ( variant ) { payload.variant = variant; } } if ( payload.count === 0 ) { delete payload.prototype_start; delete payload.prototype_count; } var result = await request( '/region', payload ); if ( ! result || ! result.region || typeof result.region.id !== 'string' || ! result.region.prototype || ! Array.isArray( result.region.prototype.native ) ) { throw new Error( 'The repeated prototype could not be verified. Your rules are kept.' ); } var owner = parent ? variant && parent.variants ? parent.variants[ variant ] : parent.prototype : recipe; owner.regions = owner.regions || []; if ( owner.regions.some( function ( existing ) { return overlap( existing, result.region ); } ) ) { throw new Error( 'This native group already belongs to a content region. Edit or remove that region first.' ); } var newRegion = copy( result.region ); moveBindings( owner, newRegion, design.builder ); owner.regions.push( newRegion ); state.regionMeta[ result.region.id ] = { limits: copy( result.collection_limits || {} ), fields: copy( result.fields || [] ), containers: copy( result.containers || [] ), sources: sources( result.sources || design.sources ), layouts: copy( result.layouts || [] ), variants_meta: copy( result.variants_meta || {} ) }; invalidate(); feedback( 'Region added. Choose which fields this region should fill.' ); } ); },
 
 			save: function () { return run( async function () {
 				if ( state.step !== 3 || ! canStep( 3 ) || ! state.recipe ) { throw new Error( 'Choose a design and review its content rules before saving.' ); }
@@ -319,11 +344,43 @@
 				}
 				state.id = result.id; state.revision = result.revision; state.catalog.defaults = state.catalog.defaults || {};
 				state.catalog.defaults[ state.resourceId ] = { id: result.id, revision: result.revision };
+                if ( result.locale_preservation_status ) { state.design.locale_preservation = copy( result.locale_preservation_status ); }
 				state.baseline = signature;
 				syncFeedback( result );
 			}, true ); },
 			syncSaved: function ( replaceDefault ) { return run( async function () { if ( ! state.id || dirty() ) { throw new Error( 'Save your current edits before synchronizing the saved revision.' ); } var payload = { id: state.id, revision: state.revision }; if ( replaceDefault !== true ) { replacementApprovals = []; } if ( replaceDefault === true ) { var replacement = defaultReplacement( state ); if ( ! replacement ) { throw new Error( 'Synchronize the saved revision to review its current default before replacing it.' ); } replacementApprovals = replacementApprovals.filter( function ( item ) { return item.defaults_revision === replacement.defaults_revision && item.page_type !== replacement.page_type; } ); replacementApprovals.push( copy( replacement ) ); if ( replacementApprovals.length === 1 ) { payload.replace_default = copy( replacement ); } else { payload.replace_defaults = copy( replacementApprovals ); } } var result = await request( '/sync', payload ); if ( ! result || result.id !== state.id || result.revision !== state.revision || ! result.posting_sync ) { throw new Error( 'The saved revision synchronization could not be verified.' ); } syncFeedback( result ); }, true ); },
-			recoverDraft: function ( operation ) { return run( async function () { if ( ! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( operation ) ) { throw new Error( 'The retained draft operation is invalid.' ); } state.reviewDraft = draftResult( await request( '/draft?operation_id=' + encodeURIComponent( operation ) ), operation, options.origin ); if ( options.forgetDraft ) { options.forgetDraft(); } feedback( 'The retained native review draft was recovered without creating another item.' ); } ); },
+            previewArticle: function () { return run( async function () {
+                var result = await request( '/preview', { recipe: copy( state.recipe ), seal: state.design.seal, resource_id: state.resourceId, input: { content: copy( state.content ) } } );
+                if ( ! result || typeof result.preview_document !== 'string' ) { throw new Error( 'The article preview could not be verified.' ); }
+                state.articlePreview = result.preview_document; feedback( ( result.warnings || [] ).join( ' ' ) );
+            } ); },
+            previewHalo: function () { return run( async function () {
+                if ( ! state.recipe ) { throw new Error( 'Choose a HALO layout first.' ); }
+                seedSavedSamples();
+                var result = await request( '/preview', { recipe: copy( state.recipe ), seal: state.design.seal, resource_id: state.resourceId, input: { content: copy( state.content ) } } );
+                if ( ! result || typeof result.preview_document !== 'string' ) { throw new Error( 'The HALO preview could not be verified.' ); }
+                state.haloPreview = result.preview_document;
+            } ); },
+            createHaloDraft: function ( operation ) { return run( async function () {
+                if ( ! state.id || dirty() ) { throw new Error( state.mode === 'article' ? 'Save the article rules before creating a review draft.' : 'Save the HALO mapping before creating its preview draft.' ); }
+                seedSavedSamples();
+                var title = state.mode === 'article' && typeof state.content.title === 'string' && state.content.title.trim() ? state.content.title : ( state.mode === 'article' ? 'Article preview - ' : 'HALO preview - ' ) + state.label;
+                var payload = state.pendingReview || { id: state.id, revision: state.revision, content: copy( state.content ), title: title, operation_id: operation };
+                if ( ! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( payload.operation_id ) ) { throw new Error( 'A valid preview operation is required.' ); }
+                state.pendingReview = payload;
+                if ( options.rememberDraft ) { options.rememberDraft( { id: payload.id, revision: payload.revision, operation_id: payload.operation_id } ); }
+                state.reviewDraft = draftResult( await request( '/draft', payload ), payload.operation_id, options.origin );
+                state.pendingReview = null;
+                if ( options.forgetDraft ) { options.forgetDraft(); }
+                feedback( state.mode === 'article' ? 'The article review draft is ready.' : 'The HALO preview draft is ready.' );
+            } ); },
+			recoverDraft: function ( operation ) { return run( async function () {
+                if ( ! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( operation ) ) { throw new Error( 'The retained draft operation is invalid.' ); }
+                state.reviewDraft = draftResult( await request( '/draft?operation_id=' + encodeURIComponent( operation ) ), operation, options.origin );
+                if ( state.pendingReview && state.pendingReview.operation_id === operation ) { state.pendingReview = null; }
+                if ( options.forgetDraft ) { options.forgetDraft(); }
+                feedback( 'The retained native review draft was recovered without creating another item.' );
+            } ); },
 			reload: function () { if ( dirty() && ! confirm( 'Reload the saved template and discard your unsaved rules?' ) ) { return Promise.resolve(); } return run( async function () { if ( state.id ) { var id = state.id; state.catalog = catalogResult( await request( '/catalog' ) ); await loadProfile( id ); } } ); }
 		};
 	}
@@ -417,10 +474,11 @@
 		function updateGates( state ) {
 			if ( ! host.querySelectorAll ) { return; }
 			var saved = !! state.id && fingerprint( state ) === state.baseline;
+            if ( ! state.haloPreview ) { host.querySelectorAll( '[data-halo-preview]' ).forEach( function ( frame ) { frame.remove(); } ); }
 			host.querySelectorAll( 'button' ).forEach( function ( control ) {
 				var action = control.getAttribute( 'data-nlr-view-key' );
 				if ( action === 'action:save-default' ) { control.disabled = state.busy || ! state.label.trim(); }
-				if ( [ 'action:sync', 'action:replace-default' ].includes( action ) ) { control.disabled = state.busy || ! saved; }
+				if ( [ 'action:sync', 'action:replace-default', 'action:halo-draft' ].includes( action ) ) { control.disabled = state.busy || ! saved; }
 			} );
 			var status = host.querySelector( '.nlr-state' );
 			if ( status ) {
@@ -435,7 +493,7 @@
 			var wrap = node( 'div', undefined, 'nlr-field-editor' ), allFields = ( metadata.fields || [] ).filter( function ( item ) { return item.writable !== false && ! ( item.native_post && controller.state.mode !== 'static' ); } ), fields = allFields.filter( function ( item ) { return ! ( owner.regions || [] ).some( function ( region ) { return fieldInside( item, region ) || pairedTitleInside( item, region, controller.state.builder ); } ); } ), selected = currentBinding[ key ]; wrap.setAttribute( 'data-nlr-view-scope', 'fields:' + key );
 			if ( ! fields.some( function ( item ) { return item.target === selected; } ) ) { selected = fields.length ? fields[0].target : ''; currentBinding[key] = selected; }
 			var list = node( 'div', undefined, 'nlr-field-list' ), count = node( 'p', '', 'nlr-help' ); list.setAttribute( 'data-nlr-view-key', 'field-list' );
-			function fillList() { list.replaceChildren(); var query = ( fieldSearch[key] || '' ).trim().toLocaleLowerCase(), shown = allFields.filter( function ( item ) { return ! query || ( item.label + ' ' + ( item.example || '' ) ).toLocaleLowerCase().includes( query ); } ); count.textContent = shown.length + ' of ' + allFields.length + ' editable content fields'; shown.forEach( function ( item ) { var region = ( owner.regions || [] ).find( function ( entry ) { return fieldInside( item, entry ) || pairedTitleInside( item, entry, controller.state.builder ); } ), binding = ( owner.bindings || [] ).find( function ( entry ) { return entry.target === item.target; } ), control = button( '', function () { if ( key === 'main:fixed' ) { selectNativeTarget( item.target, false ); } else { currentBinding[key] = item.target; render(); } }, false, controller.state.busy || !! region && key !== 'main:fixed' ); control.className = 'nlr-native-field' + ( item.target === selected || item.target === canvasSelection ? ' selected' : '' ); control.setAttribute( 'aria-pressed', String( item.target === selected || item.target === canvasSelection ) ); control.setAttribute( 'data-nlr-view-key', 'native:' + item.target ); control.append( node( 'strong', item.label ), node( 'span', region ? 'Content region: ' + ( region.label || 'Design pattern' ) : binding ? binding.label || 'Configured purpose' : omissionFor( owner, item ) ? 'Removed from new pages' : 'Keep existing content', 'nlr-field-state' ) ); if ( omissionFor( owner, item ) ) { control.className += ' omitted'; } if ( item.example ) { control.append( node( 'span', item.example, 'nlr-field-example' ) ); } list.append( control ); } ); if ( ! shown.length ) { list.append( help( 'No fields match this search. Clear it to see every writable field.' ) ); } }
+			function fillList() { list.replaceChildren(); var query = ( fieldSearch[key] || '' ).trim().toLocaleLowerCase(), shown = allFields.filter( function ( item ) { return ! query || ( item.label + ' ' + ( item.example || '' ) ).toLocaleLowerCase().includes( query ); } ); count.textContent = shown.length + ' of ' + allFields.length + ' editable content fields'; shown.forEach( function ( item ) { var region = ( owner.regions || [] ).find( function ( entry ) { return fieldInside( item, entry ) || pairedTitleInside( item, entry, controller.state.builder ); } ), binding = ( owner.bindings || [] ).find( function ( entry ) { return entry.target === item.target; } ), control = button( '', function () { if ( key === 'main:fixed' ) { selectNativeTarget( item.target, false ); } else { currentBinding[key] = item.target; render(); } }, false, controller.state.busy || !! region && key !== 'main:fixed' ); control.className = 'nlr-native-field' + ( item.target === selected || item.target === canvasSelection ? ' selected' : '' ); control.setAttribute( 'aria-pressed', String( item.target === selected || item.target === canvasSelection ) ); control.setAttribute( 'data-nlr-view-key', 'native:' + item.target ); control.append( node( 'strong', item.label ), node( 'span', region ? 'Content region: ' + ( region.label || 'Design pattern' ) : binding ? binding.label || 'Configured purpose' : omissionFor( owner, item ) ? 'Removed from new pages' : item.context === 'taxonomy' ? 'Preserve destination content' : 'Keep existing content', 'nlr-field-state' ) ); if ( omissionFor( owner, item ) ) { control.className += ' omitted'; } if ( item.example ) { control.append( node( 'span', item.example, 'nlr-field-example' ) ); } list.append( control ); } ); if ( ! shown.length ) { list.append( help( 'No fields match this search. Clear it to see every writable field.' ) ); } }
 			var search = input( fieldSearch[key] || '', function ( value ) { fieldSearch[key] = value; fillList(); } ); search.type = 'search'; search.placeholder = 'Search labels or existing content'; wrap.append( field( 'Choose a content field', search ), count, list ); fillList();
 			var excludedFields = metadata.excluded_fields || [], protectedFields = ( metadata.fields || [] ).filter( function ( item ) { return item.writable === false && ! ( typeof item.target === 'string' && item.target.startsWith( '/term_fields/unavailable/' ) && excludedFields.some( function ( descriptor ) { return descriptor.key === item.custom_field_key; } ) ); } ), unsupportedFields = protectedFields.filter( function ( item ) { return item.custom_field === true || item.storage === 'term_meta' || item.storage === 'taxonomy_option' || item.unsupported === true; } ).concat( excludedFields ); var declarationFields = unsupportedFields.filter( function ( item ) { return item.declaration_required === true; } ); if ( declarationFields.length && controller.state.builder === 'core' && controller.state.design.source_reference && controller.state.design.source_reference.reference_type === 'term' ) { wrap.append( declarationEditor( declarationFields ) ); unsupportedFields = unsupportedFields.filter( function ( item ) { return ! declarationFields.includes( item ); } ); } protectedFields = protectedFields.filter( function ( item ) { return ! unsupportedFields.includes( item ) && ! declarationFields.includes( item ); } ); if ( unsupportedFields.length ) { var unsupportedList = node( 'section', undefined, 'nlr-protected-fields' ); unsupportedList.append( node( 'h4', 'Custom fields that need a supported definition' ), help( 'These site fields were found but cannot safely accept generated content yet. Their stored values stay unchanged. Register a supported field schema or enable its bridge, then capture the category again.' ) ); unsupportedFields.forEach( function ( item ) { unsupportedList.append( help( ( item.label || item.name || item.key || 'Custom field' ) + ': ' + ( item.reason || 'No supported editable schema or storage provider is declared.' ) ) ); } ); wrap.append( unsupportedList ); } if ( protectedFields.length ) { var protectedList = node( 'details', undefined, 'nlr-protected-fields' ); protectedList.append( node( 'summary', protectedFields.length + ' fixed design controls' ) ); protectedFields.forEach( function ( item ) { protectedList.append( help( item.label + ': ' + ( item.reason || 'This native control stays protected.' ) ) ); } ); wrap.append( protectedList ); }
 			if ( ! fields.length ) { wrap.append( help( allFields.length ? 'These fields are governed by the content regions below. Map their design patterns there.' : 'No editable content fields are exposed for this pattern.' ) ); return wrap; }
@@ -446,12 +504,43 @@
 			if ( nativeField.kind === 'schema_value' ) { inspector.append( help( 'Structured data has no visible element in the preview. Only JSON-LD values with a Custom purpose are included on the generated page. Give this value a name and explain what NOVA should supply.' ) ); }
             if ( nativeField.example ) { inspector.append( node( 'div', 'Existing example: ' + nativeField.example, 'nlr-readonly' ) ); }
 			var rulesText = fieldRules( nativeField ); if ( rulesText ) { inspector.append( help( rulesText ) ); } if ( nativeField.locator && [ 'none', 'unavailable' ].includes( nativeField.locator.strategy ) || nativeField.locator && nativeField.locator.status === 'unavailable' ) { inspector.append( help( 'This field is editable in the inventory. Its theme-controlled location cannot be verified in the page preview.' ) ); }
-			var role = assignedRole( binding ), removable = canOmit( nativeField, key ), omitted = omissionFor( owner, nativeField ), purposeChoices = [ { value: '', label: nativeField.kind === 'schema_value' ? 'Omit this schema value' : 'Keep existing content' } ].concat( rolesFor( nativeField ).map( function ( item ) { return { value: item.id, label: item.label }; } ) ); if ( binding && ! role ) { purposeChoices.push( { value: 'configured', label: 'Existing mapping: ' + ( binding.label || nativeField.label ) } ); } if ( removable ) { purposeChoices.push( { value: 'omit', label: 'Remove this element from new pages' } ); }
+			if ( nativeField.context === 'taxonomy' && nativeField.kind === 'top_content' ) {
+				inspector.append( help( 'Preserve this field’s current value on each destination, including its saved translation. New categories and tags leave this field empty.' ) );
+			}
+			var role = assignedRole( binding ), removable = canOmit( nativeField, key ), omitted = omissionFor( owner, nativeField ), purposeChoices = [ { value: '', label: nativeField.kind === 'schema_value' ? 'Omit this schema value' : nativeField.context === 'taxonomy' ? 'Preserve destination content' : 'Keep existing content' } ].concat( rolesFor( nativeField ).map( function ( item ) { return { value: item.id, label: item.label }; } ) ); if ( binding && ! role ) { purposeChoices.push( { value: 'configured', label: 'Existing mapping: ' + ( binding.label || nativeField.label ) } ); } if ( removable ) { purposeChoices.push( { value: 'omit', label: 'Remove this element from new pages' } ); }
 			inspector.append( field( 'What type of content should go in this field?', select( purposeChoices, binding ? role || 'configured' : omitted ? 'omit' : '', function ( value ) { if ( value === 'configured' ) { return; } controller.edit( function () { if ( removable ) { setOmission( owner, nativeField, value === 'omit' ); } if ( value === 'omit' ) { return; } if ( ! value ) { owner.bindings = ( owner.bindings || [] ).filter( function ( item ) { return item.target !== selected; } ); } else { assignRole( owner, nativeField, value, key, value === 'custom' ? nativeField.label : undefined ); } } ); } ), 'Choose its purpose. NOVA decides the page’s topic; this template describes where each part belongs.' ) );
 			if ( omitted ) { var siblings = ( metadata.fields || [] ).filter( function ( item ) { return item.target !== nativeField.target && omissionFor( owner, item ) === omitted; } ); inspector.append( help( 'The whole element “' + ( omitted.label || nativeField.label ) + '” is left out of every page created from this layout' + ( siblings.length ? ', including ' + siblings.map( function ( item ) { return item.label; } ).join( ', ' ) : '' ) + '. The example page itself stays unchanged.' ) ); }
 			if ( binding && nativeField.element_type === 'heading' && /\/settings\/title$/.test( nativeField.target ) && fieldFormats( nativeField ).includes( 'text' ) && fieldFormats( nativeField ).includes( 'html' ) ) { inspector.append( field( 'Heading text format', select( [ { value: 'text', label: 'Plain text (recommended)' }, { value: 'html', label: 'Inline HTML' } ], binding.format, function ( value ) { controller.edit( function () { binding.format = value; } ); } ), 'Plain text accepts NOVA titles while preserving the heading’s styling. Keep inline HTML when this field needs formatting within its text.' ) ); }
 			if ( binding ) { if ( role === 'custom' ) { inspector.append( field( 'Name this custom purpose', input( binding.label, function ( value ) { controller.edit( function () { binding.label = value.trim(); }, false ); } ), 'For example: Customer promise or Installation advice.' ) ); } var customPurpose = role === 'custom', fieldContext = node( customPurpose ? 'div' : 'details' ); if ( ! customPurpose ) { fieldContext.append( node( 'summary', 'Extra Field Context' ) ); } fieldContext.append( field( customPurpose ? 'Guidance for this custom purpose (required)' : 'Optional context for this field', input( binding.instructions || '', function ( value ) { controller.edit( function () { binding.instructions = value; }, false ); }, true ), customPurpose ? 'Explain what NOVA should write for this purpose.' : 'Add guidance only when the field needs clarification. NOVA still chooses the page’s topic.' ) ); inspector.append( fieldContext ); var requiredControl = check( 'Require a supplied value for this field', binding.required === true || nativeField.required === true, function ( enabled ) { controller.edit( function () { binding.required = nativeField.required === true || enabled; }, false ); }, nativeField.required === true ? 'The site’s field definition requires a value. Its validation rules remain active.' : 'Require the writer to supply this field. Optional fields can be left out; empty content is accepted only where the site’s field definition permits it. In a fixed builder layout, an element whose optional fields are all left empty is removed from that page, along with a section left with nothing to show. In ACF layouts, the same applies to repeater and flexible-content rows, as far as the field’s minimum number of rows allows.' ); if ( nativeField.required === true && requiredControl.querySelectorAll ) { requiredControl.querySelectorAll( 'input' ).forEach( function ( control ) { control.disabled = true; } ); } inspector.append( requiredControl ); }
 			else if ( ! omitted ) { inspector.append( help( 'This field keeps its current content. Assign a purpose when you want generated content to replace it.' + ( removable ? ' Or remove the whole element from new pages.' : '' ) ) ); }
+            if ( ! binding && ! omitted && key === 'main:fixed' ) {
+                var localeInfo = controller.state.design.locale_preservation;
+                if ( localeInfo && [ 'translatepress', 'weglot' ].includes( localeInfo.provider ) ) {
+                    inspector.append( help( 'Existing translations of this content are managed by ' + ( localeInfo.provider === 'weglot' ? 'Weglot' : 'TranslatePress' ) + ' when the localized page is rendered.' ) );
+                } else if ( localeInfo && [ 'polylang', 'wpml' ].includes( localeInfo.provider ) ) {
+                    var referenceFields = localeInfo.reference_fields || localeInfo.fields || {}, locales = referenceFields[ nativeField.target ] || [];
+                    inspector.append( help( locales.length ? ( localeInfo.saved ? 'Saved localized values: ' : 'Localized values will be saved for: ' ) + locales.join( ', ' ) + '. Other locales use the captured reference value.' : 'No matching localized value is saved for this field. It uses the captured reference value. Saving refreshes values from linked locale references.' ) );
+                    if ( controller.state.mode === 'static' ) {
+                        var normalizedLocale = function ( value ) { return String( value || '' ).toLowerCase().replace( /_/g, '-' ); };
+                        ( localeInfo.catalog || [] ).forEach( function ( entry ) {
+                            if ( normalizedLocale( entry.locale ) === normalizedLocale( localeInfo.source_locale ) || locales.some( function ( locale ) { return normalizedLocale( locale ) === normalizedLocale( entry.locale ); } ) ) { return; }
+                            var localeKey = Object.keys( owner.locale_values || {} ).find( function ( locale ) { return normalizedLocale( locale ) === normalizedLocale( entry.locale ) || normalizedLocale( locale ) === normalizedLocale( entry.code ); } ) || entry.locale.replace( /_/g, '-' );
+                            var manual = owner.locale_values && owner.locale_values[localeKey] || {};
+                            inspector.append( field( 'Manual value · ' + entry.locale, input( manual[nativeField.target] || '', function ( value ) {
+                                controller.edit( function () {
+                                    owner.locale_values = owner.locale_values || {};
+                                    owner.locale_values[localeKey] = owner.locale_values[localeKey] || {};
+                                    if ( value.trim() ) { owner.locale_values[localeKey][nativeField.target] = value; }
+                                    else { delete owner.locale_values[localeKey][nativeField.target]; }
+                                    if ( ! Object.keys( owner.locale_values[localeKey] ).length ) { delete owner.locale_values[localeKey]; }
+                                    if ( ! Object.keys( owner.locale_values ).length ) { delete owner.locale_values; }
+                                }, false );
+                            }, nativeField.format === 'html' ), 'Optional fallback for this locale. Leave empty to use the reference value. A linked reference value takes precedence when one becomes available.' ) );
+                        } );
+                    }
+                    ( localeInfo.unavailable || [] ).forEach( function ( entry ) { inspector.append( help( entry.locale + ': ' + entry.reason ) ); } );
+                }
+            }
 			wrap.append( inspector, help( ( owner.bindings || [] ).length + ' selected content fields. Design settings stay protected.' ) ); return wrap;
 		}
 		function canOmit( nativeField, key ) {
@@ -460,9 +549,10 @@
 		}
 		function setOmission( owner, nativeField, enabled ) {
 			var element = nativeField.node_target, inside = function ( target ) { return target === element || target.indexOf( element + '/' ) === 0; };
+			var ownedTargets = new Set( ( controller.state.design.fields || [] ).filter( function ( field ) { return typeof field.node_target === 'string' && inside( field.node_target ); } ).map( function ( field ) { return field.target; } ) );
 			// A removed element takes all its fields with it; choosing a purpose for one of them keeps the element.
 			var omissions = ( owner.omissions || [] ).filter( function ( item ) { return enabled ? ! inside( item.target ) : ! ( item.target === element || element.indexOf( item.target + '/' ) === 0 ); } );
-			if ( enabled ) { owner.bindings = ( owner.bindings || [] ).filter( function ( binding ) { return ! inside( binding.target ); } ); omissions.push( { target: element, label: String( nativeField.label || '' ).split( ' · ' )[0].slice( 0, 200 ) } ); }
+			if ( enabled ) { owner.bindings = ( owner.bindings || [] ).filter( function ( binding ) { return ! inside( binding.target ) && ! ownedTargets.has( binding.target ); } ); omissions.push( { target: element, label: String( nativeField.label || '' ).split( ' · ' )[0].slice( 0, 200 ) } ); }
 			if ( omissions.length ) { owner.omissions = omissions; } else { delete owner.omissions; }
 		}
 		function editableContainers( scope, metadata ) {
@@ -511,6 +601,20 @@
 			} );
 			return wrap;
 		}
+		function sharedBeaverEditor() {
+			var snapshot = controller.state.design.locale_preservation || {}, components = snapshot.shared_templates || [], wrap = node( 'section', undefined, 'nlr-panel' );
+			var providerManaged = [ 'translatepress', 'weglot' ].includes( snapshot.provider );
+			wrap.append( node( 'h3', 'Linked Beaver components' ), help( providerManaged ? 'Shared Beaver components stay linked. Existing translations of their rendered content are managed by ' + snapshot.provider + '.' : 'Each page keeps its shared component linked. Publishing selects the saved template for the page’s language. Edit the text and design in the shared Beaver template.' ) );
+			components.forEach( function ( component ) {
+				var row = node( 'section', undefined, 'nlr-reusable-block' );
+				row.append( node( 'h4', component.label || 'Shared Beaver component' ), node( 'strong', 'Keep linked' ) );
+				if ( component.variants.length ) { row.append( help( 'Linked language templates · ' + component.variants.map( function ( variant ) { return variant.locale; } ).join( ', ' ) + '.' ) ); }
+				if ( component.reason ) { row.append( help( component.reason ) ); }
+				if ( component.missing.length ) { row.append( help( 'No linked template for ' + component.missing.join( ', ' ) + '. These languages keep the reference component. Link a translated shared template in Polylang or WPML, then capture and save this layout again.' ) ); }
+				wrap.append( row );
+			} );
+			return wrap;
+		}
 		function seoFieldsEditor( state ) {
             var selected = state.recipe.seo_fields || {}, choices = state.design.seo_field_choices || {}, entries = Object.assign( {}, selected, choices );
             if ( ! Object.keys( entries ).length ) { return null; }
@@ -523,14 +627,24 @@
                     if ( enabled && active ) { fields[path] = copy( entry ); } else { delete fields[path]; }
                     if ( Object.keys( fields ).length ) { state.recipe.seo_fields = fields; } else { delete state.recipe.seo_fields; }
                 } ); }, active ? ( entry.field === 'title' ? 'Source: NOVA SEO title (title)' : 'Source: NOVA meta description (meta_description)' ) : 'Plugin inactive. Restore it or deselect this field before saving.' ) );
-                if ( selected[path] ) { section.append( field( 'Optional SEO instructions: ' + entry.label, input( selected[path].instructions || '', function ( value ) { controller.edit( function () { state.recipe.seo_fields[path].instructions = value; }, false ); }, true ) ) ); }
+                if ( selected[path] && state.mode !== 'article' ) { section.append( field( 'Optional SEO instructions: ' + entry.label, input( selected[path].instructions || '', function ( value ) { controller.edit( function () { state.recipe.seo_fields[path].instructions = value; }, false ); }, true ) ) ); }
             } );
             return section;
         }
 		function editorialFieldsEditor( state ) {
 			var choices = state.design.posting_field_choices || {}, selected = state.recipe.posting_fields || {};
 			var entries = Object.assign( {}, selected, choices ), designFields = state.design.presentation_choices && state.design.presentation_choices.inventory && state.design.presentation_choices.inventory.fields || {};
+            Object.keys( entries ).forEach( function ( path ) {
+                if ( selected[path] ) { return; }
+                var entry = entries[path];
+                var selectedAlias = Object.keys( selected ).some( function ( other ) { return other !== path && selected[other].key === entry.key; } );
+                var haloAlias = entry.provider !== 'halo' && Object.values( choices ).some( function ( other ) { return other.provider === 'halo' && other.key === entry.key; } );
+                if ( selectedAlias || haloAlias ) { delete entries[path]; }
+            } );
 			Object.keys( entries ).forEach( function ( path ) { var setting = designFields[ entries[path].name ]; if ( setting && setting.template_setting && ! selected[path] ) { delete entries[path]; } } );
+			if ( state.mode === 'article' ) {
+				Object.keys( entries ).forEach( function ( path ) { if ( ! articleFieldSources( entries[path] ).length && ! selected[path] ) { delete entries[path]; } } );
+			}
 			if ( state.customEnabled ) {
 				( state.recipe.custom_fields.bindings || [] ).forEach( function ( binding ) {
 					if ( binding.target.startsWith( '/document/' ) ) { delete entries[ '/@nova/custom-fields/acf/' + binding.target.slice( 10 ) ]; }
@@ -541,7 +655,7 @@
 			section.append( node( 'summary', 'Additional content fields (optional)' ), help( 'Select a field only when NOVA should fill it with new article content. Its example value is not copied. Closing this section keeps your selections.' ) );
 			Object.keys( entries ).forEach( function ( path ) {
 				var entry = entries[ path ], label = entry.label || entry.name;
-				var hint = ( entry.provider === 'acf' ? 'ACF' : 'WordPress' ) + ' · ' + entry.name, designSetting = designFields[ entry.name ] && designFields[ entry.name ].template_setting;
+				var hint = ( entry.provider === 'halo' ? 'HALO · ' + entry.type : entry.provider === 'acf' ? 'ACF' : 'WordPress' ) + ' · ' + entry.name, designSetting = designFields[ entry.name ] && designFields[ entry.name ].template_setting;
 				if ( ! choices[ path ] ) {
 					hint = entry.name === 'footnotes' ? 'Previously selected footnotes metadata. Deselect it to remove it from this layout.' : 'Registration unavailable. Deselect this field or restore its registration before saving.';
 				}
@@ -550,18 +664,43 @@
 						var fields = Object.assign( {}, state.recipe.posting_fields || {} );
 						if ( enabled && choices[ path ] ) {
 							fields[ path ] = copy( choices[ path ] );
+							if ( state.mode === 'article' ) { setArticleSource( state, path, articleFieldSources( entry )[0].value ); }
 							// A mapped editorial value takes precedence over the example's fixed value.
 							var fixed = state.design.pendingPresentationKeys || storedPresentationKeys( state.design );
 							if ( fixed.includes( entry.name ) ) { setPresentationKeys( state.design, fixed.filter( function ( key ) { return key !== entry.name; } ) ); }
 						}
-						else { delete fields[ path ]; }
+						else { delete fields[ path ]; if ( state.mode === 'article' ) { setArticleSource( state, path, '' ); } }
 						if ( Object.keys( fields ).length ) { state.recipe.posting_fields = fields; } else { delete state.recipe.posting_fields; }
 					} );
 				}, hint ) );
 				if ( selected[ path ] ) {
+					if ( state.mode === 'article' ) {
+						section.append( field( 'NOVA content for ' + label, select( articleFieldSources( entry ), ( state.recipe.article.sources || {} )[path] || '', function ( value ) { controller.edit( function () { setArticleSource( state, path, value ); } ); } ) ), check( 'Require a value for ' + label, !! selected[path].required, function ( value ) { controller.edit( function () { state.recipe.posting_fields[path].required = value; } ); } ) );
+					}
 					if ( designSetting ) {
 						section.append( help( 'This saved mapping fills a design setting with article content. Keep it as configured, or explicitly copy the example’s design setting instead.' ), button( 'Copy example setting: ' + label, function () { controller.edit( function () { delete state.recipe.posting_fields[path]; if ( ! Object.keys( state.recipe.posting_fields ).length ) { delete state.recipe.posting_fields; } var fixed = state.design.pendingPresentationKeys || storedPresentationKeys( state.design ); setPresentationKeys( state.design, Array.from( new Set( fixed.concat( [ entry.name ] ) ) ) ); } ); } ) );
 					}
+                    if ( entry.provider === 'halo' ) {
+                        var sample = state.content.halo && state.content.halo[entry.name];
+                        section.append( help( entry.schema.description || '' ) );
+                        if ( entry.type === 'boolean' ) {
+                            section.append( check( 'Preview value for ' + label, sample === true, function ( value ) {
+                                controller.edit( function () { state.content.halo = state.content.halo || {}; state.content.halo[entry.name] = value; }, false );
+                            } ) );
+                        } else {
+                            var sampleText = sample === undefined ? '' : typeof sample === 'string' ? sample : JSON.stringify( sample, null, 2 );
+                            section.append( field( 'Preview value for ' + label, input( sampleText, function ( value ) {
+                                controller.edit( function () {
+                                    state.content.halo = state.content.halo || {};
+                                    if ( value === '' ) { delete state.content.halo[entry.name]; return; }
+                                    var parsed = value;
+                                    if ( entry.type !== 'string' ) { try { parsed = JSON.parse( value ); } catch ( error ) { /* Preserve invalid input for preview validation. */ } }
+                                    state.content.halo[entry.name] = parsed;
+                                }, false );
+                            }, true ), entry.type === 'array' ? 'Enter a JSON list using the registered field schema. This value is used by the structure preview and test draft.' : 'Used by the structure preview and test draft. An empty input omits the field.' ) );
+                        }
+                    }
+					if ( state.mode === 'article' ) { return; }
 					var guidance = node( 'details' ); guidance.setAttribute( 'data-nlr-view-key', 'custom-guidance:' + path ); guidance.append( node( 'summary', 'Optional instructions for ' + label ) );
 					guidance.append( field( 'Instructions for ' + label, input( selected[ path ].instructions, function ( value ) {
 						controller.edit( function () { state.recipe.posting_fields[ path ].instructions = value; }, false );
@@ -570,8 +709,109 @@
 					} ) ); section.append( guidance );
 				}
 			} );
+            if ( Object.values( selected ).some( function ( entry ) { return entry.provider === 'halo'; } ) ) {
+                section.append( button( 'Preview HALO values', function () { controller.previewHalo(); }, false, state.busy ) );
+                var draftButton = button( 'Create HALO preview draft', function () { controller.createHaloDraft( win.crypto.randomUUID() ); }, false, state.busy || ! state.id || controller.dirty() );
+                draftButton.setAttribute( 'data-nlr-view-key', 'action:halo-draft' ); section.append( draftButton );
+                section.append( help( 'Save the mapping before creating a draft. The draft renders these sample values through the active theme.' ) );
+                if ( state.haloPreview ) { var preview = node( 'iframe' ); preview.title = 'HALO sample values'; preview.setAttribute( 'data-halo-preview', '' ); preview.setAttribute( 'sandbox', '' ); preview.style.width = '100%'; preview.style.height = '480px'; preview.srcdoc = state.haloPreview; section.append( preview ); }
+            }
 			return section;
 		}
+
+        function articleFieldSources( entry ) {
+            if ( [ 'array', 'boolean', 'integer' ].includes( entry.type ) ) { return []; }
+            if ( entry.type === 'url' ) { return [ { value: 'url', label: 'Page URL' }, { value: 'image_url', label: 'Primary image URL' } ]; }
+            if ( entry.type === 'wysiwyg' || entry.provider === 'halo' && /rich_text$/.test( entry.name ) ) {
+                return [ { value: 'content', label: 'Complete article' }, { value: 'top_content', label: 'Top content' }, { value: 'bottom_content', label: 'Bottom content' } ];
+            }
+            return [ { value: 'meta_description', label: 'Meta description' }, { value: 'h1', label: 'Article title' }, { value: 'title', label: 'SEO title' }, { value: 'image_alt', label: 'Image description' }, { value: 'url', label: 'Page URL' }, { value: 'language', label: 'Language' } ];
+        }
+        function setArticleSource( state, path, source ) {
+            var sources = Object.assign( {}, state.recipe.article.sources || {} );
+            if ( source ) { sources[path] = source; } else { delete sources[path]; }
+            if ( Object.keys( sources ).length ) { state.recipe.article.sources = sources; } else { delete state.recipe.article.sources; }
+        }
+        function articlePostFieldsEditor( state ) {
+            var section = node( 'details', undefined, 'nlr-region-list' );
+            section.setAttribute( 'data-nlr-view-key', 'article-post-details' );
+            section.append( node( 'summary', 'Title, featured image and excerpt' ), help( 'The article title becomes the WordPress title. Images inside the article become Image blocks. Select a featured image or excerpt below to fill those separate WordPress fields.' ) );
+            ( state.design.fields || [] ).filter( function ( entry ) { return [ '/native_post/featured_image', '/native_post/excerpt' ].includes( entry.target ); } ).forEach( function ( entry ) {
+                var selected = ( state.recipe.bindings || [] ).some( function ( item ) { return item.target === entry.target; } );
+                var image = entry.target === '/native_post/featured_image';
+                section.append( check( entry.label, selected, function ( enabled ) { controller.edit( function () {
+                    if ( enabled ) {
+                        var binding = assignRole( state.recipe, entry, image ? 'image_url' : 'meta_description', 'main:fixed' );
+                        binding.required = false;
+                        binding.source = image ? '/image/url' : '/description';
+                    } else { state.recipe.bindings = state.recipe.bindings.filter( function ( item ) { return item.target !== entry.target; } ); }
+                } ); }, image ? 'NOVA primary image → WordPress featured image' : 'NOVA meta description → WordPress excerpt' ) );
+            } );
+            return section;
+        }
+
+        // WordPress core block icons keep the mapping recognizable from the block inserter.
+        function articleBlockIcon( kind ) {
+            var paths = {
+                paragraph: "m9.99609 14v-.2251l.00391.0001v6.225h1.5v-14.5h2.5v14.5h1.5v-14.5h3v-1.5h-8.50391c-2.76142 0-5 2.23858-5 5 0 2.7614 2.23858 5 5 5z",
+                heading: "M9 11.1H5v-4H3v10h2v-4h4v4h2v-10H9v4zm8 4c.5-.4.6-.6 1.1-1.1.4-.4.8-.8 1.2-1.3.3-.4.6-.8.9-1.3.2-.4.3-.8.3-1.3 0-.4-.1-.9-.3-1.3-.2-.4-.4-.7-.8-1-.3-.3-.7-.5-1.2-.6-.5-.2-1-.2-1.5-.2-.4 0-.7 0-1.1.1-.3.1-.7.2-1 .3-.3.1-.6.3-.9.5-.3.2-.6.4-.8.7l1.2 1.2c.3-.3.6-.5 1-.7.4-.2.7-.3 1.2-.3s.9.1 1.3.4c.3.3.5.7.5 1.1 0 .4-.1.8-.4 1.1-.3.5-.6.9-1 1.2-.4.4-1 .9-1.6 1.4-.6.5-1.4 1.1-2.2 1.6v1.5h8v-2H17z",
+                list: "M11.1 15.8H20v-1.5h-8.9v1.5zm0-8.6v1.5H20V7.2h-8.9zM6 13c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-7c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z",
+                table: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2Zm.5 2v6.2h-6.8V4.4h6.2c.3 0 .5.2.5.5ZM5 4.5h6.2v6.8H4.4V5.1c0-.3.2-.5.5-.5ZM4.5 19v-6.2h6.8v6.8H5.1c-.3 0-.5-.2-.5-.5Zm14.5.5h-6.2v-6.8h6.8v6.2c0 .3-.2.5-.5.5Z",
+                quote: "M13 6v6h5.2v4c0 .8-.2 1.4-.5 1.7-.6.6-1.6.6-2.5.5h-.3v1.5h.5c1 0 2.3-.1 3.3-1 .6-.6 1-1.6 1-2.8V6H13zm-9 6h5.2v4c0 .8-.2 1.4-.5 1.7-.6.6-1.6.6-2.5.5h-.3v1.5h.5c1 0 2.3-.1 3.3-1 .6-.6 1-1.6 1-2.8V6H4v6z",
+                image: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM5 4.5h14c.3 0 .5.2.5.5v8.4l-3-2.9c-.3-.3-.8-.3-1 0L11.9 14 9 12c-.3-.2-.6-.2-.8 0l-3.6 2.6V5c-.1-.3.1-.5.4-.5zm14 15H5c-.3 0-.5-.2-.5-.5v-2.4l4.1-3 3 1.9c.3.2.7.2.9-.1L16 12l3.5 3.4V19c0 .3-.2.5-.5.5z",
+                separator: "M4.5 12.5v4H3V7h1.5v3.987h15V7H21v9.5h-1.5v-4h-15Z"
+            };
+            var svg = doc.createElementNS( 'http://www.w3.org/2000/svg', 'svg' );
+            svg.setAttribute( 'viewBox', '0 0 24 24' ); svg.setAttribute( 'width', '24' ); svg.setAttribute( 'height', '24' );
+            svg.setAttribute( 'aria-hidden', 'true' ); svg.setAttribute( 'focusable', 'false' );
+            var path = doc.createElementNS( 'http://www.w3.org/2000/svg', 'path' );
+            path.setAttribute( 'd', paths[kind] ); svg.append( path ); return svg;
+        }
+
+        function articleEditor( state ) {
+            var section = node( 'section', undefined, 'nlr-article-rules' ), article = state.recipe.article;
+            section.append( node( 'h3', 'How NOVA content becomes blocks' ), help( 'Each element in the article becomes the Gutenberg block shown below. Open a row to adjust its settings.' ) );
+            section.append( check( 'The theme displays the page title', article.theme_displays_title === true, function ( enabled ) {
+                controller.edit( function () { article.theme_displays_title = enabled; } );
+            }, 'Remove an opening H1 when it repeats the page title. Other headings keep their configured levels. A different opening H1 is kept and flagged for review.' ) );
+            var labels = node( 'div', undefined, 'nlr-transform-labels' );
+            labels.append( node( 'span', 'From NOVA' ), node( 'span', '' ), node( 'span', 'On your page · Gutenberg' ) ); section.append( labels );
+            [
+                [ 'paragraph', '<p>', 'Paragraph', 'Paragraph' ],
+                [ 'heading', '<h1>–<h6>', 'Heading', 'Heading' ],
+                [ 'list', '<ul> / <ol>', 'Bulleted or numbered list', 'List' ],
+                [ 'table', '<table>', 'Table', 'Table' ],
+                [ 'quote', '<blockquote>', 'Quote', 'Quote' ],
+                [ 'image', '<img>', 'Image', 'Image' ],
+                [ 'separator', '<hr>', 'Divider line', 'Separator' ]
+            ].forEach( function ( item ) {
+                var row = node( 'details', undefined, 'nlr-transform' ); row.setAttribute( 'data-nlr-view-key', 'article-rule:' + item[0] );
+                var summary = node( 'summary', undefined, 'nlr-transform-summary' ), source = node( 'span', undefined, 'nlr-transform-source' );
+                source.append( node( 'code', item[1] ), node( 'span', item[2] ) );
+                var arrow = node( 'span', '→', 'nlr-transform-arrow' ); arrow.setAttribute( 'role', 'img' ); arrow.setAttribute( 'aria-label', 'becomes' );
+                var destination = node( 'span', undefined, 'nlr-transform-destination' ), icon = node( 'span', undefined, 'nlr-block-icon' );
+                icon.append( articleBlockIcon( item[0] ) ); destination.append( icon, node( 'strong', item[3] ) );
+                var settingsLabel = node( 'span', 'Settings', 'nlr-transform-toggle' );
+                summary.append( source, arrow, destination, settingsLabel ); row.append( summary );
+                var settings = node( 'div', undefined, 'nlr-transform-settings' );
+                var classes = input( article.rules[item[0]].class_name, function ( value ) { controller.edit( function () { article.rules[item[0]].class_name = value; }, false ); } );
+                classes.maxLength = 300; classes.pattern = '(?:[a-zA-Z_][a-zA-Z0-9_-]*(?: +[a-zA-Z_][a-zA-Z0-9_-]*)*)?';
+                var advanced = node( 'details', undefined, 'nlr-transform-advanced' ); advanced.setAttribute( 'data-nlr-view-key', 'article-style:' + item[0] );
+                advanced.append( node( 'summary', 'Advanced styling' ), field( item[3] + ' CSS classes', classes, 'Optional classes from your theme.' ) );
+                if ( item[0] === 'heading' ) { settings.append( field( 'Heading levels', select( [ { value: 'preserve', label: 'Keep source heading levels' } ].concat( [ 1, 2, 3, 4, 5, 6 ].map( function ( level ) { return { value: String( level ), label: 'Use H' + level + ' for every heading' }; } ) ), String( article.rules.heading.level ), function ( value ) { controller.edit( function () { article.rules.heading.level = value === 'preserve' ? value : Number( value ); } ); } ) ) ); }
+                if ( item[0] === 'table' ) { settings.append( field( 'Table style', select( [ { value: 'default', label: 'Default' }, { value: 'stripes', label: 'Stripes' } ], article.rules.table.style, function ( value ) { controller.edit( function () { article.rules.table.style = value; } ); } ) ), check( 'Use equal-width table columns', article.rules.table.fixed_layout, function ( value ) { controller.edit( function () { article.rules.table.fixed_layout = value; } ); } ) ); }
+                if ( ! [ 'heading', 'table' ].includes( item[0] ) ) { settings.append( help( 'Uses your theme’s ' + item[3].toLowerCase() + ' block styling.' ) ); }
+                settings.append( advanced ); row.append( settings ); section.append( row );
+            } );
+            section.append( field( 'Other content', select( [ { value: 'html', label: 'Keep in a Custom HTML block' }, { value: 'reject', label: 'Require review before publishing' } ], article.rules.fallback, function ( value ) { controller.edit( function () { article.rules.fallback = value; } ); } ), 'Keep other layouts together in a Custom HTML block, or pause publishing so you can review them.' ) );
+            var samples = node( 'details' ); samples.setAttribute( 'data-nlr-view-key', 'article-preview-inputs' );
+            samples.append( node( 'summary', 'Try an example article' ), field( 'NOVA page title', input( state.content.title || '', function ( value ) { controller.edit( function () { state.content.title = value; }, false ); } ) ), field( 'NOVA article HTML', input( state.content.body || '', function ( value ) { controller.edit( function () { state.content.body = value; }, false ); }, true ) ), button( 'Preview with site styling', function () { controller.previewArticle(); }, false, state.busy ) );
+            samples.append( help( 'Uses the active theme’s content styles. Create a review draft to check the complete page layout.' ) );
+            if ( state.articlePreview ) { var frame = node( 'iframe' ); frame.title = 'Site-styled Gutenberg article preview'; frame.setAttribute( 'sandbox', 'allow-same-origin' ); frame.srcdoc = state.articlePreview; frame.style.width = '100%'; frame.style.height = '480px'; samples.append( frame ); }
+            section.append( samples );
+            if ( state.id && ! controller.dirty() ) { section.append( button( 'Create review draft', function () { controller.createHaloDraft( win.crypto && typeof win.crypto.randomUUID === 'function' ? win.crypto.randomUUID() : '' ); }, false, state.busy ) ); }
+            return section;
+        }
 		function presentationEditor() {
 			var state = controller.state, blueprint = state.recipe.blueprint || {}, selected = new Set( state.design.pendingPresentationKeys || storedPresentationKeys( state.design ) ), ticket = state.design.presentation_choices, choices = ticket && ticket.inventory && ticket.inventory.fields || {}, wrap = node( 'details', undefined, 'nlr-presentation' );
 			wrap.append( node( 'summary', 'Design settings copied from your example' ) );
@@ -614,7 +854,7 @@
 			section.append(
 				node( 'h3', 'Save this layout' ),
 				field( 'Template name', input( state.label, function ( value ) { controller.edit( function () { state.label = value; }, false ); } ) ),
-				help( modeLabel( state.mode ) + ' · ' + ( state.recipe.bindings || [] ).length + ' fixed fields · ' + ( state.recipe.regions || [] ).length + ' content regions' )
+				help( state.mode === 'article' ? 'Dynamic template · Gutenberg element rules' : modeLabel( state.mode ) + ' · ' + ( state.recipe.bindings || [] ).length + ' fixed fields · ' + ( state.recipe.regions || [] ).length + ' content regions' )
 			);
 			if ( hasPageType( state.resourceId ) ) { section.append( help( 'NOVA content types: ' + selectedTypeLabel( state ) + '. Destination: ' + destination.label + '. WordPress uses the registered permalink base to distinguish destinations for the same NOVA page type.' ) ); }
 			if ( state.customEnabled ) { section.append( help( 'Declared custom fields are included.' ) ); }
@@ -641,8 +881,17 @@
 		function render() {
 			var state = controller.state, position = beginView( state ); chromeHost.replaceChildren(); panelHost.replaceChildren(); updateCanvas( state ); var header = node( 'div', undefined, 'nlr-header' ), heading = node( 'div' ); heading.append( node( 'h2', 'Create a content template' ), help( 'A creation default describes new content for this destination. Existing content is read from its own live structure. Nothing publishes from this setup.' ) ); header.append( heading, node( 'span', state.id && ! controller.dirty() ? savedLabel( state ) : state.recipe ? 'Unsaved changes' : 'New template', 'nlr-state' + ( state.id && ! controller.dirty() ? ' saved' : '' ) ) ); chromeHost.append( header ); if ( state.reviewDraft ) { chromeHost.append( reviewDraftPanel( state.reviewDraft ) ); } var retained = retainedOperations.read(); if ( retained ) { chromeHost.append( button( 'Recover previous review draft', function () { controller.recoverDraft( retained.operation_id ); }, false, state.busy ) ); } var steps = node( 'ol', undefined, 'nlr-stepper' ); STEPS.forEach( function ( text, index ) { var item = node( 'li' ), control = button( ( index + 1 ) + '. ' + text, function () { controller.go( index + 1 ); }, false, state.busy || ! controller.canStep( index + 1 ) ); if ( state.step === index + 1 ) { control.setAttribute( 'aria-current', 'step' ); } item.append( control ); steps.append( item ); } ); chromeHost.append( steps ); if ( state.feedback && ( ! state.feedbackAtSave || state.step !== 3 ) ) { chromeHost.append( feedbackNotice( state ) ); } if ( ! state.catalog ) { chromeHost.append( node( 'p', state.busy ? 'Loading available destinations and builders…' : 'Template choices are unavailable.' ) ); finishView( position, state ); return; }
 			var panel = node( 'div', undefined, 'nlr-panel' ); panelHost.append( panel );
-			if ( state.step === 1 ) { panel.append( node( 'h3', 'What should this template create?' ), field( 'Content destination', select( state.catalog.resources.filter( manualResource ).map( function ( item ) { return { value: item.id, label: item.label }; } ), state.resourceId, function ( value ) { controller.selectResource( value ); } ), 'Choose the WordPress destination for this layout.' ) ); if ( hasPageType( state.resourceId ) ) { var typesPanel = node( 'fieldset', undefined, 'nlr-content-types' ); typesPanel.append( node( 'legend', 'NOVA content types' ), help( 'Use this same layout for every selected content type. Category content can also create normal WordPress pages.' ) ); ( state.resourceId === 'taxonomy:product_cat' ? [ 'category' ] : [ 'service', 'informative', 'category' ] ).forEach( function ( type ) { var choice = check( pageTypeLabel( type ), selectedPageTypes( state ).includes( type ), function ( enabled ) { controller.togglePageType( type, enabled ); } ); choice.querySelector( 'input' ).disabled = state.busy || state.resourceId === 'taxonomy:product_cat'; typesPanel.append( choice ); } ); panel.append( typesPanel ); var suggested = suggestedDestination( state.postingPageType, state.catalog.resources ); if ( selectedPageTypes( state ).length === 1 && ! state.id && ! state.design && suggested && suggested.id !== state.resourceId ) { panel.append( button( 'Use suggested destination: ' + suggested.label, function () { var type = state.postingPageType; controller.selectResource( suggested.id ); controller.selectPageType( type ); }, false, state.busy ) ); } var support = postingSupport( state, controller.resource() ); if ( support.supported !== true ) { panel.append( help( 'This layout is saved locally. ' + ( support.reason || 'Its publishing adapter is unavailable.' ) ) ); } } var modes = node( 'div', undefined, 'nlr-choice-grid' ); MODES.forEach( function ( mode ) { var choice = button( '', function () { controller.selectMode( mode.id ); }, false, state.busy ); choice.className = 'nlr-choice' + ( displayMode( state.mode ) === mode.id ? ' selected' : '' ); choice.setAttribute( 'aria-pressed', String( displayMode( state.mode ) === mode.id ) ); choice.append( node( 'strong', mode.label ), node( 'span', mode.description ) ); modes.append( choice ); } ); panel.append( modes ); var configurableResources = new Set( state.catalog.resources.filter( manualResource ).map( function ( item ) { return item.id; } ) ), clientProfiles = ( state.catalog.profiles || [] ).filter( function ( item ) { return configurableResources.has( item.resource_id ); } ); if ( clientProfiles.length ) { var saved = node( 'details' ); saved.append( node( 'summary', 'Edit a saved template' ) ); saved.append( select( [ { value: '', label: 'Choose a saved template' } ].concat( clientProfiles.map( function ( item ) { return { value: item.id, label: item.label || item.id }; } ) ), '', function ( value ) { if ( value ) { var url = new URL( win.location.href ); url.searchParams.set( 'recipe_id', value ); win.location.href = url.href; } } ) ); panel.append( saved ); } }
-			if ( state.step === 2 ) {
+			if ( state.step === 1 ) { panel.append( node( 'h3', 'What should this template create?' ), field( 'Content destination', select( state.catalog.resources.filter( manualResource ).map( function ( item ) { return { value: item.id, label: item.label }; } ), state.resourceId, function ( value ) { controller.selectResource( value ); } ), 'Choose the WordPress destination for this layout.' ) ); if ( hasPageType( state.resourceId ) ) { var typesPanel = node( 'fieldset', undefined, 'nlr-content-types' ); typesPanel.append( node( 'legend', 'NOVA content types' ), help( 'Use this same layout for every selected content type. Category content can also create normal WordPress pages.' ) ); ( isProductTaxonomy( state.resourceId ) ? [ 'category' ] : [ 'service', 'informative', 'category' ] ).forEach( function ( type ) { var choice = check( pageTypeLabel( type ), selectedPageTypes( state ).includes( type ), function ( enabled ) { controller.togglePageType( type, enabled ); } ); choice.querySelector( 'input' ).disabled = state.busy || isProductTaxonomy( state.resourceId ); typesPanel.append( choice ); } ); panel.append( typesPanel ); var suggested = suggestedDestination( state.postingPageType, state.catalog.resources ); if ( selectedPageTypes( state ).length === 1 && ! state.id && ! state.design && suggested && suggested.id !== state.resourceId ) { panel.append( button( 'Use suggested destination: ' + suggested.label, function () { var type = state.postingPageType; controller.selectResource( suggested.id ); controller.selectPageType( type ); }, false, state.busy ) ); } var support = postingSupport( state, controller.resource() ); if ( support.supported !== true ) { panel.append( help( 'This layout is saved locally. ' + ( support.reason || 'Its publishing adapter is unavailable.' ) ) ); } } var modes = node( 'div', undefined, 'nlr-choice-grid' ); MODES.forEach( function ( mode ) {
+                    var unavailable = mode.id === 'dynamic' && ! builderChoices( state.catalog.builders, controller.resource(), 'article' ).some( function ( item ) { return item.available !== false; } );
+                    var choice = button( '', function () { controller.selectMode( mode.id ); }, false, state.busy || unavailable );
+                    choice.className = 'nlr-choice' + ( displayMode( state.mode ) === mode.id ? ' selected' : '' );
+                    choice.setAttribute( 'aria-pressed', String( displayMode( state.mode ) === mode.id ) );
+                    choice.append( node( 'strong', mode.label ), node( 'span', mode.description ) );
+                    if ( unavailable ) { choice.append( node( 'span', 'Available for WordPress post destinations with Gutenberg.' ) ); }
+                    modes.append( choice );
+                } ); panel.append( modes ); var configurableResources = new Set( state.catalog.resources.filter( manualResource ).map( function ( item ) { return item.id; } ) ), clientProfiles = ( state.catalog.profiles || [] ).filter( function ( item ) { return configurableResources.has( item.resource_id ); } ); if ( clientProfiles.length ) { var saved = node( 'details' ); saved.append( node( 'summary', 'Edit a saved template' ) ); saved.append( select( [ { value: '', label: 'Choose a saved template' } ].concat( clientProfiles.map( function ( item ) { return { value: item.id, label: item.label || item.id }; } ) ), '', function ( value ) { if ( value ) { var url = new URL( win.location.href ); url.searchParams.set( 'recipe_id', value ); win.location.href = url.href; } } ) ); panel.append( saved ); } }
+			if ( state.step === 2 && state.mode === 'article' ) { panel.append( node( 'h3', 'Create the article region' ), help( 'Each delivery supplies the article. Element rules control its native Gutenberg blocks. The active theme supplies the page layout.' ), button( 'Use Gutenberg element rules', function () { controller.capture( 0 ); }, true, state.busy ) ); }
+			if ( state.step === 2 && state.mode !== 'article' ) {
 				var resource = controller.resource(), targets = resource && resource.targets || [], capture = node( 'section', undefined, 'nlr-reference-choice' ), captureButton, freshButton;
 				if ( referenceResource !== state.resourceId ) {
 					referenceResource = state.resourceId; referenceId = 0; referenceSearch = ''; referenceBuilder = 'auto';
@@ -725,7 +974,8 @@
 
 			}
 			if ( state.step === 3 && [ 'flatsome', 'elementor' ].includes( state.builder ) && ( state.design.reusable_blocks || [] ).length ) { panel.append( reusableBlocksEditor() ); }
-			if ( state.step === 3 ) {
+			if ( state.step === 3 && state.builder === 'beaver' && ( ( state.design.locale_preservation || {} ).shared_templates || [] ).length ) { panel.append( sharedBeaverEditor() ); }
+			if ( state.step === 3 && state.mode !== 'article' ) {
 				var source = state.design.source_reference;
 				if ( ! source ) {
 					var noSource = node( 'div', undefined, 'nlr-source-notice' );
@@ -734,7 +984,8 @@
 				} else if ( ! visualContext( state.design, win.location.origin ) ) {
 					panel.append( node( 'div', 'Reference: ' + source.title + ' · ' + source.builder, 'nlr-readonly' ), help( state.design.visual_preview && state.design.visual_preview.reason || 'A live reference canvas is unavailable. All captured writable fields remain available below.' ) );
 				}
-				var seoEditor = seoFieldsEditor( state ); if ( seoEditor ) { panel.append( seoEditor ); } panel.append( node( 'h3', state.mode === 'static' ? 'Choose your fixed content fields' : 'Choose fixed fields and variable content' ), node( 'div', 'Choose a purpose for each field you want NOVA to fill. Unselected content, styles and responsive settings stay protected. To change styling or device layout, edit the design in your builder and capture it again.', 'nlr-protected' ), recipeEditor( 'main', state.recipe, state.design ) ); if ( state.customDesign ) { panel.append( check( state.design.source_reference && state.design.source_reference.reference_type === 'term' ? 'Map additional ACF category fields (' + state.customDesign.fields.filter( function ( item ) { return item.writable !== false; } ).length + ' fields)' : 'Include custom fields', state.customEnabled, function ( value ) { controller.includeCustom( value ); }, 'Use the same content for this builder layout and the site’s declared custom field schema. Fields not rendered on the page remain selectable in their schema.' ) ); if ( state.customEnabled ) { var customPanel = node( 'details' ); customPanel.setAttribute( 'data-nlr-view-key', 'custom-fields-editor' ); customPanel.append( node( 'summary', 'Custom fields and nested rows' ), help( 'Closing this section keeps your mappings enabled.' ), recipeEditor( 'custom', state.recipe.custom_fields, state.customDesign ) ); panel.append( customPanel ); } } var templateContext = node( 'details' ); templateContext.append( node( 'summary', 'Extra Template Context (optional)' ), field( 'Instructions for the whole template', input( state.recipe.instructions || '', function ( value ) { controller.edit( function () { state.recipe.instructions = value; }, false ); }, true ), 'Add shared guidance for all mapped fields when needed.' ) ); panel.append( templateContext ); warnings( state.design.warnings, panel ); }
+				var seoEditor = seoFieldsEditor( state ); if ( seoEditor ) { panel.append( seoEditor ); } panel.append( node( 'h3', state.mode === 'static' ? 'Choose your fixed content fields' : 'Choose content fields and saved regions' ), node( 'div', 'Choose a purpose for each field you want NOVA to fill. Unselected content, styles and responsive settings stay protected. To change styling or device layout, edit the design in your builder and capture it again.', 'nlr-protected' ), recipeEditor( 'main', state.recipe, state.design ) ); if ( state.customDesign ) { panel.append( check( state.design.source_reference && state.design.source_reference.reference_type === 'term' ? 'Map additional ACF category fields (' + state.customDesign.fields.filter( function ( item ) { return item.writable !== false; } ).length + ' fields)' : 'Include custom fields', state.customEnabled, function ( value ) { controller.includeCustom( value ); }, 'Use the same content for this builder layout and the site’s declared custom field schema. Fields not rendered on the page remain selectable in their schema.' ) ); if ( state.customEnabled ) { var customPanel = node( 'details' ); customPanel.setAttribute( 'data-nlr-view-key', 'custom-fields-editor' ); customPanel.append( node( 'summary', 'Custom fields and nested rows' ), help( 'Closing this section keeps your mappings enabled.' ), recipeEditor( 'custom', state.recipe.custom_fields, state.customDesign ) ); panel.append( customPanel ); } } var templateContext = node( 'details' ); templateContext.append( node( 'summary', 'Extra Template Context (optional)' ), field( 'Instructions for the whole template', input( state.recipe.instructions || '', function ( value ) { controller.edit( function () { state.recipe.instructions = value; }, false ); }, true ), 'Add shared guidance for all mapped fields when needed.' ) ); panel.append( templateContext ); warnings( state.design.warnings, panel ); }
+			if ( state.step === 3 && state.mode === 'article' ) { panel.append( articleEditor( state ), articlePostFieldsEditor( state ) ); var articleSeo = seoFieldsEditor( state ); if ( articleSeo ) { panel.append( articleSeo ); } var articleFields = editorialFieldsEditor( state ); if ( articleFields ) { panel.append( articleFields ); } }
 			if ( state.step === 3 ) { appendSaveControls( panel, state ); }
 			if ( state.step < 3 ) {
 				var actions = node( 'div', undefined, 'nlr-savebar' );
@@ -746,7 +997,7 @@
 			if ( state.busy ) { panel.setAttribute( 'aria-busy', 'true' ); if ( panel.querySelectorAll ) { [ 'input', 'select', 'textarea', 'button' ].forEach( function ( tag ) { panel.querySelectorAll( tag ).forEach( function ( control ) { control.disabled = true; } ); } ); } }
 			finishView( position, state );
 		}
-		controller = createController( { resourceId: config.resourceId, profileId: config.profileId, request: dependencies.request || request, change: render, inputsChanged: updateGates, confirm: dependencies.confirm || win.confirm.bind( win ), origin: win.location.origin, forgetDraft: retainedOperations.forget } );
+		controller = createController( { resourceId: config.resourceId, profileId: config.profileId, request: dependencies.request || request, change: render, inputsChanged: updateGates, confirm: dependencies.confirm || win.confirm.bind( win ), origin: win.location.origin, forgetDraft: retainedOperations.forget, rememberDraft: retainedOperations.remember } );
 		win.addEventListener( 'beforeunload', function ( event ) { if ( controller.dirty() ) { event.preventDefault(); event.returnValue = ''; } } ); render(); controller.ready = controller.init(); return controller;
 	}
 	return { modes: MODES, displayMode: displayMode, modeLabel: modeLabel, clearOptionalRegions: clearOptionalRegions, manualResource: manualResource, builderChoices: builderChoices, sources: sources, catalogResult: catalogResult, designResult: designResult, recipeFrom: recipeFrom, fingerprint: fingerprint, defaultContent: defaultContent, draftResult: draftResult, operationStore: operationStore, rolePath: rolePath, fieldRules: fieldRules, regionLimits: regionLimits, assignRole: assignRole, rolesFor: rolesFor, customRoleIssue: customRoleIssue, visualContext: visualContext, canvasMessage: canvasMessage, referenceGeometry: referenceGeometry, contentValue: contentValue, setContentValue: setContentValue, seedScope: seedScope, mergeInputScopes: mergeInputScopes, ancestorChain: ancestorChain, ancestorContext: ancestorContext, createController: createController, mount: mount };

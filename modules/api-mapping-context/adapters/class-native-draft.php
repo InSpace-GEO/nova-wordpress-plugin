@@ -70,6 +70,7 @@ final class Nova_Native_Layout_Draft {
         foreach ( $meta as $key => $value ) {
             update_post_meta( $id, $key, wp_slash( $value ) );
         }
+        if ( 'gutenberg' === $builder ) { require_once __DIR__ . '/gutenberg-acf.php'; Nova_Mapping_Gutenberg_ACF::flush_meta( $id, $meta ); }
         if ( 'beaver' === $builder ) {
             update_post_meta( $id, '_fl_builder_data', nova_mapping_bb_slash_layout_data( $nodes ) );
             delete_post_meta( $id, '_fl_builder_draft' );

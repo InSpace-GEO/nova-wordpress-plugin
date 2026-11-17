@@ -3,6 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-bridge-suite-posting-url-scope.php';
 require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-bridge-suite-posting-actor.php';
+require_once dirname( __DIR__, 2 ) . '/posting-service/includes/class-nova-bridge-suite-connection-layout-sync.php';
 
 final class Nova_Bridge_Suite_Posting_Settings {
     public const OPTION = 'nova_bridge_posting_connection';
@@ -189,6 +190,29 @@ JS;
         wp_print_inline_script_tag( $script );
     }
 
+    private static function render_sync_dialog( array $settings ): void {
+        if ( ! Nova_Bridge_Suite_Connection_Layout_Sync::take_prompt( $settings ) ) { return; }
+        echo '<input type="hidden" name="' . esc_attr( self::OPTION . '[sync_layouts_environment]' ) . '" value="' . esc_attr( Nova_WordPress_Environment::identity( $settings ) ) . '">';
+        echo '<input type="hidden" name="' . esc_attr( self::OPTION . '[sync_saved_layouts]' ) . '" value="0" data-nova-sync-layouts>';
+        echo '<dialog id="nova-sync-layouts-dialog" aria-labelledby="nova-sync-layouts-title" style="max-width:32rem;padding:1.5rem;border:1px solid #c3c4c7;border-radius:8px"><h2 id="nova-sync-layouts-title" style="margin-top:0">Synchronize saved mappings?</h2><p>Your NOVA connection is saved. Some local mappings are not synchronized with posting service. Synchronize them now?</p><p style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:0"><button type="button" class="button button-primary" data-nova-sync-choice="sync">Synchronize now</button><button type="button" class="button" data-nova-sync-choice="later">Later</button></p></dialog>';
+        $script = <<<'JS'
+(function () {
+    var form = document.getElementById( 'nova-connection-form' ), dialog = document.getElementById( 'nova-sync-layouts-dialog' );
+    if ( ! form || ! dialog || typeof dialog.showModal !== 'function' ) { return; }
+    dialog.showModal();
+    dialog.addEventListener( 'click', function ( event ) {
+        var choice = event.target.getAttribute && event.target.getAttribute( 'data-nova-sync-choice' );
+        if ( ! choice ) { return; }
+        dialog.close();
+        if ( 'sync' !== choice ) { return; }
+        form.querySelector( '[data-nova-sync-layouts]' ).value = '1';
+        if ( form.requestSubmit ) { form.requestSubmit(); } else { form.submit(); }
+    } );
+}());
+JS;
+        wp_print_inline_script_tag( $script );
+    }
+
     public static function render(): void {
         if ( ! current_user_can( 'manage_options' ) ) { return; }
         $settings = self::connection();
@@ -215,6 +239,7 @@ JS;
         }
         echo '</select><br><span class="description">' . ( $users ? 'Choose an account that can publish the content types you map, then save the connection.' : 'Give a user on this site permission to publish content, then select that user here.' ) . '</span></p>';
         if ( '' !== $settings['site_id'] ) { self::render_switch_dialog(); }
+        self::render_sync_dialog( $settings );
         submit_button( 'Save NOVA connection' );
         echo '<details><summary>Multi-site WordPress</summary><p><label><input type="checkbox" name="' . esc_attr( self::OPTION ) . '[url_scope_enabled]" value="1" ' . checked( $settings['url_scope_enabled'], true, false ) . '> Only process deliveries belonging to this WordPress installation</label><br><span class="description">Use this when several installations share a NOVA website identifier. This installation handles deliveries under <code>' . esc_html( get_option( 'home', home_url( '/' ) ) ) . '</code>.</span></p>';
         $imported = is_callable( [ 'Nova_Bridge_Suite_Shared_Layouts', 'has_imports' ] ) && Nova_Bridge_Suite_Shared_Layouts::has_imports( $settings, $settings['site_id'] );

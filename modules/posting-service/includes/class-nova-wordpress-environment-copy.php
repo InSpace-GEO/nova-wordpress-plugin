@@ -44,7 +44,7 @@ final class Nova_WordPress_Environment_Copy {
             $id = (string) ( $identity['id'] ?? '' ); $revision = (int) ( $identity['revision'] ?? 0 );
             if ( ! is_array( $layouts['profiles'][ $id ][ $revision ] ?? null ) ) { return self::error( 'source_invalid', 'A default layout revision is missing. Nothing was changed.' ); }
             // Only replicate what is live on the current service; other layouts are copied for review.
-            $status = 'taxonomy:product_cat' !== $resource && is_callable( [ 'Nova_Bridge_Suite_Stored_Recipe_Sync', 'saved_status' ] ) ? Nova_Bridge_Suite_Stored_Recipe_Sync::saved_status( $source, $id, $revision ) : null;
+            $status = ! in_array( $resource, [ 'taxonomy:product_cat', 'taxonomy:product_tag' ], true ) && is_callable( [ 'Nova_Bridge_Suite_Stored_Recipe_Sync', 'saved_status' ] ) ? Nova_Bridge_Suite_Stored_Recipe_Sync::saved_status( $source, $id, $revision ) : null;
             $defaults[] = [ 'resource_id' => (string) $resource, 'id' => $id, 'revision' => $revision, 'label' => (string) ( $layouts['profiles'][ $id ][ $revision ]['label'] ?? '' ), 'live' => 'synced' === ( $status['status'] ?? null ) ];
         }
         return [ 'stores' => $stores, 'defaults' => $defaults, 'layouts' => count( $layouts['profiles'] ?? [] ) ];
@@ -68,7 +68,7 @@ final class Nova_WordPress_Environment_Copy {
         $started = (float) call_user_func( $clock, true ); $results = [];
         foreach ( $plan['defaults'] as $item ) {
             $result = $item;
-            if ( 'taxonomy:product_cat' === $item['resource_id'] ) { $result['outcome'] = 'manual'; }
+            if ( in_array( $item['resource_id'], [ 'taxonomy:product_cat', 'taxonomy:product_tag' ], true ) ) { $result['outcome'] = 'manual'; }
             elseif ( ! $item['live'] ) { $result['outcome'] = 'not_live'; }
             elseif ( (float) call_user_func( $clock, true ) - $started > self::SYNC_BUDGET_SECONDS ) { $result['outcome'] = 'deferred'; }
             else {

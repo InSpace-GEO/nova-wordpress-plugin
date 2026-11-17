@@ -17,6 +17,7 @@ function register_rest_route( $namespace, $path, $handlers ) { global $routes; $
 function get_option( $key, $default = false ) { global $options; return array_key_exists( $key, $options ) ? $options[$key] : $default; }
 function add_option( $key, $value, $unused = '', $autoload = null ) { global $options; if ( array_key_exists( $key, $options ) ) { return false; } $options[$key] = $value; return true; }
 function maybe_serialize( $value ) { return serialize( $value ); }
+function maybe_unserialize( $value ) { return unserialize( $value ); }
 function wp_json_encode( $value, $flags = 0 ) { return json_encode( $value, $flags ); }
 function wp_cache_delete( $key, $group ) {}
 function wp_generate_uuid4() { global $uuid_number; return sprintf( '11111111-1111-4111-8111-%012d', ++$uuid_number ); }
@@ -33,19 +34,8 @@ class EndpointRequest {
     function get_param( $name ) { return $this->params[$name] ?? null; } function get_header( $name ) { return $this->headers[$name] ?? null; }
     function get_json_params() { return $this->body; } function get_body() { return $this->raw ?? json_encode( $this->body ); }
 }
-class EndpointDb {
-    public $options = 'wp_options'; public $race = null; public $fail = false; public $updates = 0;
-    function prepare( $sql, ...$args ) { return $args; }
-    function query( $args ) {
-        global $options; ++$this->updates;
-        if ( $this->fail ) { return false; }
-        if ( $this->race ) { $race = $this->race; $this->race = null; $race(); }
-        [ $next, $key, $previous ] = $args;
-        if ( ! isset( $options[$key] ) || serialize( $options[$key] ) !== $previous ) { return 0; }
-        $options[$key] = unserialize( $next ); return 1;
-    }
-}
-$wpdb = new EndpointDb();
+require_once __DIR__ . '/fixtures/atomic-option-db.php';
+$wpdb = new Nova_Test_Atomic_Option_DB( $options );
 class Nova_Bridge_Suite_Document_Mapping {
     public static $source = 'SECRET SOURCE ARTICLE'; public static $many = false; public static $preview_read_only = true; public static $native_visible = false; public static $managed = false; public static $native_version = '1';
     static function resources() { $resources = [

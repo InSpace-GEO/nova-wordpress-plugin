@@ -89,6 +89,9 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             if ( 'elementor' === $recipe['builder'] ) { $expected = Nova_Bridge_Suite_Elementor_Reusable::linked_blueprint( $expected ); }
             if ( 'gutenberg' === $recipe['builder'] ) {
                 $expected['document'] = Nova_Mapping_Gutenberg_HTML::source_blocks( $expected['document'] );
+                // Older captures did not include post-level ACF metadata. Compare only
+                // the metadata keys the signed revision actually retained.
+                if ( ! is_wp_error( $current ) ) { $current['blueprint']['meta'] = array_intersect_key( $current['blueprint']['meta'] ?? [], $expected['meta'] ?? [] ); }
             }
             if ( 'beaver' === $recipe['builder'] && ! is_wp_error( $current ) ) {
                 require_once dirname( __DIR__ ) . '/adapters/beaver-html.php';
@@ -150,7 +153,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 elseif ( 'product_cat' === ( $resource['taxonomy'] ?? '' ) && 'content_below_products' === ( $field['custom_field_key'] ?? '' ) && ! empty( $field['writable'] ) ) { $locator = [ 'strategy' => 'core', 'control_path' => [ 'bottom_content' ], 'precision' => 'region' ]; }
                 else { $locator = [ 'strategy' => 'unbound', 'reason' => 'This field has no independent element on the source page.' ]; }
             }
-            if ( 'acf' === $builder ) { $locator = self::acf_locator( $field ); }
+            if ( 'acf' === $builder || ( 'gutenberg' === $builder && isset( $field['acf_key'] ) ) ) { $locator = self::acf_locator( $field ); }
             if ( $shortcodes && is_string( $field['node_target'] ?? null ) && 0 === strpos( $field['node_target'], '/document/' ) ) {
                 $marker = Nova_Bridge_Suite_Shortcode_Preview::marker( $field['node_target'], $shortcode_hash );
                 $locator = [ 'strategy' => 'shortcode', 'marker' => $marker, 'node_id' => $marker, 'kind' => (string) ( $field['kind'] ?? '' ), 'element_type' => $locator['element_type'], 'control_path' => $locator['control_path'], 'precision' => 'element' ];

@@ -4,6 +4,7 @@
 if (! defined('ABSPATH')) {
     exit;
 }
+require_once __DIR__ . '/class-nova-wordpress-owned-output.php';
 
 /**
  * Serves stored per-locale content on Weglot-translated requests.
@@ -80,6 +81,12 @@ class Nova_WordPress_Weglot_Renderer
         $this->payload  = $payload;
         $this->post_id  = $post_id;
         $this->language = $language;
+        $native = [];
+        foreach ( [ 'title' => 'post_title', 'excerpt' => 'post_excerpt' ] as $key => $column ) {
+            if ( is_string( $payload[$key] ?? null ) ) { $native[$column] = $payload[$key]; }
+        }
+        Nova_WordPress_Owned_Output::native( $post_id, $native );
+        Nova_WordPress_Owned_Output::register( $payload['ownership']['elements'] ?? [] );
 
         // Must run BEFORE register_filters(): it reads the post's real
         // _elementor_data, which our own get_post_metadata filter would shadow.
@@ -147,15 +154,16 @@ class Nova_WordPress_Weglot_Renderer
             return $content;
         }
 
-        // On a builder page the builder owns the render, and this filter's output
-        // only ever reaches the visitor when the builder produced nothing --
-        // Elementor's apply_builder_in_content() leaves the_content alone when its
-        // own content is empty. That surfaced on 24peptides /fr/ as the payload's
-        // raw HTML printed straight into the theme's entry-content, with the whole
-        // page template gone. Serving nothing here is strictly better: the page
-        // falls back to the source layout, which Weglot still translates.
+        // Let the builder render its document. Returning translated raw HTML here
+        // can replace an empty builder render and bypass its layout.
         if ($this->payload_carries_builder_document()) {
             return $content;
+        }
+        if ( is_array( $this->payload['ownership']['blocks'] ?? null ) ) {
+            return '<div class="nova-weglot-i18n">' . Nova_WordPress_Owned_Output::blocks( $translated, $this->payload['ownership']['blocks'] ) . '</div>';
+        }
+        if ( is_array( $this->payload['ownership']['content'] ?? null ) ) {
+            return '<div class="nova-weglot-i18n">' . Nova_WordPress_Owned_Output::content( $translated, $this->payload['ownership']['content'] ) . '</div>';
         }
 
         return sprintf(
@@ -173,7 +181,7 @@ class Nova_WordPress_Weglot_Renderer
 
         $translated = $this->payload['title'] ?? '';
 
-        return is_string($translated) && '' !== trim($translated) ? $translated : $title;
+        return is_string($translated) && '' !== trim($translated) ? Nova_WordPress_Owned_Output::value( $translated ) : $title;
     }
 
     public function filter_single_post_title($title, $post = null)
@@ -186,7 +194,7 @@ class Nova_WordPress_Weglot_Renderer
 
         $translated = $this->payload['title'] ?? '';
 
-        return is_string($translated) && '' !== trim($translated) ? $translated : $title;
+        return is_string($translated) && '' !== trim($translated) ? Nova_WordPress_Owned_Output::value( $translated ) : $title;
     }
 
     /**
@@ -219,7 +227,7 @@ class Nova_WordPress_Weglot_Renderer
 
         $translated = $this->payload['excerpt'] ?? '';
 
-        return is_string($translated) && '' !== trim($translated) ? $translated : $excerpt;
+        return is_string($translated) && '' !== trim($translated) ? Nova_WordPress_Owned_Output::value( $translated ) : $excerpt;
     }
 
     /**
@@ -273,7 +281,8 @@ class Nova_WordPress_Weglot_Renderer
         // correct for scalars: an array meta value (which storage supports, and
         // sanitize_deep recurses into) came back as $check[0] -- the first element
         // for a list, and an "Undefined array key 0" warning plus null for a map.
-        return [$translated];
+        $type = is_string( $translated ) && preg_match( '#^(?:https?://|mailto:|tel:)#i', $translated ) ? 'url' : ( is_string( $translated ) && strpos( $translated, '<' ) !== false ? 'html' : 'text' );
+        return [in_array( $meta_key, $this->storage_service->structured_meta_keys(), true ) ? $translated : Nova_WordPress_Owned_Output::value( $translated, $type )];
     }
 
     /**
@@ -290,7 +299,8 @@ class Nova_WordPress_Weglot_Renderer
             return $blocks;
         }
 
-        $selectors = array_merge(['.nova-weglot-i18n'], $this->builder_notranslate_selectors);
+        $selectors = $this->builder_notranslate_selectors;
+        if ( ! isset( $this->payload['ownership']['content'] ) && ! isset( $this->payload['ownership']['blocks'] ) ) { $selectors[] = '.nova-weglot-i18n'; }
 
         // Gate each head field on the key that actually renders it, not on a
         // different one that merely tends to travel with it. Both mismatches were
@@ -398,6 +408,7 @@ class Nova_WordPress_Weglot_Renderer
     private function prepare_builder_exclusions(int $post_id): void
     {
         $this->builder_notranslate_selectors = [];
+        if ( isset( $this->payload['ownership']['elements'] ) ) { return; }
 
         $templates = $this->builder_selector_templates();
         $selectors = [];

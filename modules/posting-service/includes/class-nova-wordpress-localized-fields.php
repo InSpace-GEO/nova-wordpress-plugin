@@ -1,6 +1,7 @@
 <?php
 /** Render mapped custom fields on the published source in the requested provider locale. */
 defined( 'ABSPATH' ) || exit;
+require_once __DIR__ . '/class-nova-wordpress-owned-output.php';
 
 final class Nova_WordPress_Localized_Fields {
     private $id;
@@ -8,14 +9,25 @@ final class Nova_WordPress_Localized_Fields {
     private $seen = [];
     private $attributes = [];
     private $reading_bulk = false;
+    private $meta_type;
+    private $taxonomy;
+    private $seo;
 
-    public function __construct( int $id, array $fields ) {
+    public function __construct( int $id, array $fields, string $meta_type = 'post', string $taxonomy = 'product_cat' ) {
         $this->id = $id;
         $this->fields = $fields;
+        $this->meta_type = $meta_type;
+        $this->taxonomy = $taxonomy;
     }
 
     public static function on_request(): void {
-        if ( is_admin() || ! is_singular() || is_feed() || is_preview() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) { return; }
+        if ( is_admin() || is_feed() || is_preview() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) { return; }
+        if ( is_tax( [ 'product_cat', 'product_tag' ] ) ) {
+            require_once __DIR__ . '/class-nova-wordpress-localized-terms.php';
+            Nova_WordPress_Localized_Terms::on_request();
+            return;
+        }
+        if ( ! is_singular() ) { return; }
         $trp = class_exists( 'TRP_Translate_Press' );
         $language = $trp ? (string) ( $GLOBALS['TRP_LANGUAGE'] ?? '' ) : ( new Nova_WordPress_Weglot() )->get_current_code();
         $provider = Nova_Bridge_Suite_Translation_Writer::provider( $language );
@@ -34,7 +46,19 @@ final class Nova_WordPress_Localized_Fields {
         // If the site repurposes a field after delivery, stop serving its old translation.
         if ( ! class_exists( 'Nova_Bridge_Suite_Content_Transport' ) ) { require_once dirname( __DIR__, 2 ) . '/api-mapping-context/includes/class-nova-bridge-suite-content-transport.php'; }
         $catalog = Nova_Bridge_Suite_Content_Transport::field_catalog( get_post_type( $id ), $id, (string) get_page_template_slug( $id ) );
+        $halo = Nova_WordPress_Halo_Fields::catalog( get_post_type( $id ) );
+        $native = [];
         foreach ( $fields as $name => $field ) {
+            if ( 'halo' === ( $field['provider'] ?? '' ) ) {
+                $definition = $halo[$name] ?? [];
+                if ( ! Nova_WordPress_Halo_Fields::valid( $field + [ 'name' => $name ] ) ||
+                    ( $definition['key'] ?? null ) !== $field['key'] || ( $definition['schema'] ?? null ) !== $field['schema'] ||
+                    is_wp_error( rest_validate_value_from_schema( $field['value'], $field['schema'], $name ) ) ) {
+                    unset( $fields[$name] ); continue;
+                }
+                $native[$field['key']] = $field + [ 'name' => $name ];
+                unset( $fields[$name] ); continue;
+            }
             if ( is_protected_meta( $name, 'post' ) ) { unset( $fields[$name] ); continue; }
             if ( 'acf' === $field['provider'] ) {
                 $definition = $catalog['acf'][$name] ?? [];
@@ -48,9 +72,22 @@ final class Nova_WordPress_Localized_Fields {
                 unset( $fields[$name] );
             }
         }
+        $fields = array_replace( $fields, $native );
         if ( ! $fields ) { return; }
-        $renderer = new self( $id, $fields );
-        add_filter( 'get_post_metadata', [ $renderer, 'meta' ], 30, 4 );
+        self::attach( new self( $id, $fields ), $trp );
+    }
+
+    public static function attach( self $renderer, bool $trp ): void {
+        if ( ! $trp ) { Nova_WordPress_Owned_Output::register(); }
+        foreach ( $renderer->fields as $field ) {
+            if ( 'halo' === ( $field['provider'] ?? '' ) && in_array( $field['name'], [ 'seo_title_text', 'seo_meta_description_text' ], true ) ) {
+                require_once __DIR__ . '/class-nova-wordpress-localized-seo.php';
+                $renderer->seo = new Nova_WordPress_Localized_SEO();
+                $renderer->seo->attach( $trp );
+                break;
+            }
+        }
+        add_filter( 'get_' . $renderer->meta_type . '_metadata', [ $renderer, 'meta' ], 30, 4 );
         add_filter( 'acf/pre_load_value', [ $renderer, 'acf' ], 30, 3 );
         // A cached Elementor widget may otherwise skip the field read or cache the secondary language on the original.
         if ( did_action( 'elementor/loaded' ) ) {
@@ -67,7 +104,10 @@ final class Nova_WordPress_Localized_Fields {
         if ( '' === $name ) {
             // get_post_custom() exposes the complete, serialized cache map, even for unrelated arrays/objects.
             $this->reading_bulk = true;
-            try { $all = null === $previous ? get_post_meta( $id ) : ( $single ? ( $previous[0] ?? $previous ) : $previous ); }
+            try {
+                $stored = null === $previous ? ( 'term' === $this->meta_type ? get_term_meta( $id ) : get_post_meta( $id ) ) : null;
+                $all = null === $previous ? $stored : ( $single ? ( $previous[0] ?? $previous ) : $previous );
+            }
             finally { $this->reading_bulk = false; }
             if ( ! is_array( $all ) ) { return $previous; }
             foreach ( array_keys( $this->fields ) as $key ) { $all[$key] = [ maybe_serialize( $this->value( $key ) ) ]; }
@@ -81,17 +121,35 @@ final class Nova_WordPress_Localized_Fields {
 
     public function acf( $previous, $id, $definition ) {
         // ACF also calls this filter for terms, users and its options pages.
-        if ( ! ctype_digit( (string) $id ) || (int) $id !== $this->id ) { return $previous; }
+        if ( 'term' === $this->meta_type ) {
+            if ( ! in_array( (string) $id, [ 'term_' . $this->id, $this->taxonomy . '_' . $this->id ], true ) ) { return $previous; }
+        } elseif ( ! ctype_digit( (string) $id ) || (int) $id !== $this->id ) { return $previous; }
         $name = $definition['name'] ?? ''; $field = $this->fields[$name] ?? [];
         if ( ( $field['provider'] ?? '' ) !== 'acf' || $field['key'] !== ( $definition['key'] ?? '' ) || $field['type'] !== ( $definition['type'] ?? '' ) ) { return $previous; }
         return $this->value( $name );
     }
 
-    private function value( string $name ): string {
+    public function value( string $name ) {
         $value = $this->fields[$name]['value'];
+        $field = $this->fields[$name];
+        if ( $this->seo && 'halo' === ( $field['provider'] ?? '' ) ) {
+            $seo_field = [ 'seo_title_text' => 'title', 'seo_meta_description_text' => 'description' ][$field['name']] ?? '';
+            if ( $seo_field ) { $this->seo->remember( $seo_field, $value ); }
+        }
         if ( ! isset( $this->seen[$name] ) ) {
             $this->seen[$name] = [];
             $parts = [ $value ];
+            if ( 'halo' === ( $field['provider'] ?? '' ) ) {
+                $parts = [];
+                $leaves = is_array( $value ) ? $value : [ $value ];
+                array_walk_recursive( $leaves, static function ( $leaf ) use ( &$parts ) {
+                    if ( ! is_string( $leaf ) ) { return; }
+                    $tags = new WP_HTML_Tag_Processor( $leaf );
+                    while ( $tags->next_token() ) {
+                        if ( '#text' === $tags->get_token_type() ) { $parts[] = $tags->get_modifiable_text(); }
+                    }
+                } );
+            }
             if ( 'wysiwyg' === $this->fields[$name]['type'] ) {
                 $parts = [];
                 $tags = new WP_HTML_Tag_Processor( $value );
@@ -108,7 +166,7 @@ final class Nova_WordPress_Localized_Fields {
                 }
             }
         }
-        return $value;
+        return Nova_WordPress_Owned_Output::value( $value, $field['type'] ?? 'text' );
     }
 
     /** Tell the provider which final, already-localized HTML it should leave alone.
@@ -143,7 +201,8 @@ final class Nova_WordPress_Localized_Fields {
                             $omit = $excluded || in_array( $type, [ 'header', 'footer', 'loop-item' ], true ) ||
                                 ( $content && is_string( $element_id ) && (int) $element_id !== $this->id );
                             $area = in_array( $tag, [ 'MAIN', 'ARTICLE' ], true ) || 'main' === $tags->get_attribute( 'role' ) ||
-                                $content || in_array( $type, [ 'single', 'single-post', 'single-page' ], true ) || 'post-' . $this->id === $tags->get_attribute( 'id' );
+                                $content || in_array( $type, [ 'single', 'single-post', 'single-page' ], true ) ||
+                                ( 'term' === $this->meta_type && 'product-archive' === $type ) || 'post-' . $this->id === $tags->get_attribute( 'id' );
                             $regions[$tag][] = [ (int) $area, (int) $omit ]; $scope += (int) $area; $skipped += (int) $omit;
                         }
                     }

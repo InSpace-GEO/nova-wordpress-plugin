@@ -449,19 +449,21 @@ final class Nova_Bridge_Suite_Recipe_ACF {
     }
     /** Enforce declared cardinality/text bounds before native schema transport writes. */
     /** $conditions maps field keys to ACF conditional logic; a field hidden by it is not required, as in the ACF editor. */
-    public static function validate_constraints( array $fields, array $values, string $path = '/document', int $depth = 0, array $conditions = [] ) {
+    public static function validate_constraints( array $fields, array $values, string $path = '/document', int $depth = 0, array $conditions = [], array $ancestors = [] ) {
         if ( $depth > 12 ) { return self::error( 'The installed custom-field structure exceeds its supported nesting depth.', 422 ); }
+        $context = Nova_Bridge_Suite_Content_Transport::acf_condition_values( $fields, $values, $ancestors );
         foreach ( $fields as $field ) {
+            if ( Nova_Bridge_Suite_Content_Transport::acf_field_hidden( [ 'conditional_logic' => $conditions[$field['key'] ?? ''] ?? [] ], $fields, $values, $context ) ) { continue; }
             $value = $values[$field['name']] ?? null; $next = $path . '/' . self::escape( $field['name'] ); $type = $field['type'];
-            $required = ! empty( $field['required'] ) && ! self::hidden( $conditions[$field['key'] ?? ''] ?? [], $fields, $values );
-            if ( 'group' === $type && is_array( $value ) ) { $checked = self::validate_constraints( $field['sub_fields'] ?? [], $value, $next, $depth + 1, $conditions ); if ( is_wp_error( $checked ) ) { return $checked; } }
+            $required = ! empty( $field['required'] );
+            if ( 'group' === $type && is_array( $value ) ) { $checked = self::validate_constraints( $field['sub_fields'] ?? [], $value, $next, $depth + 1, $conditions, $context ); if ( is_wp_error( $checked ) ) { return $checked; } }
             elseif ( in_array( $type, [ 'repeater', 'flexible_content' ], true ) && is_array( $value ) ) {
                 $minimum = max( (int) ( $field['min'] ?? 0 ), $required ? 1 : 0 ); $maximum = min( 500, (int) ( ( $field['max'] ?? 0 ) ?: 500 ) );
                 if ( count( $value ) < $minimum || count( $value ) > $maximum ) { return self::error( 'The collection at ' . $next . ' is outside its installed minimum/maximum row count.', 422 ); }
                 foreach ( $value as $index => $row ) {
                     $children = $field['sub_fields'] ?? [];
                     if ( 'flexible_content' === $type ) { foreach ( $field['layouts'] ?? [] as $layout ) { if ( ( $row['acf_fc_layout'] ?? '' ) === $layout['name'] ) { $children = $layout['sub_fields']; break; } } }
-                    if ( is_array( $row ) ) { $checked = self::validate_constraints( $children, $row, $next . '/' . $index, $depth + 1, $conditions ); if ( is_wp_error( $checked ) ) { return $checked; } }
+                    if ( is_array( $row ) ) { $checked = self::validate_constraints( $children, $row, $next . '/' . $index, $depth + 1, $conditions, $context ); if ( is_wp_error( $checked ) ) { return $checked; } }
                 }
                 if ( 'flexible_content' === $type ) {
                     $counts = array_count_values( array_column( $value, 'acf_fc_layout' ) );
@@ -503,41 +505,6 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         }
         return $out;
     }
-    /** True only when every rule group can be evaluated against sibling values and none passes. */
-    private static function hidden( array $logic, array $siblings, array $values ): bool {
-        if ( ! $logic ) { return false; }
-        $names = []; foreach ( $siblings as $sibling ) { if ( isset( $sibling['key'], $sibling['name'] ) ) { $names[$sibling['key']] = $sibling['name']; } }
-        foreach ( $logic as $group ) {
-            if ( ! is_array( $group ) || ! $group ) { return false; }
-            $passes = true;
-            foreach ( $group as $rule ) {
-                $key = is_array( $rule ) ? ( $rule['field'] ?? '' ) : '';
-                if ( ! isset( $names[$key] ) ) { return false; }
-                $match = self::rule_matches( $values[$names[$key]] ?? null, (string) ( $rule['operator'] ?? '' ), $rule['value'] ?? '' );
-                if ( null === $match ) { return false; }
-                if ( ! $match ) { $passes = false; break; }
-            }
-            if ( $passes ) { return false; }
-        }
-        return true;
-    }
-    /** ACF's own rule operators; null for one this check cannot evaluate, which keeps the field required. */
-    private static function rule_matches( $value, string $operator, $expected ): ?bool {
-        $list = is_array( $value ) ? array_values( $value ) : ( in_array( $value, [ null, false ], true ) ? [] : [ $value ] );
-        $list = array_values( array_filter( array_map( static function ( $item ) { return is_scalar( $item ) ? ( true === $item ? '1' : (string) $item ) : ''; }, $list ), static function ( $item ) { return '' !== $item; } ) );
-        $expected = is_scalar( $expected ) ? (string) $expected : '';
-        $equal = in_array( $expected, $list, true ) || ( ! $list && '' === $expected );
-        $contains = false; foreach ( $list as $item ) { if ( '' !== $expected && false !== strpos( $item, $expected ) ) { $contains = true; } }
-        switch ( $operator ) {
-            case '==': return $equal;
-            case '!=': return ! $equal;
-            case '==empty': return ! $list;
-            case '!=empty': return (bool) $list;
-            case '==contains': return $contains;
-            case '!=contains': return ! $contains;
-        }
-        return null;
-    }
     public function finalize( array $blueprint, string $seed, array $context = [] ) {
         $validated = $this->validate_blueprint( $blueprint ); if ( is_wp_error( $validated ) ) { return $validated; }
         return self::under_layout_rules( $this->legacy_layout, function () use ( $blueprint ) { return $this->finalize_validated( $blueprint ); } );
@@ -546,7 +513,7 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         $payload = [ 'acf' => $blueprint['document'] ];
         $schema = self::catalog( $blueprint['post_type'], 0, $blueprint['template'] ?? '', $blueprint['taxonomy'] ?? '' );
         $bounds = self::validate_constraints( array_values( $schema ), $blueprint['document'], '/document', 0, self::conditions( self::native_schema( $blueprint ) ) ); if ( is_wp_error( $bounds ) ) { return $bounds; }
-        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $blueprint['document'], ! empty( $blueprint['fixed_layout'] ) ? self::native_schema( $blueprint ) : $schema ); if ( is_wp_error( $checked ) ) { return $checked; }
+        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $blueprint['document'], self::native_schema( $blueprint ) ); if ( is_wp_error( $checked ) ) { return $checked; }
         $render = static function ( $value ) use ( &$render ): string { if ( is_array( $value ) ) { $html = '<dl>'; foreach ( $value as $key => $child ) { if ( 'acf_fc_layout' === $key ) { continue; } $html .= '<dt>' . esc_html( is_int( $key ) ? 'Item ' . ( $key + 1 ) : ucfirst( str_replace( '_', ' ', $key ) ) ) . '</dt><dd>' . $render( $child ) . '</dd>'; } return $html . '</dl>'; } return is_string( $value ) ? wp_kses_post( $value ) : esc_html( (string) $value ); };
         $writer = [ 'meta_all' => $payload ];
         if ( ! empty( $blueprint['fixed_layout'] ) ) { $writer['acf_layout'] = array_diff_key( $blueprint, [ 'document' => true ] ); }
@@ -574,7 +541,7 @@ final class Nova_Bridge_Suite_Recipe_ACF {
         $native = $taxonomy ? Nova_Bridge_Suite_Content_Transport::acf_schema_for_screen( [ 'taxonomy' => $taxonomy, 'post_id' => $object_id ] ) : Nova_Bridge_Suite_Content_Transport::field_catalog( $post->post_type, $post_id, $template )['acf'];
         $bounds = self::validate_constraints( array_values( $schema ), $input['acf'], '/document', 0, self::conditions( $native ) ); if ( is_wp_error( $bounds ) ) { return $bounds; }
         foreach ( array_keys( $input['acf'] ) as $name ) { if ( ! Nova_WordPress_Meta_Permission::can_edit( $taxonomy ? 'term' : 'post', $post_id, $name ) ) { return self::error( 'You cannot inspect this saved custom-field metadata. ' . Nova_Bridge_Suite_Content_Transport::meta_denial( $taxonomy ? 'term' : 'post', $post_id, $name ), 403 ); } }
-        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $input['acf'], $schema ); if ( is_wp_error( $checked ) ) { return $checked; }
+        $checked = Nova_Bridge_Suite_Content_Transport::validate_named_acf( $input['acf'], $native ); if ( is_wp_error( $checked ) ) { return $checked; }
         return Nova_Bridge_Suite_Content_Transport::verify_named_acf( $checked, $object_id );
     }
 }

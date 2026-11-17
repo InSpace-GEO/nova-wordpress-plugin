@@ -27,6 +27,7 @@ function apply_filters( $name, $v, ...$args ) {
     return $v;
 }
 function add_filter( $name, $fn, ...$unused ) { $GLOBALS['hooks'][$name][] = $fn; }
+function add_action( $name, $fn, ...$unused ) { add_filter( $name, $fn, ...$unused ); }
 function did_action( $name ) { return 'elementor/loaded' === $name ? 1 : 0; }
 function do_action( ...$args ) {}
 function wp_cache_delete( ...$unused ) {}
@@ -41,7 +42,7 @@ if ( is_file( $core . '/utf8.php' ) ) {
 function is_utf8_charset( $s = null ) { return true; }
 function get_option( $key, $fallback = false ) { return 'active_plugins' === $key ? ( $GLOBALS['seo_plugins'] ?? [] ) : ( 'blog_charset' === $key ? 'UTF-8' : ( 'home' === $key ? home_url() : ( $GLOBALS['associations'][$key] ?? $fallback ) ) ); }
 function home_url( $path = '' ) { return 'https://lang.test' . $path; }
-function get_post( $id ) { return $GLOBALS['post']; }
+function get_post( $id ) { return $GLOBALS['attachment_posts'][$id] ?? $GLOBALS['post']; }
 function get_permalink( $id ) { return home_url( '/entry/' ); }
 function get_page_template_slug( $id ) { return 'service.php'; }
 function get_post_type( $id ) { return 'page'; }
@@ -56,11 +57,12 @@ function wp_json_encode( $v, $flags = 0 ) { return json_encode( $v, $flags ); }
 function current_user_can( ...$args ) { return true; }
 function is_protected_meta( $name, $type ) { return str_starts_with( $name, '_' ); }
 function sanitize_meta( $name, $value, ...$args ) { return $value; }
-function maybe_serialize( $value ) { return str_starts_with( $value, 'a:0:' ) ? serialize( $value ) : $value; }
+function maybe_serialize( $value ) { return is_array( $value ) || is_object( $value ) || ( is_string( $value ) && str_starts_with( $value, 'a:0:' ) ) ? serialize( $value ) : $value; }
 function is_admin() { return false; }
 function is_preview() { return false; }
 function is_feed() { return false; }
 function is_singular() { return true; }
+function is_tax( $taxonomy ) { return in_array( $GLOBALS['test_taxonomy'] ?? '', (array) $taxonomy, true ); }
 function wp_doing_ajax() { return false; }
 function get_queried_object_id() { return 41; }
 function wp_generate_uuid4() { static $i = 0; return 'mock-uuid-' . ++$i; }
@@ -69,7 +71,7 @@ if ( empty( $grouped_source ) ) {
     class Nova_Bridge_Suite_Stored_Layout_Language { public static function provider() { return 'core'; } }
 } else { require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-language.php'; }
 class Nova_Bridge_Suite_Stored_Layout {
-    public static function compile( $draft, $values, $seed ) { return [ 'builder'=>'elementor', 'post_fields'=>['title'=>'Unmapped sample title'], 'writer_payload'=>[], 'custom_fields'=>$values ]; }
+    public static function compile( $draft, $values, $seed ) { return $GLOBALS['compiled_layout'] ?? [ 'builder'=>'elementor', 'post_fields'=>['title'=>'Unmapped sample title'], 'writer_payload'=>[], 'custom_fields'=>$values ]; }
 }
 if ( empty( $grouped_source ) ) {
     class Nova_Bridge_Suite_Translation_Source { public static function post_id( ...$unused ) { return 41; } }
@@ -130,13 +132,14 @@ function request_locale( $locale ) {
 }
 function publish_locale( $locale, $version, $fields ) {
     global $config, $hooks; $hooks = []; // Delivery and frontend are separate WP requests.
-    $content = [ 'site_id'=>'site', 'url_id'=>'url', 'url'=>'/' . substr( $locale, 0, 2 ) . '/entry/', 'language'=>$locale,
+    $content = [ 'site_id'=>'site', 'url_id'=>'url', 'url'=>'/' . substr( $locale, 0, 2 ) . '/translated-entry/', 'language'=>$locale,
         'version_number'=>$version, 'configuration'=>$config['template'], 'content_item_id'=>'item', 'destination_values'=>$fields ];
     if ( ! empty( $GLOBALS['grouped_source'] ) ) {
         $content['url_id'] = $locale === 'de_DE' ? '200' : '300';
         $content['url_family'] = [ 'url_group_id'=>'50', 'primary_url_id'=>'100', 'primary_url'=>home_url( '/entry/' ), 'primary_language'=>'en-US' ];
     }
     $op = $locale . $version; $plan = success( Writer::plan( $content, $config, ['target_post_id'=>41,'desired_status'=>'publish','operation_id'=>$op] ) );
+    verify( $plan['target']['target_url'] === home_url( '/' . substr( $locale, 0, 2 ) . '/entry' ), 'The localized custom-field plan lost the provider destination' );
     verify( ! isset( $plan['fields']['title'], $plan['fields']['content'] ) && ! isset( $plan['fields']['meta'] ), 'Protected template content entered the localized plan' );
     success( Writer::apply( $plan, $op ) );
     verify( 'complete' === success( Writer::recover( $plan, $op ) )['state'], 'Saved localized custom fields could not be recovered' );
@@ -241,4 +244,15 @@ $marked = apply_filters( $pre, $typography );
 verify( str_contains( $marked, 'data-nova-seo-field=' ), 'Native description typography was not protected' );
 $restored = apply_filters( $post_hook, str_replace( 'A “quoted” description', 'Wrong', $marked ) );
 verify( str_contains( $restored, 'A “quoted” description' ) && str_contains( $restored, '<body>Unmapped</body>' ), 'Restoration changed native typography or unrelated content' );
+// Elementor product archives need their own scope while product cards keep provider translation.
+$archive_fields = [ 'seo_text' => [ 'provider'=>'acf', 'key'=>'field_archive_body', 'type'=>'wysiwyg', 'value'=>'<h2>Archivinhalt</h2><p>Lokaler Haupttext.</p>' ] ];
+$archive = new Nova_WordPress_Localized_Fields( 66, $archive_fields, 'term', 'product_cat' );
+$archive_body = $archive->value( 'seo_text' );
+$archive_html = '<div data-elementor-type="header"><p>Lokaler Haupttext.</p></div><div data-elementor-type="product-archive" data-elementor-id="278">' . $archive_body . '<div data-elementor-type="loop-item"><p>Lokaler Haupttext.</p></div></div><footer>Lokaler Haupttext.</footer>';
+$archive_expected = str_replace( $archive_body, '<h2><span data-no-translation data-wg-notranslate>Archivinhalt</span></h2><p><span data-no-translation data-wg-notranslate>Lokaler Haupttext.</span></p>', $archive_html );
+verify( $archive->protect( $archive_html ) === $archive_expected, 'Elementor term archive text was unprotected or product cards/header/footer were changed' );
+$post_archive = new Nova_WordPress_Localized_Fields( 66, $archive_fields );
+$post_archive->value( 'seo_text' );
+verify( $post_archive->protect( $archive_html ) === $archive_html, 'A post field unexpectedly claimed a term archive' );
+
 echo "$provider localized custom-field checks: $checks passed.\n";

@@ -92,4 +92,18 @@ check( $added_id['document'][0]['elements'][0]['settings']['hero_media']['id'] =
 $compiled_media = good( $adapter->finalize( $resolved_document, 'media-test' ), 'Finalize preserves native image locations' );
 check( $compiled_media['writer_payload']['elementor_data'][0]['elements'][0]['settings']['hero_media']['id'] === 777 && $compiled_media['writer_payload']['elementor_data'][0]['settings']['background_image']['id'] === 41, 'Native element ID rebasing preserves media destination indexes and unmapped attachment IDs' );
 check( \Nova_Bridge_Suite_Recipe_Engine::digest( $media_document ) === $media_digest && $writes === $media_writes, 'Registered media discovery and binding preserve the source and perform no native writes' );
+
+$inactive = [ 'document' => [ container( 'inactive-background', [], [
+    'background_background' => 'classic', 'background_image' => $asset( 41, 'background' ) + [ 'alt' => '' ],
+    'background_slideshow_gallery' => [ $asset( 42, 'slide' ) ], 'background_video_fallback' => $asset( 43, 'fallback' ) + [ 'alt' => '' ],
+] ), widget( 'library-image', 'image', [ 'image' => $asset( 44, 'library' ) + [ 'alt' => '' ] ] ) ] ];
+$inactive_fields = array_column( good( $adapter->describe( $inactive ), 'Describe saved background alternatives' )['fields'], null, 'target' );
+foreach ( [ '/document/0/settings/background_slideshow_gallery/0/url', '/document/0/settings/background_video_fallback/url' ] as $target ) {
+    check( ! $inactive_fields[$target]['writable'] && strpos( $inactive_fields[$target]['reason'], 'inactive' ) !== false, 'Inactive background alternatives have a specific explanation' );
+}
+check( strpos( $inactive_fields['/document/0/settings/background_image/alt']['reason'], 'CSS background' ) !== false, 'Decorative background alt has a specific explanation' );
+check( strpos( $inactive_fields['/document/1/settings/image/alt']['reason'], 'Media Library' ) !== false, 'Attachment alt points to its actual source' );
+check( $inactive_fields['/document/0/settings/background_image/url']['writable'], 'Active registered background remains mappable' );
+$external_image = $inactive; $external_image['document'][1]['settings']['image']['id'] = 0;
+good( $adapter->validate_binding( $external_image, binding( '/document/1/settings/image/alt', '/alt', 'text' ) ), 'URL-only image alt remains mappable' );
 echo 'Registered Elementor media: ' . ( $checks - $baseline_checks ) . " additional assertions passed\n";

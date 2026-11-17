@@ -88,7 +88,29 @@ foreach ( [ 'masterclass-first', 'pages-first', 'legacy-masterclass-first', 'leg
     check( $conflict['status'] === 'failed' && strpos( $conflict['message'], 'Both WordPress destinations use root URLs' ) !== false && $client->mutations === $before, 'Identical root patterns conflict before mutation.' );
     $conflict = sync_route( $client, $connection, $overlap );
     check( $conflict['status'] === 'failed' && strpos( $conflict['message'], '/masterclass/' ) !== false && $client->mutations === $before, 'Identical fixed prefixes conflict before mutation.' );
+    $replacement = route_recipe( $record, 'page', 5 );
+    $replaced = sync_route( $client, $connection, $replacement );
+    check( $replaced['status'] === 'synced' && $replaced['default_selected'] && $client->defaults['service'] === $replaced['template_id'], 'Choosing a new creation layout for the same Pages destination replaces its approved default without a URL conflict.' );
+    check( $replaced['template_id'] !== $page_id && Nova_Bridge_Suite_Layout_URL_Routes::index( $client->routes )['service:/masterclass/']['template_id'] === $cpt_id, 'Replacing the same destination preserves the other native destination route.' );
+    $before = $client->mutations;
+    check( sync_route( $client, $connection, $replacement )['status'] === 'synced' && $client->mutations === $before, 'Retrying the replacement keeps its remote identity.' );
 }
+// Replacing the sole prefixed destination must replace its fallback, then allow Pages alongside it.
+$GLOBALS['wpdb']->rows = $initial;
+$client = new Routing_Test_Client( $connection );
+$old_prefixed = sync_route( $client, $connection, $masterclass );
+$prefixed_replacement = route_recipe( $record, 'masterclass', 6 );
+$new_prefixed = sync_route( $client, $connection, $prefixed_replacement );
+check( $new_prefixed['default_selected'] && $client->defaults['service'] === $new_prefixed['template_id'] && ! $client->routes, 'A sole prefixed destination retains one fallback when its layout is replaced.' );
+$new_pages = sync_route( $client, $connection, $page );
+check( $new_pages['status'] === 'synced' && Nova_Bridge_Suite_Layout_URL_Routes::index( $client->routes )['service:/masterclass/']['template_id'] === $new_prefixed['template_id'], 'Pages can be added after replacing a sole prefixed destination.' );
+// Also repair the duplicate fallback/route state produced by the preceding patch.
+$client->defaults['service'] = $old_prefixed['template_id'];
+check( sync_route( $client, $connection, $prefixed_replacement )['status'] === 'synced' && ! isset( $client->defaults['service'] ), 'Resync clears the superseded fallback when the replacement already owns the route.' );
+check( sync_route( $client, $connection, $page )['status'] === 'synced', 'Pages can take the fallback after repairing the duplicate state.' );
+$scoped_replacement = route_recipe( $record, 'masterclass', 7 );
+$scoped_result = sync_route( $client, $connection, $scoped_replacement );
+check( $scoped_result['status'] === 'synced' && $client->defaults['service'] === $new_pages['template_id'] && Nova_Bridge_Suite_Layout_URL_Routes::index( $client->routes )['service:/masterclass/']['template_id'] === $scoped_result['template_id'], 'Replacing an already routed native destination preserves the separate Pages default.' );
 update_option( 'home', 'https://wordpress.example/eindhoven' );
 check( Nova_Bridge_Suite_Layout_URL_Routes::selector( 'post_type:masterclass' ) === [ 'path_prefix' => '/eindhoven/masterclass/', 'installation_path' => '/eindhoven/' ], 'Subdirectory installs provide their canonical origin path separately from their native route.' );
 check( Nova_Bridge_Suite_Layout_URL_Routes::selector( 'post_type:page' )['path_prefix'] === '/' && Nova_Bridge_Suite_Layout_URL_Routes::selector( 'post_type:second' )['path_prefix'] === '/', 'Root-style Pages and root-based CPTs remain the catch-all on a subdirectory installation.' );

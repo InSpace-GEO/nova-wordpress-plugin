@@ -18,6 +18,14 @@ $users = [ 17 => (object) [ 'ID' => 17, 'display_name' => 'Site editor' ], 28 =>
 function get_option( $key, $default ) { return Nova_Bridge_Suite_Posting_Settings::OPTION === $key ? $GLOBALS['saved'] : $default; }
 function current_user_can( $cap ) { return $GLOBALS['admin']; }
 function get_current_user_id() { return 17; }
+function get_transient( $key ) { return $GLOBALS['transients'][$key] ?? false; }
+function delete_transient( $key ) { unset( $GLOBALS['transients'][$key] ); }
+function set_transient( $key, $value, $ttl ) { $GLOBALS['transients'][$key] = $value; return true; }
+class Nova_Bridge_Suite_Layout_Recipes {
+    public static $pending = false;
+    public static function defaults() { return self::$pending ? [ 'post_type:page' => [ 'id' => 'layout', 'revision' => 1 ] ] : []; }
+    public static function default_metadata( $resource ) { return [ 'label' => 'Page', 'posting_support' => [ 'supported' => true ] ]; }
+}
 function get_current_blog_id() { return 1; }
 function is_multisite() { return false; }
 function get_post_types( $args, $output ) {
@@ -122,6 +130,13 @@ check( str_contains( $markup, '<option value="" selected>Choose a posting user' 
 $users = []; $markup = render_form();
 check( str_contains( $markup, '[actor_user_id]" disabled' ) && str_contains( $markup, 'Give a user on this site permission to publish content' ), 'An empty candidate list explains how to resolve publishing access.' );
 check( 28 === Nova_Bridge_Suite_Posting_Settings::sanitize( $blank )['actor_user_id'], 'A credential-only save preserves a previously selected, now unavailable user.' );
+Nova_Bridge_Suite_Layout_Recipes::$pending = true;
+Nova_Bridge_Suite_Connection_Layout_Sync::after_save( [], Nova_Bridge_Suite_Posting_Settings::connection(), Nova_Bridge_Suite_Posting_Settings::connection() );
+$prompt = render_form();
+check( str_contains( $prompt, 'nova-sync-layouts-dialog' ) && str_contains( $prompt, 'Synchronize now' ) && str_contains( $prompt, 'Later' ), 'Saving with unsynchronized layouts offers a post-save choice.' );
+check( str_contains( $prompt, '[sync_layouts_environment]' ) && str_contains( $prompt, 'data-nova-sync-layouts' ), 'The retry binds the saved connection and requires explicit synchronization.' );
+check( ! str_contains( render_form(), 'id="nova-sync-layouts-dialog"' ), 'The post-save prompt is consumed once.' );
+Nova_Bridge_Suite_Layout_Recipes::$pending = false;
 $saved = []; define( 'NOVA_POSTING_SERVICE_URL', $input['base_url'] ); define( 'NOVA_POSTING_SITE_ID', strtoupper( $input['site_id'] ) ); define( 'NOVA_POSTING_TOKEN', $input['token'] ); define( 'NOVA_POSTING_WEBHOOK_SECRET', $input['webhook_secret'] );
 check( ! Nova_Bridge_Suite_Posting_Settings::connection()['enabled'], 'An otherwise complete connection with no saved actor stays idle until a posting user is chosen.' );
 $saved = [ 'actor_user_id' => 17 ];

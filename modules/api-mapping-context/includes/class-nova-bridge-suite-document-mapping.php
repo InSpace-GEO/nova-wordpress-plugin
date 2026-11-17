@@ -147,7 +147,7 @@ final class Nova_Bridge_Suite_Document_Mapping {
     }
     /** Auxiliary taxonomy archives enter onboarding only with actual editorial-page evidence. */
     private static function taxonomy_relevance( string $name, array $resource ): array {
-        if ( 'product_cat' === $name ) { return [ 'status' => 'relevant', 'reason' => 'Product categories are a default content-page destination.' ]; }
+        if ( in_array( $name, [ 'product_cat', 'product_tag' ], true ) ) { return [ 'status' => 'relevant', 'reason' => 'Product categories are a default content-page destination.' ]; }
         $registered = function_exists( 'get_registered_meta_keys' ) ? array_merge( (array) get_registered_meta_keys( 'term' ), (array) get_registered_meta_keys( 'term', $name ) ) : []; $candidates = []; $additional = [];
         foreach ( $registered as $key => $registration ) {
             if ( ! is_string( $key ) || ! self::editorial_meta_name( $key ) || ! is_array( $registration ) ) { continue; } $schema = self::meta_schema( $registration ); if ( ! self::editorial_text_schema( $schema ) ) { continue; }
@@ -258,7 +258,7 @@ final class Nova_Bridge_Suite_Document_Mapping {
             if ( $model ) { $native = self::empty( $id ); $native_available = ! is_wp_error( $native ); if ( ! $native_available ) { $reasons[] = $native->get_error_message(); } }
             $status = 'post_type:product' === $id ? 'coming_soon' : ( $model ? ( $native_available ? 'mapped_by_nova' : 'nova_mapping_unavailable' ) : ( self::available( $resource ) ? 'client_configurable' : 'unavailable' ) );
             if ( 'unknown' === ( $resource['content_relevance']['status'] ?? '' ) ) { $reasons[] = $resource['content_relevance']['reason']; }
-            $label = 'taxonomy:product_cat' === $id ? 'WooCommerce categories' : (string) ( $resource['label'] ?? $name );
+            $label = 'taxonomy:product_tag' === $id ? 'WooCommerce product tags' : ( 'taxonomy:product_cat' === $id ? 'WooCommerce categories' : (string) ( $resource['label'] ?? $name ) );
             $result[] = [ 'id' => $id, 'resource_id' => $id, 'label' => $label, 'type' => $term ? 'taxonomy' : 'post_type', $term ? 'taxonomy' : 'post_type' => $name, 'route' => (string) ( $resource['route'] ?? '' ), 'methods' => (array) ( $resource['methods'] ?? [] ), 'availability' => self::available( $resource ) ? 'available' : 'unavailable', 'creation_supported' => self::available( $resource ) && $supported && ( ! $model || $native_available ), 'can_inspect_existing' => $supported, 'system_managed' => '' !== $model, 'native_mapping_available' => $native_available, 'native_provider' => $model ?: null, 'provider_status' => $status, 'client_configurable' => '' === $model && 'post_type:product' !== $id, 'coming_soon' => 'post_type:product' === $id, 'content_relevance' => $resource['content_relevance'] ?? null, 'native_write_supported' => false, 'reasons' => $reasons, 'targets' => $targets, 'targets_complete' => $complete ];
         }
         return $result;
@@ -335,7 +335,7 @@ final class Nova_Bridge_Suite_Document_Mapping {
             self::meta_fields( $resource, $object, $term, $structure, $fields, $warnings );
             if ( ! self::native_writable( $resource, 'content' ) ) { foreach ( $fields as &$field ) { if ( in_array( $field['builder'] ?? '', [ 'elementor', 'gutenberg' ], true ) ) { $field['writable'] = false; $field['protected'] = true; $field['reason'] = 'The resource has no verified editorial body writer.'; } } unset( $field ); }
             if ( ! $term ) { self::suite_fields( $resource_id, $resource, $reference_id, $structure, $fields, $provider, $warnings ); }
-            elseif ( 'product_cat' === $name ) { self::woocommerce_category( $resource, $reference_id, $structure, $fields, $provider ); }
+            elseif ( in_array( $name, [ 'product_cat', 'product_tag' ], true ) ) { self::woocommerce_category( $resource, $reference_id, $structure, $fields, $provider ); }
             if ( ! self::available( $resource ) ) { $warnings[] = 'The resource has no verified native write route. This is a protected local inspection, not a ready publishing adapter.'; }
             $mapping = self::envelope( $resource_id, $target, $provider, $structure, $fields, array_values( array_unique( $warnings ) ), $version, false === ( $provider['preview_read_only'] ?? true ) ? '' : self::preview( $object, $term ) );
             if ( in_array( $provider['id'], [ 'nova_blog', 'nova_service' ], true ) ) { $mapping['instructions'] = self::native_instructions(); }
@@ -542,6 +542,7 @@ final class Nova_Bridge_Suite_Document_Mapping {
         return [ 'provider' => $model, 'kind' => 'native_module_template', 'language_scope' => $language ?: 'site_default', 'site_locale' => function_exists( 'get_locale' ) ? get_locale() : '', 'artifacts_sha256' => $artifacts, 'settings' => $options, 'settings_read_only' => true ];
     }
     private static function woocommerce_category( array $resource, int $id, array &$structure, array &$fields, array &$provider ): void {
+        if ( 'product_tag' === ( $resource['taxonomy'] ?? '' ) ) { return; }
         $structure['woocommerce_category'] = []; foreach ( [ 'display_type', 'thumbnail_id', 'order' ] as $key ) { $structure['woocommerce_category'][ $key ] = $id ? get_term_meta( $id, $key, true ) : ''; self::field( $fields, $structure, '/woocommerce_category/' . $key, ucfirst( str_replace( '_', ' ', $key ) ), 'text', false ); }
         $registered = (array) get_registered_meta_keys( 'term', 'product_cat' ); $key = 'content_below_products';
         if ( ! empty( $registered[ $key ]['single'] ) && ( ! $id || current_user_can( 'edit_term_meta', $id, $key ) ) ) {
@@ -619,7 +620,7 @@ final class Nova_Bridge_Suite_Document_Mapping {
             foreach ( $structure['core'] as $key => $value ) { self::field( $fields, $structure, '/core/' . $key, ucfirst( $key ), in_array( $key, [ 'content', 'excerpt', 'description' ], true ) ? 'rich_text' : ( is_int( $value ) ? 'integer' : 'text' ), self::native_writable( $resource, $key ) && in_array( $key, $term ? [ 'name', 'description' ] : [ 'title', 'content', 'excerpt' ], true ) ); }
             $provider = [ 'id' => 'core', 'version' => (string) ( $GLOBALS['wp_version'] ?? '' ), 'complete' => true ]; $warnings = [ 'Standard native fields only. No sample content or repeater rows were invented.' ];
             if ( ! $term ) { self::suite_fields( $resource_id, $resource, 0, $structure, $fields, $provider, $warnings ); }
-            elseif ( 'product_cat' === $name ) { self::woocommerce_category( $resource, 0, $structure, $fields, $provider ); }
+            elseif ( in_array( $name, [ 'product_cat', 'product_tag' ], true ) ) { self::woocommerce_category( $resource, 0, $structure, $fields, $provider ); }
             $mapping = self::envelope( $resource_id, $target, $provider, $structure, $fields, $warnings, [] );
             $mapping['mode'] = 'creation'; if ( in_array( $provider['id'], [ 'nova_blog', 'nova_service' ], true ) ) { $mapping['instructions'] = self::native_instructions(); } return $mapping;
         } );

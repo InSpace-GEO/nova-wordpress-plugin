@@ -48,8 +48,18 @@ function update_post_meta( $id, $key, $value ) { if ( $key === ( $GLOBALS['drop_
 function delete_post_meta( $id, $key ) { unset( $GLOBALS['meta'][$id][$key] ); return true; }
 function get_page_template_slug( $id ) { return get_post_meta( $id, '_wp_page_template', true ); }
 function get_permalink( $id ) { $post = get_post( $id ); return ( $post->post_parent ? get_permalink( $post->post_parent ) : home_url() ) . $post->post_name . '/'; }
-function get_sample_permalink( $id ) { $post = get_post( $id ); return [ ( $post->post_parent ? get_permalink( $post->post_parent ) : home_url() ) . '%pagename%/', $post->post_name ]; }
-function wp_unique_post_slug( $slug, $id, $status, $type, $parent ) { foreach ( $GLOBALS['posts'] as $post ) { if ( $post->ID !== $id && $post->post_name === $slug ) { return $slug . '-2'; } } return $slug; }
+function get_sample_permalink( $id ) { $post = get_post( $id ); $slug = empty( $GLOBALS['native_draft_slugs'] ) ? $post->post_name : wp_unique_post_slug( $post->post_name, $id, 'publish', $post->post_type, $post->post_parent ); return [ ( $post->post_parent ? get_permalink( $post->post_parent ) : home_url() ) . '%pagename%/', $slug ]; }
+function wp_unique_post_slug( $slug, $id, $status, $type, $parent ) {
+    $ignore_drafts = false;
+    if ( ! empty( $GLOBALS['native_draft_slugs'] ) ) {
+        if ( in_array( $status, [ 'draft', 'auto-draft', 'pending' ], true ) ) { return $slug; }
+        $query = "SELECT post_name FROM wp_posts WHERE post_name = '$slug' AND post_type = '$type' AND ID != $id LIMIT 1";
+        if ( empty( $GLOBALS['simulate_old_draft_check'] ) ) { foreach ( $GLOBALS['filters']['query'] ?? [] as $filter ) { $query = $filter( $query ); } }
+        $ignore_drafts = strpos( $query, "post_status NOT IN ('draft','auto-draft')" ) !== false;
+    }
+    foreach ( $GLOBALS['posts'] as $post ) { if ( $post->ID !== $id && $post->post_name === $slug && ! ( $ignore_drafts && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return $slug . '-2'; } }
+    return $slug;
+}
 function add_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key][] = $fn; }
 function remove_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key] = array_values( array_filter( $GLOBALS['filters'][$key] ?? [], static function ( $v ) use ( $fn ) { return $v !== $fn; } ) ); }
 function wp_insert_post( $data, $error = false ) { foreach ( $GLOBALS['filters']['wp_insert_post_data'] ?? [] as $fn ) { $data = $fn( $data, $data, $data ); } $post = new WP_Post(); $post->ID = 10 + count( $GLOBALS['posts'] ); foreach ( $data as $k => $v ) { $post->$k = is_string( $v ) ? stripslashes( $v ) : $v; } $GLOBALS['posts'][$post->ID] = $post; ++$GLOBALS['inserts']; if ( $GLOBALS['crash_insert'] ) { $GLOBALS['crash_insert'] = false; throw new RuntimeException( 'Lost insert response' ); } return $post->ID; }
@@ -80,16 +90,17 @@ class Nova_Bridge_Suite_Recipe_Builders {
     }
 }
 class Nova_Bridge_Suite_Mapped_Content_Target {
-    public static function normalize_url( $url ) { $origin = home_url( '' ); if ( ! is_string( $url ) || ! preg_match( '#^' . preg_quote( $origin, '#' ) . '/(?:[a-z-]+(?:/[a-z-]+)*/?)?$#D', $url ) ) { return new WP_Error( 'foreign_url', 'Wrong site' ); } return [ 'origin' => $origin, 'path' => rtrim( parse_url( $url, PHP_URL_PATH ), '/' ) ?: '/', 'identity' => rtrim( $url, '/' ) ]; }
+    public static function same_native_url( $actual, $wanted, $resource ) { return $actual === $wanted; }
+    public static function normalize_url( $url ) { $origin = home_url( '' ); if ( ! is_string( $url ) || ! preg_match( '#^' . preg_quote( $origin, '#' ) . '/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*/?)?$#D', $url ) ) { return new WP_Error( 'foreign_url', 'Wrong site' ); } return [ 'origin' => $origin, 'path' => rtrim( parse_url( $url, PHP_URL_PATH ), '/' ) ?: '/', 'identity' => rtrim( $url, '/' ) ]; }
     public static function resolve( $url, $resource = null ) {
         $wanted = self::normalize_url( $url ); if ( is_wp_error( $wanted ) ) { return $wanted; } $matches = [];
-        foreach ( $GLOBALS['posts'] as $post ) { if ( rtrim( get_permalink( $post->ID ), '/' ) === $wanted['identity'] ) { $matches[] = $post; } }
+        foreach ( $GLOBALS['posts'] as $post ) { if ( ! ( ! empty( $GLOBALS['native_draft_slugs'] ) && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) && rtrim( get_permalink( $post->ID ), '/' ) === $wanted['identity'] ) { $matches[] = $post; } }
         if ( ! $matches ) { return new WP_Error( 'nova_mapped_target_not_found', 'No exact native URL' ); }
         if ( count( $matches ) !== 1 ) { return new WP_Error( 'nova_mapped_target_ambiguous', 'Several native URL owners' ); }
         $post = $matches[0]; if ( $resource !== 'post_type:' . $post->post_type || ! current_user_can( 'edit_post', $post->ID ) ) { return new WP_Error( 'nova_mapped_target_resource_mismatch', 'Wrong type or permission' ); }
         return [ 'reference_type' => 'post', 'reference_id' => $post->ID, 'resource_id' => $resource, 'requested_url' => $wanted['identity'] ];
     }
-    public static function creation( $resource, $url, $language ) { $normalized = self::normalize_url( $url ); if ( is_wp_error( $normalized ) ) { return $normalized; } if ( $language !== 'en-US' ) { return new WP_Error( 'language', 'Wrong language' ); } $slug = trim( parse_url( $url, PHP_URL_PATH ), '/' ); foreach ( $GLOBALS['posts'] as $post ) { if ( $post->post_name === $slug ) { return new WP_Error( 'occupied', 'Already occupied' ); } } return [ 'slug' => $slug, 'parent' => 0, 'target_url' => $normalized['identity'], 'language' => $language, 'native_language' => [ 'provider' => 'core', 'code' => 'en-us' ] ]; }
+    public static function creation( $resource, $url, $language ) { $normalized = self::normalize_url( $url ); if ( is_wp_error( $normalized ) ) { return $normalized; } if ( $language !== 'en-US' ) { return new WP_Error( 'language', 'Wrong language' ); } $slug = trim( parse_url( $url, PHP_URL_PATH ), '/' ); foreach ( $GLOBALS['posts'] as $post ) { if ( $post->post_name === $slug && ! ( ! empty( $GLOBALS['native_draft_slugs'] ) && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return new WP_Error( 'occupied', 'Already occupied' ); } } return [ 'slug' => $slug, 'parent' => 0, 'target_url' => $normalized['identity'], 'language' => $language, 'native_language' => [ 'provider' => 'core', 'code' => 'en-us' ] ]; }
     public static function with_creation_language( $target, $fn ) { return $fn(); }
     public static function verify_created_language( $resource, $kind, $id, $target ) { return true; }
     public static function native_url( $resource, $kind, $id ) { return get_permalink( $id ); }
@@ -368,5 +379,35 @@ reset_native(); $old = planned(); ok( Nova_Bridge_Suite_Stored_Layout_Writer::ap
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::supersede( $old, op( 1 ) ) ), 'Retiring committed work does not bypass human-edit protection.' );
 require_once __DIR__ . '/locale-association-fixture.php';
 check_locale_associations( Nova_Bridge_Suite_Stored_Layout_Writer::class, 'reset_native', 'fixture', 'op', 'nova_layout_page_' );
+foreach ( [ 'draft', 'auto-draft', 'pending', 'future', 'private', 'publish' ] as $collision_status ) {
+    reset_native(); $native_draft_slugs = true; $simulate_old_draft_check = false;
+    $plan = planned(); existing_page( 20, 'article', $collision_status );
+    $unrelated = serialize( [ $posts[20], $meta[20] ] );
+    $result = Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) );
+    check( is_wp_error( $result ) === ! in_array( $collision_status, [ 'draft', 'auto-draft' ], true ), 'Only unpublished drafts stop blocking native publication: ' . $collision_status );
+    check( serialize( [ $posts[20], $meta[20] ] ) === $unrelated, 'Other content and metadata remain unchanged: ' . $collision_status );
+    check( empty( $filters['query'] ), 'No slug override escapes publication.' );
+}
+foreach ( [ 'resume', 'supersede' ] as $recovery ) {
+    reset_native(); $native_draft_slugs = true; $simulate_old_draft_check = true;
+    $plan = planned(); existing_page( 20, 'article', 'draft' );
+    $failed = Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) );
+    check( is_wp_error( $failed ) && $failed->get_error_code() === 'nova_layout_writer_permalink', 'Reproduce the pre-fix saved-draft permalink failure.' );
+    $saved_count = $saves; $insert_count = $inserts; $simulate_old_draft_check = false;
+    $snapshot = serialize( [ $posts[20], $meta[20] ] );
+    if ( $recovery === 'resume' ) {
+        $result = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) ) );
+        ok( Nova_Bridge_Suite_Stored_Layout_Writer::verify( $plan, $result ) );
+        check( $result['post_id'] === 11 && $saves === $saved_count && $inserts === $insert_count, 'The old frozen operation resumes without another native save or insertion.' );
+    } else {
+        $retired = ok( Nova_Bridge_Suite_Stored_Layout_Writer::supersede( $plan, op( 1 ) ) );
+        check( $retired['post_id'] === 11 && $inserts === $insert_count, 'A failed predecessor retires its existing reserved draft.' );
+        $next = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( planned( 2, '502' ), op( 2 ) ) );
+        check( $next['post_id'] === 11 && $inserts === $insert_count, 'The successor adopts and publishes that same draft.' );
+    }
+    check( serialize( [ $posts[20], $meta[20] ] ) === $snapshot && empty( $filters['query'] ), 'Recovery preserves the unrelated draft and removes the scoped filter.' );
+}
+$native_draft_slugs = false;
+
 echo "Stored-layout writer checks: $checks passed.\n";
 }

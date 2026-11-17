@@ -2,6 +2,7 @@
 /** Beaver uses the existing compiler and a retained native post for publishing. */
 require __DIR__ . '/recipe-builders-unit.php';
 $before_checks = $assertions;
+FLBuilderModel::$cleared_posts = [];
 function metadata_exists( $type, $id, $key ) { return array_key_exists( $key, $GLOBALS['recipe_meta'][$id] ?? [] ); }
 function clean_post_cache( $id ) {}
 function wp_update_post( $data, $return_error = false ) {
@@ -29,6 +30,7 @@ $before = recipe_ok( $adapter->publication_snapshot( 901, $payload ), 'Before sn
 recipe_assert( $before['meta']['_fl_builder_draft']['present'] && ! isset( $before['meta']['unrelated'] ), 'Recovery snapshot includes editor drafts and excludes unrelated metadata' );
 recipe_assert( true === $adapter->publication_apply( 901, $payload, [ 'title' => 'New "title"', 'excerpt' => 'New excerpt' ] ), 'Known-ID Beaver write succeeds' );
 recipe_assert( $GLOBALS['native_fixture_writes'] === $inserts && $GLOBALS['beaver_updates'] === 1, 'Provider updates the retained post without inserting another one' );
+recipe_assert( FLBuilderModel::$cleared_posts === [ 901 ], 'Publishing invalidates all Beaver asset caches for the retained post ID' );
 recipe_assert( $GLOBALS['recipe_posts'][901]->post_title === 'New "title"' && $GLOBALS['recipe_posts'][901]->post_status === 'draft', 'Native fields preserve escaping and leave publication to the journal' );
 recipe_assert( is_object( reset( $GLOBALS['recipe_meta'][901]['_fl_builder_data'] ) ) && true === $GLOBALS['recipe_meta'][901]['_fl_builder_enabled'], 'The saved layout retains native Beaver object nodes and activation' );
 recipe_assert( ! metadata_exists( 'post', 901, '_fl_builder_draft' ) && ! metadata_exists( 'post', 901, '_fl_builder_draft_settings' ), 'Superseded editor drafts cannot replace the delivered layout' );
@@ -38,6 +40,7 @@ $node_id = array_key_first( $GLOBALS['recipe_meta'][901]['_fl_builder_data'] );
 $GLOBALS['recipe_meta'][901]['_fl_builder_data'][$node_id]->settings = (object) ['tampered' => true];
 recipe_assert( is_wp_error( $adapter->publication_verify( 901, $payload ) ), 'Readback detects partial or changed layout data' );
 recipe_assert( true === $adapter->publication_apply( 901, $payload, [ 'title' => 'New "title"' ] ) && $GLOBALS['native_fixture_writes'] === $inserts, 'Repeating a known-ID save repairs partial state without another post' );
+recipe_assert( FLBuilderModel::$cleared_posts === [ 901, 901 ], 'Repeating a known-ID save also invalidates that post asset cache' );
 update_post_meta( 901, '_fl_builder_draft', ['stale'] );
 recipe_assert( is_wp_error( $adapter->publication_verify( 901, $payload ) ), 'Readback refuses a stale editor draft' );
 delete_post_meta( 901, '_fl_builder_draft' );

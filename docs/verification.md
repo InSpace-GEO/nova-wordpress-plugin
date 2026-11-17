@@ -1,5 +1,35 @@
 # Release verification
 
+## 1.5.9
+
+All 172 local PHP and Node suites passed. Review regressions cover ACF field length and required-value checks, native validation filters, and collapsed FAQ answers hidden by responsive CSS.
+
+The installable ZIP passed 32 checks on WordPress 7.1.4 with ACF Pro 6.8.0.1. The checks cover nested block and post-level field capture, native rendering, exact sibling and field-reference preservation, stored delivery compilation, repeated known-ID writes, saved-template drafts, recovery and native ACF validation rejection. The staging fixture used a reconstructed field schema and renderer with a supplied block document. The source site's theme was unavailable. Earlier isolated-browser checks verified introduction, description and FAQ highlights at desktop and mobile widths.
+
+## 1.5.8 draft permalink recovery candidate
+
+All 171 local PHP and Node suites passed against WordPress 7.1.4 core. Added regression checks cover draft and auto-draft collisions, retained-operation replay, predecessor retirement and successor adoption. Published, private, scheduled and pending collisions remain rejected. The scoped query filter is removed after successful and interrupted calls and applies only to the current post's native slug lookup.
+
+On WordPress staging with PHP 8.1.34, the baseline reproduced a saved draft's `nova_layout_writer_permalink` failure and repeated it on retry. The candidate passed 23 checks using real WordPress storage and the real worker, stored-layout writer and core recipe adapter. It recovered the same failed operation, preserved its frozen plan and post ID, reconciled a predecessor for a higher-version delivery, and published new posts beside unrelated same-slug drafts under fixed-prefix and dated permalink structures. Unrelated drafts and non-draft collision targets retained their original data.
+
+The posting-service responses and delivery journal were simulated. For candidate recovery cases, a temporary sample-permalink filter reproduced the older failure before being removed for recovery. Plugin activation and permalink settings were request-local. Fixture posts and operation options were cleaned up. Live client delivery recovery remains to be verified after installation.
+
+## 1.5.2
+
+All 166 local PHP and Node suites passed. Coverage includes Weglot demo drafts, source identity and URL checks, original-content preservation, permissions, replay, source-state changes, and existing TranslatePress behavior.
+
+The packaged ZIP passed 21 staging checks on PHP 8.1.34 and Weglot 6.4.3. English and German content shared one native draft. Private loopback HTTP requests returned 200 with the correct language content in an editor request context and 404 for both guest previews. German product-tag content was stored on the original term, preserving its original fields and empty product assignments. Posting-service responses, editor authentication and the delivery journal were simulated. WordPress storage, query handling and rendering filters used their real implementations. The fixture posts and terms were removed.
+
+## 1.4.11
+
+All 159 local PHP and Node suites passed. Coverage includes category and product-tag mapping, the Category fitting contract, localized native/custom/SEO fields, exact original-URL resolution, native WPML term identity, and recovery after interrupted acknowledgements.
+
+Eight staging combinations covered categories and product tags with Weglot, TranslatePress, WPML and Polylang on WordPress 7.1.4 and PHP 8.1.34. The real plugin worker and native writers stored the mapped fields. HTTP checks verified the localized output. Each combination also verified retained product assignments, original-language content, higher-version updates and recovery after a lost receipt. Posting-service responses were simulated and the delivery journal was an in-memory fixture.
+
+Earlier published originals without a new-writer association were resolved by the authenticated URL group's exact primary URL. Staging checks verified that source inspection preserved the original post and metadata. Unit checks cover mismatched URLs, types, ownership and unfinished native publications.
+
+The staging sites' existing WPML/ACF warnings remained visible. Test fixtures were removed and the original plugin and active-plugin configuration were restored. Live client deliveries remain a post-installation check.
+
 ## 1.4.0
 
 All 147 local PHP and Node suites passed with the combined changes on top of 1.3.4. The delivery schema is extracted from posting-service v0.11.0. Direct and adapted deliveries, with and without URL-family metadata, retain their exact payloads through intake.

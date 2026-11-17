@@ -2,6 +2,7 @@
 /** Editorial fields explicitly selected alongside a fixed native post layout. */
 defined( 'ABSPATH' ) || exit;
 require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-meta-permission.php';
+require_once dirname( __DIR__, 3 ) . '/includes/class-nova-wordpress-halo-fields.php';
 
 final class Nova_Bridge_Suite_Layout_Custom_Fields {
     private const ACF = [ 'text', 'textarea', 'wysiwyg', 'url', 'email' ];
@@ -14,6 +15,7 @@ final class Nova_Bridge_Suite_Layout_Custom_Fields {
     }
 
     private static function valid( array $field ): bool {
+        if ( 'halo' === ( $field['provider'] ?? '' ) ) { return Nova_WordPress_Halo_Fields::valid( $field ); }
         $name = $field['name'] ?? ''; $provider = $field['provider'] ?? ''; $key = $field['key'] ?? '';
         if ( ! is_string( $name ) || ! preg_match( '/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,190}$/D', $name ) || ctype_digit( $name ) || ! self::safe_key( $name ) || in_array( strtolower( $name ), [ 'constructor', 'prototype' ], true ) ) { return false; }
         if ( 'acf' === $provider ) { return is_string( $key ) && preg_match( '/^field_[A-Za-z0-9_-]+$/D', $key ) && in_array( $field['type'] ?? null, self::ACF, true ); }
@@ -50,6 +52,9 @@ final class Nova_Bridge_Suite_Layout_Custom_Fields {
                 if ( isset( $names[$identity] ) ) { unset( $fields[$names[$identity]] ); continue; }
                 $names[$identity] = $path; $fields[$path] = $field;
             }
+        }
+        foreach ( Nova_WordPress_Halo_Fields::catalog( $type, $example ) as $name => $field ) {
+            if ( ! isset( $retained_meta[strtolower( $field['key'] )] ) ) { $fields[self::path( 'halo', $name )] = $field; }
         }
         return $fields;
     }
@@ -89,7 +94,7 @@ final class Nova_Bridge_Suite_Layout_Custom_Fields {
         if ( count( $fields ) > 64 ) { throw new InvalidArgumentException( 'Choose up to 64 editorial custom fields.' ); }
         $names = array_change_key_case( self::retained_meta( $recipe ), CASE_LOWER );
         foreach ( $fields as $path => $field ) {
-            if ( ! is_array( $field ) || ! self::valid( $field ) || $path !== self::path( $field['provider'], $field['name'] ) || array_key_exists( strtolower( $field['name'] ), $names ) || array_diff( array_keys( $field ), [ 'provider', 'key', 'name', 'type', 'label', 'instructions', 'required' ] ) ) { throw new InvalidArgumentException( 'One of the selected custom fields is unsupported, duplicated or already used by the saved design.' ); }
+            if ( ! is_array( $field ) || ! self::valid( $field ) || $path !== self::path( $field['provider'], $field['name'] ) || array_key_exists( strtolower( $field['name'] ), $names ) || array_diff( array_keys( $field ), array_merge( [ 'provider', 'key', 'name', 'type', 'label', 'instructions', 'required' ], 'halo' === ( $field['provider'] ?? '' ) ? [ 'schema' ] : [] ) ) ) { throw new InvalidArgumentException( 'One of the selected custom fields is unsupported, duplicated or already used by the saved design.' ); }
             foreach ( [ 'label' => 200, 'instructions' => 8000 ] as $name => $max ) {
                 $v = $field[$name] ?? ''; if ( ! is_string( $v ) || strlen( $v ) > $max || false !== strpos( $v, "\0" ) || 1 !== preg_match( '//u', $v ) ) { throw new InvalidArgumentException( 'Custom field labels and instructions must be bounded text.' ); }
             }
@@ -112,7 +117,7 @@ final class Nova_Bridge_Suite_Layout_Custom_Fields {
             $available = self::catalog( $type, (string) ( $recipe['blueprint']['template'] ?? '' ), $example, self::retained_meta( $recipe ) );
             foreach ( $fields as $path => $field ) {
                 $current = $available[$path] ?? null;
-                if ( ! $current || $current['key'] !== $field['key'] || $current['type'] !== $field['type'] ) { throw new InvalidArgumentException( 'The selected field ' . $field['name'] . ' is unavailable for this post type or page template. Review the mapping.' ); }
+                if ( ! $current || $current['key'] !== $field['key'] || $current['type'] !== $field['type'] || ( 'halo' === $field['provider'] && $current['schema'] !== $field['schema'] ) ) { throw new InvalidArgumentException( 'The selected field ' . $field['name'] . ' is unavailable for this post type or page template. Review the mapping.' ); }
             }
             return true;
         } catch ( InvalidArgumentException $error ) { return new WP_Error( 'nova_layout_custom_field', $error->getMessage(), [ 'status' => 409 ] ); }

@@ -33,3 +33,23 @@ assert.equal(prepareStaticLayout(win,doc),0,'Normal document flow remains unchan
 shell.css.position='fixed';main.css.display='none';
 assert.equal(prepareStaticLayout(win,doc),0,'A responsive-hidden main must stay hidden.');
 console.log('PASS static preview scrolling/reveal and hidden/responsive/menu regressions');
+
+// Elementor Canvas renders its page root directly, without a main or article wrapper.
+const canvasRoot = node({}, body), animatedContent = node({visibility:'hidden',opacity:'1',display:'block'},canvasRoot);
+canvasRoot.querySelectorAll = selector => selector.includes('[class*="invisible"]') ? [animatedContent] : [];
+const canvasDoc = {documentElement:html,body,querySelectorAll:selector => selector.includes('[data-elementor-type="wp-page"]') ? [canvasRoot] : []};
+assert.equal(prepareStaticLayout(win,canvasDoc),1,'Elementor Canvas page roots reveal animated content.');
+assert.equal(animatedContent.properties.visibility,'visible');
+assert.equal(prepareStaticLayout(win,canvasDoc),0,'Canvas reveal is idempotent.');
+
+const textRoot = node({}, body);
+const scrollText = node({opacity:'0',display:'block',transform:'matrix(1, 0, 0, 1, -50, 0)',transitionDuration:'0.45s'}, textRoot);
+const deliberatelyHidden = node({opacity:'0',display:'block',transform:'none',transitionDuration:'0s'}, textRoot);
+const closedAnswer = node({opacity:'0',display:'block',transform:'none',transitionDuration:'0.4s'}, textRoot);
+closedAnswer.getBoundingClientRect = () => ({width:600,height:0});
+textRoot.querySelectorAll = selector => selector.startsWith('h1,') ? [scrollText,deliberatelyHidden,closedAnswer] : [];
+const textDoc = {documentElement:html,body,querySelectorAll:() => [textRoot]};
+assert.equal(prepareStaticLayout(win,textDoc),1,'Content-named scroll animations reveal their sized text.');
+assert.equal(scrollText.properties.opacity,'1');
+assert.deepEqual(deliberatelyHidden.properties,{});
+assert.deepEqual(closedAnswer.properties,{});

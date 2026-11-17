@@ -381,4 +381,23 @@ $same = $scope_jobs->enqueue_discovered( $site, journal_item(), '1' );
 journal_check( 'skipped' === $same['phase'] && null === $scope_jobs->claim( $site ), 'Repeated discovery at the same cursor does not reopen a skip.' );
 $fresh = $scope_jobs->enqueue_discovered( $site, journal_item(), '2' );
 journal_check( 'attempt_check' === $fresh['phase'] && true === $fresh['payload']['scope_skipped'], 'Fresh backend discovery retains skip evidence for ownership re-evaluation.' );
+// Existing-page updates retain the captured layout, compiled replacement and
+// the current page snapshot together in one recoverable journal.
+$large_db = new Posting_Jobs_Database(); $large_jobs = new Nova_Bridge_Suite_Posting_Jobs( $large_db );
+$large_jobs->enqueue_discovered( $site, journal_item(), '1' );
+$large_job = $large_jobs->claim( $site );
+$large_payload = $large_job['payload'] + [
+    'configuration' => [ 'mode' => 'stored_layout_v3', 'local' => [ 'stored_layout' => [ 'builder' => 'beaver', 'blueprint' => str_repeat( 'x', 750000 ) ] ] ],
+    'plan' => [ 'payload' => str_repeat( 'y', 750000 ), 'native_before' => str_repeat( 'z', 750000 ) ],
+];
+journal_check( strlen( wp_json_encode( $large_payload, JSON_UNESCAPED_SLASHES ) ) > 2097152, 'The existing-page fixture exceeds the former two-megabyte journal limit.' );
+$large_saved = $large_jobs->save( $large_job, [ 'payload' => $large_payload, 'phase' => 'planned' ] );
+journal_check( ! is_wp_error( $large_saved ) && $large_saved['payload'] == $large_payload, 'A bounded existing-page update retains its complete recovery journal.' );
+$stored_large = $large_db->rows[1];
+$oversize_payload = $large_payload; $oversize_payload['extra'] = str_repeat( 'q', Nova_Bridge_Suite_Posting_Jobs::MAX_PAYLOAD_BYTES );
+journal_check( is_wp_error( $large_jobs->save( $large_saved, [ 'payload' => $oversize_payload ] ) ) && $stored_large === $large_db->rows[1], 'Oversize journals are rejected before changing durable state.' );
+$large_db->rows[1]['state'] = 'ready'; $large_db->rows[1]['lease_until'] = 0;
+$large_reclaimed = $large_jobs->claim( $site );
+journal_check( $large_reclaimed['payload'] == $large_payload && $large_reclaimed['phase'] === 'planned', 'Reclaiming a large update recovers the exact retained evidence.' );
+
 echo 'PASS ' . $checks . " contracted journal checks.\n";

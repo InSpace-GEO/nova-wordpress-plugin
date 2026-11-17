@@ -6,7 +6,8 @@ require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 class Nova_Bridge_Suite_Posting_Jobs {
     public const PROTOCOL = 'nova.delivery-snapshot/v1';
     public const MAX_ROWS = 10000;
-    public const MAX_PAYLOAD_BYTES = 2097152;
+    // Retain the exact snapshot, frozen layout and existing-page before/after plan.
+    public const MAX_PAYLOAD_BYTES = 4194304;
     public const LEASE_SECONDS = 300;
     private $db;
     private $table;

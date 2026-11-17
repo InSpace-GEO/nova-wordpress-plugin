@@ -34,7 +34,7 @@
 		if ( ! win.getComputedStyle ) { return 0; }
 		var changed = 0, excluded = 'nav,header,footer,[role="navigation"],[role="dialog"],[hidden],[aria-hidden="true"]';
 		// Divi Theme Builder templates render the post inside #main-content without a main, article or .entry-content.
-		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content,#main-content,.et-l--body,#ajax-content-wrap .container-wrap .main-content,#page-header-wrap' ).forEach( function ( main ) {
+		document.querySelectorAll( 'main,[role="main"],#main,.main,#primary,.site-content,article,.entry-content,.wp-block-post-content,#main-content,.et-l--body,#ajax-content-wrap .container-wrap .main-content,#page-header-wrap,[data-elementor-type="wp-page"],[data-elementor-type="wp-post"],[data-elementor-type="single-page"],[data-elementor-type="single-post"]' ).forEach( function ( main ) {
 			if ( main.closest( excluded ) ) { return; }
 			for ( var ancestor = main; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement ) {
 				var ancestorStyle = win.getComputedStyle( ancestor );
@@ -60,7 +60,9 @@
                 container.style.setProperty( 'height', Math.max( 200, Math.min( 1200, Number( container.getAttribute( 'data-height' ) ) || 400 ) ) + 'px', 'important' ); changed++;
             } );
 			// Builders and themes hide entrance-animated content until their scripts run; those scripts are disabled here.
-			main.querySelectorAll( reveal ).forEach( function ( item ) {
+			var animated = new Set( main.querySelectorAll( reveal ) );
+			var candidates = new Set( Array.from( animated ).concat( Array.from( main.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,[class*="text"]' ) ) ) );
+			candidates.forEach( function ( item ) {
 				// Only carousels inside the content count; themes also put words like "slider" in body classes.
 				var inSlider = function ( node ) { var slider = node.closest( sliders ); return !! slider && slider !== main && main.contains( slider ); };
 				if ( item.closest( excluded ) || inSlider( item ) || item.getAttribute( 'data-nova-static-reveal' ) === '1' ) { return; }
@@ -68,6 +70,9 @@
 					var parentStyle = win.getComputedStyle( parent ); if ( parentStyle.display === 'none' || parentStyle.visibility === 'hidden' ) { return; }
 				}
 				var style = win.getComputedStyle( item );
+				// Some themes name their scroll-revealed text by content, with no
+				// animation class. Require a sized, transitioned, translated element.
+				if ( ! animated.has( item ) && ( style.opacity !== '0' || ! style.transform || style.transform === 'none' || ! String( style.transitionDuration || '' ).split( ',' ).some( function ( duration ) { return parseFloat( duration ) > 0; } ) || ! item.getBoundingClientRect().height ) ) { return; }
 				if ( style.display === 'none' || ( style.opacity !== '0' && style.visibility !== 'hidden' ) ) { return; }
 				var show = function ( node ) { node.setAttribute( 'data-nova-static-reveal', '1' ); [ [ 'opacity', '1' ], [ 'visibility', 'visible' ], [ 'transform', 'none' ], [ 'animation', 'none' ], [ 'transition', 'none' ] ].forEach( function ( rule ) { node.style.setProperty( rule[0], rule[1], 'important' ); } ); changed++; };
 				show( item );
@@ -114,6 +119,12 @@
 	}
 	function prepareMedia( document, config, fields ) {
 		var scope = unique( document, '[data-elementor-id="' + config.referenceId + '"]' ); if ( ! scope ) { return; } fields = fields || [];
+		// All answer panels must be selectable while native accordion scripts are disabled.
+		scope.querySelectorAll( 'details.e-n-accordion-item' ).forEach( function ( details ) {
+			if ( ! details.closest( '[data-widget_type="nested-accordion.default"]' ) ) { return; }
+			details.open = true;
+			var summary = details.querySelector( 'summary' ); if ( summary ) { summary.setAttribute( 'aria-expanded', 'true' ); }
+		} );
 		function nativeValue( owner, type, control ) { var id = owner.getAttribute( 'data-id' ); if ( ! safeId.test( id || '' ) || unique( scope, '[data-id="' + id + '"]' ) !== owner ) { return null; } return fields.find( function ( item ) { return item.writable && item.locator.strategy === 'elementor' && item.locator.reference_id === config.referenceId && item.locator.node_id === id && item.locator.element_type === type && controlPath( item.locator ) === control; } ); }
 		scope.querySelectorAll( '[data-widget_type="google_maps.default"]' ).forEach( function ( owner ) {
 			var id = owner.getAttribute( 'data-id' ); if ( ! safeId.test( id || '' ) || unique( scope, '[data-id="' + id + '"]' ) !== owner ) { return; }
@@ -203,7 +214,7 @@
 		} else {
 			var expected = normalizeText( locator.text ); if ( expected.length < 3 ) { return null; }
 			roots.forEach( function ( root ) {
-				root.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,li,a,button,span,strong,em,b,i,small,blockquote,figcaption,label,dt,dd,td,th,div,section,article,aside' ).forEach( function ( node ) {
+				root.querySelectorAll( 'h1,h2,h3,h4,h5,h6,p,li,a,button,span,strong,em,b,i,small,blockquote,figcaption,label,summary,dt,dd,td,th,div,section,article,aside' ).forEach( function ( node ) {
 					if ( ! matches.includes( node ) && normalizeText( node.textContent ) === expected ) { matches.push( node ); }
 				} );
 			} );
@@ -212,7 +223,18 @@
 			matches = matches.filter( function ( node ) { return ! excluded( node ); } );
 		}
 		// Responsive themes print hidden copies for other screen sizes; only a shown element counts.
-		var view = document.defaultView; if ( view && view.getComputedStyle ) { matches = matches.filter( function ( node ) { return visible( node, view ); } ); }
+		var view = document.defaultView;
+		if ( view && view.getComputedStyle ) {
+			var shown = matches.filter( function ( node ) { return visible( node, view ); } );
+			matches = shown.length ? shown : matches.filter( function ( node ) {
+				if ( ! node.closest( 'details:not([open])' ) || node.closest( '[hidden],[aria-hidden="true"]' ) ) { return false; }
+				for ( var ancestor = node; ancestor; ancestor = ancestor.parentElement ) {
+					var style = view.getComputedStyle( ancestor );
+					if ( style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0' ) { return false; }
+				}
+				return true;
+			} );
+		}
 		return matches.length === 1 ? { node: matches[0], owner: matches[0], precision: locator.precision === 'region' ? 'region' : 'field' } : null;
 	}
 	// The singular post may use a template's ID, while related cards repeat the same excerpt/image.
@@ -257,6 +279,18 @@
 			if ( ! safeId.test( id ) ) { return null; }
 			var scope = unique( document, '[data-elementor-id="' + config.referenceId + '"]' ); if ( ! scope ) { return null; }
 			owner = unique( scope, '[data-id="' + id + '"]' ); if ( ! owner ) { return null; }
+			var question = locator.element_type === 'nested-accordion' && /^items\.(\d+)\.item_title$/.exec( control );
+			if ( question ) {
+				var titles = Array.from( owner.querySelectorAll( '.e-n-accordion-item-title-text' ) ).filter( function ( title ) { return title.closest( '[data-widget_type="nested-accordion.default"]' ) === owner; } );
+				var title = titles[Number( question[1] )];
+				return title ? { node: title, owner: title.closest( 'details.e-n-accordion-item' ) || owner, precision: 'field' } : null;
+			}
+			var iconItem = locator.element_type === 'icon-list' && /^icon_list\.(\d+)\.(text|link\.url)$/.exec( control );
+			if ( iconItem ) {
+				var labels = Array.from( owner.querySelectorAll( '.elementor-icon-list-text' ) ).filter( function ( label ) { return label.closest( '[data-widget_type="icon-list.default"]' ) === owner; } );
+				var label = labels[Number( iconItem[1] )];
+				return label ? { node: label, owner: label.closest( '.elementor-icon-list-item' ) || owner, precision: 'field' } : null;
+			}
 			selector = { 'heading:title': '.elementor-heading-title', 'text-editor:editor': '.elementor-widget-container', 'button:text': '.elementor-button-text', 'image:caption': '.widget-image-caption', 'image:image.url': '.elementor-widget-container img', 'image:image.alt': '.elementor-widget-container img', 'google_maps:address': '.nrc-map-placeholder' }[ locator.element_type + ':' + control ];
         } else if ( strategy === 'betheme' ) {
             if ( ! safeId.test( id ) ) { return null; }
@@ -279,6 +313,13 @@
 			if ( ! safeId.test( id ) ) { return null; }
 			var beaver = unique( document, '.fl-builder-content-' + config.referenceId ); if ( ! beaver ) { return null; }
 			owner = unique( beaver, '.fl-node-' + id ); if ( ! owner ) { return null; }
+			if ( locator.element_type === 'pp-infolist' ) {
+				var infoField = /^list_items\.(\d+)\.(title|description)$/.exec( control );
+				if ( ! infoField ) { return null; }
+				var infoItem = unique( owner, '.pp-list-item-' + infoField[1] ); if ( ! infoItem ) { return null; }
+				var infoNode = unique( infoItem, infoField[2] === 'title' ? '.pp-infolist-title-text' : '.pp-infolist-description' );
+				return infoNode ? { node: infoNode, owner: owner, precision: 'field' } : null;
+			}
 			selector = { heading: '.fl-heading-text', text: '.fl-rich-text', label: '.fl-button-text', caption: '.fl-photo-caption', alt: '.fl-photo-img' }[ control ];
 		} else if ( strategy === 'breakdance' ) {
 			// A server-verified concrete ID/class is required; never guess provider markup.
@@ -331,7 +372,7 @@
 			selected = id; marked.forEach( function ( node ) { node.classList.remove( 'nrc-selected' ); } );
 			var target = targets.get( id ) || containerTargets.get( id );
 			if ( ! target ) { return false; }
-			if ( scroll && target.customHtml ) {
+			if ( scroll && ( target.customHtml || target.node.closest( 'details' ) ) ) {
 				var details = target.node.closest( 'details' );
 				while ( details ) { details.open = true; details = details.parentElement && details.parentElement.closest( 'details' ); }
 			}

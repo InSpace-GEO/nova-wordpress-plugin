@@ -116,6 +116,10 @@ final class Nova_Bridge_Suite_Stored_Layout_Provider {
             $result = wp_update_post( wp_slash( $data ), true ); if ( is_wp_error( $result ) ) { return $result; }
             if ( (int) $result !== $id ) { return self::error( 'The native save did not return its retained item ID.' ); }
             foreach ( $native['meta'] as $key => $value ) { update_post_meta( $id, $key, wp_slash( $value ) ); }
+            if ( 'gutenberg' === $builder ) {
+                require_once dirname( __DIR__, 2 ) . '/api-mapping-context/adapters/gutenberg-acf.php';
+                Nova_Mapping_Gutenberg_ACF::flush_meta( $id, $native['meta'] );
+            }
             if ( null !== $native['template'] ) { update_post_meta( $id, '_wp_page_template', $native['template'] ); }
         } else {
             $adapter = self::extension( $builder ); if ( is_wp_error( $adapter ) ) { return $adapter; }

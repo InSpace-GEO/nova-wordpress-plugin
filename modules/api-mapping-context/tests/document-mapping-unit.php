@@ -19,7 +19,7 @@ function wp_json_encode( $value, $flags = 0 ) { return json_encode( $value, $fla
 function __( $value, $domain = '' ) { return $value; }
 function apply_filters( $name, $value, ...$args ) { return $value; }
 function wp_unslash( $value ) { return stripslashes( $value ); }
-function maybe_unserialize( $value ) { return $value; }
+function maybe_unserialize( $value ) { return is_string( $value ) && str_starts_with( $value, 'a:' ) ? unserialize( $value ) : $value; }
 function sanitize_text_field( $value ) { return strip_tags( (string) $value ); }
 function get_post( $id ) { return $GLOBALS['posts'][$id] ?? null; }
 function get_term( $id, $taxonomy ) { $term = $GLOBALS['terms'][$id] ?? null; return $term && $term->taxonomy === $taxonomy ? $term : null; }
@@ -228,8 +228,8 @@ class DocumentRequest {
     private $params; private $body; public function __construct( $params = [], $body = null ) { $this->params = $params; $this->body = $body; }
     public function get_param( $key ) { return $this->params[$key] ?? null; } public function get_header( $key ) { return null; } public function get_json_params() { return $this->body; } public function get_body() { return json_encode( $this->body ); }
 }
-class DocumentDB { public $options = 'wp_options'; public function prepare( $sql, ...$args ) { return $args; } public function query( $args ) { list( $value, $key, $expected ) = $args; if ( serialize( get_option( $key ) ) !== $expected ) { return 0; } $GLOBALS['options'][$key] = unserialize( $value ); return 1; } }
-$wpdb = new DocumentDB();
+require_once __DIR__ . '/fixtures/atomic-option-db.php';
+$wpdb = new Nova_Test_Atomic_Option_DB( $options );
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-endpoint-mappings.php';
 function response_data( $response ) { $response = result( $response ); check( $response instanceof DocumentResponse && $response->headers['Cache-Control'] === 'private, no-store', 'Expected a private controller response.' ); return $response->get_data(); }
 $existing = response_data( Nova_Bridge_Suite_Endpoint_Mappings::existing( new DocumentRequest( [ 'resource_id' => 'post_type:page', 'reference_type' => 'post', 'reference_id' => 1 ] ) ) );
@@ -295,17 +295,17 @@ check( $service_empty['fields']['/meta/sp_faq']['writable'] && $service_empty['f
 
 function catalog_by_id() { $result = []; foreach ( Nova_Bridge_Suite_Document_Mapping::resources() as $resource ) { $result[$resource['id']] = $resource; } return $result; }
 foreach ( [ 'product_brand', 'product_tag', 'large_archive' ] as $name ) { $taxonomies[] = (object) [ 'name' => $name, 'public' => true, 'show_ui' => true, 'show_in_rest' => true, 'object_type' => [ 'product' ], 'cap' => (object) [ 'edit_terms' => 'manage_categories' ] ]; $registered_routes['/wp/v2/' . $name] = [ [ 'methods' => 'POST', 'args' => [ 'name' => [], 'description' => [] ] ] ]; }
-$aux = catalog_by_id(); check( !isset( $aux['taxonomy:product_brand'], $aux['taxonomy:product_tag'], $aux['taxonomy:large_archive'] ) && isset( $aux['taxonomy:product_cat'] ), 'Unused auxiliary taxonomies remained visible, or default product categories were hidden.' );
+$aux = catalog_by_id(); check( !isset( $aux['taxonomy:product_brand'], $aux['taxonomy:large_archive'] ) && isset( $aux['taxonomy:product_cat'], $aux['taxonomy:product_tag'] ), 'Unused auxiliary taxonomies remained visible, or default product categories were hidden.' );
 $terms[14] = (object) [ 'term_id' => 14, 'taxonomy' => 'product_brand', 'name' => 'Brand', 'description' => '<p>&nbsp;<br></p>', 'slug' => 'brand', 'parent' => 0 ]; $aux = catalog_by_id(); check( !isset( $aux['taxonomy:product_brand'] ), 'Empty markup/nbsp counted as a native content page.' );
 $terms[14]->description = '<p>A complete brand story.</p>'; $aux = catalog_by_id(); check( isset( $aux['taxonomy:product_brand'] ) && $aux['taxonomy:product_brand']['content_relevance']['status'] === 'relevant', 'Filled native brand description did not activate its content endpoint.' ); $terms[14]->description = '';
 $registered['term:product_brand'] = [ 'rank_math_description' => [ 'single' => true, 'type' => 'string', 'show_in_rest' => true ], 'thumbnail_id' => [ 'single' => true, 'type' => 'integer', 'show_in_rest' => true ], 'manufacturer_name' => [ 'single' => true, 'type' => 'string', 'show_in_rest' => true ] ]; $registered_routes['/wp/v2/product_brand'][0]['args']['meta'] = [ 'properties' => [ 'rank_math_description' => [ 'type' => 'string' ], 'thumbnail_id' => [ 'type' => 'integer' ], 'manufacturer_name' => [ 'type' => 'string' ] ] ]; $term_metadata[14] = [ 'rank_math_description' => 'SEO only', 'thumbnail_id' => '99', 'manufacturer_name' => 'Routing identifier only' ];
 $aux = catalog_by_id(); check( !isset( $aux['taxonomy:product_brand'] ), 'SEO/name/image-only configuration incorrectly activated a brand content page.' );
 $registered['term:product_brand']['brand_copy'] = [ 'single' => true, 'type' => 'string', 'show_in_rest' => true ]; $registered_routes['/wp/v2/product_brand'][0]['args']['meta']['properties']['brand_copy'] = [ 'type' => 'string' ]; $aux = catalog_by_id(); check( isset( $aux['taxonomy:product_brand'] ), 'Declared editable custom copy schema did not expose an otherwise empty taxonomy.' );
 for ( $i = 0; $i < 1001; ++$i ) { $terms[10000 + $i] = (object) [ 'term_id' => 10000 + $i, 'taxonomy' => 'large_archive', 'name' => 'Archive ' . $i, 'description' => '', 'slug' => 'archive-' . $i, 'parent' => 0 ]; }
-$aux = catalog_by_id(); $excluded = []; foreach ( Nova_Bridge_Suite_Document_Mapping::excluded_resources() as $diagnostic ) { $excluded[$diagnostic['resource_id']] = $diagnostic; } check( !isset( $aux['taxonomy:large_archive'] ) && $excluded['taxonomy:large_archive']['status'] === 'unknown' && $excluded['taxonomy:product_tag']['status'] === 'unused', 'Incomplete evidence became required setup or was falsely classified unused.' );
+$aux = catalog_by_id(); $excluded = []; foreach ( Nova_Bridge_Suite_Document_Mapping::excluded_resources() as $diagnostic ) { $excluded[$diagnostic['resource_id']] = $diagnostic; } check( !isset( $aux['taxonomy:large_archive'] ) && $excluded['taxonomy:large_archive']['status'] === 'unknown' && isset( $aux['taxonomy:product_tag'] ), 'Incomplete evidence became required setup or was falsely classified unused.' );
 $previous_db = $wpdb;
 class DocumentEvidenceDB { public $term_taxonomy = 'wp_term_taxonomy'; public $termmeta = 'wp_termmeta'; public $queries = []; public function prepare( $sql, ...$args ) { return [ $sql, $args ]; } public function get_var( $prepared ) { $this->queries[] = $prepared; $name = $prepared[1][0]; return in_array( $name, [ 'category', 'public_topic', 'missing_route_topic', 'large_archive' ], true ) ? '1' : '0'; } }
-$wpdb = new DocumentEvidenceDB(); $aux = catalog_by_id(); check( $aux['taxonomy:large_archive']['content_relevance']['status'] === 'relevant' && !isset( $aux['taxonomy:product_tag'] ), 'Database EXISTS evidence did not distinguish filled large archives from unused auxiliary tags.' );
+$wpdb = new DocumentEvidenceDB(); $aux = catalog_by_id(); check( $aux['taxonomy:large_archive']['content_relevance']['status'] === 'relevant' && isset( $aux['taxonomy:product_tag'] ), 'Database EXISTS evidence did not distinguish filled large archives from unused auxiliary tags.' );
 foreach ( $wpdb->queries as $query ) { check( strpos( $query[0], 'SELECT EXISTS(' ) === 0 && strpos( $query[0], 'LIMIT 1' ) !== false && in_array( $query[1][0], array_column( $taxonomies, 'name' ), true ), 'Relevance database query was not read-only, bounded and taxonomy-parameterized.' ); }
 $wpdb = $previous_db;
 $native_options_before = $options;

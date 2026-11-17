@@ -225,4 +225,36 @@ foreach ( [ 'core', 'gutenberg' ] as $builder ) {
     update_post_meta( 10, 'intro', 'Manual edit' );
     check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::verify( $plan, $saved ) ), 'Receipt verification detects an intervening edit without restoring old text.' );
 }
+reset_native();
+[ $article_content, $article_config ] = fixture( 'gutenberg', 'post', '501', 'draft' );
+$article_starter = ok( Nova_Bridge_Suite_Recipe_Builders::adapter( 'gutenberg' )->starter( 'article' ) );
+$article_record = [ 'id' => op( 90 ), 'revision' => 1, 'resource_id' => 'post_type:post', 'builder' => 'gutenberg', 'label' => 'Article',
+    'recipe' => [ 'builder' => 'gutenberg', 'mode' => 'static', 'blueprint' => $article_starter['blueprint'], 'bindings' => $article_starter['suggested_bindings'], 'regions' => [], 'article' => Nova_Mapping_Gutenberg_Article::defaults() ] ];
+$article_config['local'] = ok( Nova_Bridge_Suite_Stored_Layout::from_recipe( $article_record ) );
+$article_config['local']['routing']['publication'] = 'draft';
+$article_config['profile_digest'] = hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $article_config['local'] ) );
+$article_config['template'] = ok( Nova_Bridge_Suite_Writing_Adapter::template_input( $article_config['local'] ) ) + [ 'id' => op( 99 ), 'revision' => 1 ];
+$article_content['configuration'] = $article_config['template'];
+$article_content['content'] = [ 'h1' => 'Article', 'content' => '<h3>Heading</h3><p>Body.</p><table><tbody><tr><td>Cell</td></tr></tbody></table>' ];
+unset( $article_content['destination_values'] );
+$missing_article = $article_content; unset( $missing_article['content']['content'] );
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $missing_article, $article_config, [ 'operation_id' => op( 899 ) ] ) ), 'Missing direct article body cannot publish sample content' );
+$empty_article = $article_content; $empty_article['content']['content'] = '';
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $empty_article, $article_config, [ 'operation_id' => op( 898 ) ] ) ), 'Empty direct article body requires review' );
+$public_article = $article_content;
+$public_article['page_type_frontend'] = $article_config['template']['page_type'];
+$public_article['configuration'] = ok( Nova_Bridge_Suite_Posting_Protocol::public_configuration( $article_config['template'] ) );
+$public_article['content'] = [];
+foreach ( $article_config['template']['mapping']['fields'] as $binding ) { $public_article['content'][$binding['field_id']] = $article_content['content'][$binding['source_field']]; }
+$article_content = ok( Nova_Bridge_Suite_Posting_Protocol::writer_snapshot( $public_article, $article_config ) );
+check( str_contains( $article_content['content']['content'], '<table>' ), 'Unified public delivery restores the entire article through its exact V1 bindings' );
+$article_plan = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $article_content, $article_config, [ 'operation_id' => op( 900 ) ] ) );
+$crash_insert = true;
+check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $article_plan, op( 900 ) ) ), 'Article retains its reserved draft after lost insert response' );
+$article_saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $article_plan, op( 900 ) ) );
+check( $inserts === 1 && $article_saved['post_id'] === 10 && str_contains( $posts[10]->post_content, '<!-- wp:table' ), 'Article retry creates native blocks on one reserved item' );
+$before_saves = $saves;
+ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $article_plan, op( 900 ) ) );
+check( $saves === $before_saves, 'Completed article replay verifies without rewriting' );
+
 echo "Generic stored-layout writer checks: $checks passed.\n";

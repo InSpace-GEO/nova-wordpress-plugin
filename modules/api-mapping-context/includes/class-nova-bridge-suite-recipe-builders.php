@@ -3,6 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__ ) . '/adapters/wpbakery-salient.php';
 require_once __DIR__ . '/class-nova-bridge-suite-beaver-publishing.php';
+require_once __DIR__ . '/class-nova-bridge-suite-beaver-shared.php';
 
 final class Nova_Bridge_Suite_Recipe_Builders {
     const BUILDERS = [ 'elementor', 'gutenberg', 'flatsome', 'enfold', 'cornerstone', 'betheme', 'wpbakery', 'avada', 'divi4', 'divi5', 'beaver', 'breakdance' ];
@@ -266,6 +267,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             case 'gutenberg':
                 require_once $adapters . 'gutenberg-document.php';
                 require_once $adapters . 'gutenberg-html.php';
+                require_once $adapters . 'gutenberg-acf.php';
                 break;
         }
     }
@@ -306,6 +308,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 if ( 'gutenberg' === $this->builder && $discover_custom_html ) {
                     $blueprint['document'] = Nova_Mapping_Gutenberg_HTML::capture( $blueprint['document'] );
                 }
+                if ( 'gutenberg' === $this->builder && Nova_Mapping_Gutenberg_ACF::has_blocks( $blueprint['document'] ) ) { $blueprint['meta'] += Nova_Mapping_Gutenberg_ACF::capture_meta( $post_id ); }
             } elseif ( 'beaver' === $this->builder ) {
                 if ( ! function_exists( 'nova_mapping_bb_get_layout_nodes' ) || ! get_post_meta( $post_id, '_fl_builder_enabled', true ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'The selected item does not contain an active Beaver layout.' ); }
                 $blueprint['document'] = self::arrays( nova_mapping_bb_compact_tree( nova_mapping_bb_capture_arrays( nova_mapping_bb_flat_to_tree( nova_mapping_bb_get_layout_nodes( $post_id ) ) ) ) );
@@ -327,6 +330,13 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     /** Known native one-column foundations, independent of any source page ID. */
     public function starter( string $mode = 'mixed' ) {
         $this->helpers();
+        if ( 'article' === $mode && 'gutenberg' === $this->builder ) {
+            require_once dirname( __DIR__ ) . '/adapters/gutenberg-article.php';
+            $blueprint = [ 'document' => [ self::block( 'core/html', [], Nova_Mapping_Gutenberg_Article::sample() ) ], 'template' => '', 'meta' => [] ];
+            $artifact = $this->envelope( $blueprint );
+            $artifact['suggested_bindings'] = [ [ 'target' => '/document/0/innerHTML', 'source' => '/body', 'format' => 'html', 'label' => 'Complete article', 'instructions' => 'Select the complete article body in its original order, including every heading, paragraph, list and table.', 'required' => true ] ];
+            $artifact['suggested_regions'] = []; return $artifact;
+        }
         $heading = 'Example heading'; $body = '<p>Example paragraph. Replace this through a content binding or repeated region.</p>';
         if ( 'gutenberg' === $this->builder ) {
             $document = [ self::block( 'core/group', [], '<div class="wp-block-group">', '</div>', [ self::block( 'core/heading', [ 'level' => 2 ], '<h2 class="wp-block-heading">' . $heading . '</h2>' ), self::block( 'core/paragraph', [], $body ) ] ) ];
@@ -545,6 +555,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         $result = [ 'fields' => [], 'containers' => [] ];
         $nodes = $native['document'] ?? $native; $prefix = isset( $native['document'] ) ? '/document' : '';
         $this->walk_inventory( $nodes, $prefix, $result );
+        if ( 'gutenberg' === $this->builder && isset( $native['meta'] ) ) { $result['fields'] = array_merge( $result['fields'], Nova_Mapping_Gutenberg_ACF::meta_fields( $native['meta'] ) ); }
         if ( 'wpbakery' === $this->builder && isset( $native['document'] ) ) { $result['fields'] = array_merge( $result['fields'], Nova_Mapping_Salient::fields( $native['meta'] ?? [] ) ); }
         return $result;
     }
@@ -592,13 +603,14 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             $native_tag = (string) ( $node['tag'] ?? $node['blockName'] ?? $node['data']['type'] ?? $node['settings']['type'] ?? $node['type'] ?? 'Native item' );
             $label = $this->human_label( $native_tag );
             $node_protected = $protected;
+            if ( 'beaver' === $this->builder && Nova_Bridge_Suite_Beaver_Shared::reference( $node ) ) { $node_protected = true; }
             if ( 'wpbakery' === $this->builder && Nova_Mapping_Salient::shared( $native_tag ) ) { $node_protected = true; }
             if ( 'divi5' === $this->builder ) { $node_protected = $protected || 'divi/global-layout' === $native_tag || nova_mapping_divi5_block_is_locked( $node['attrs'] ?? [] ); }
             elseif ( 'gutenberg' === $this->builder ) { $node_protected = $protected || in_array( $native_tag, [ 'core/block', 'core/template-part', 'core/query', 'core/post-content' ], true ) || ! empty( $node['attrs']['lock'] ) || ! empty( $node['attrs']['templateLock'] ); }
             $display_value = $this->node_example( $node );
             $items[] = [ 'index' => $index, 'label' => $label . ( $display_value ? ' — ' . $display_value : '' ), 'native_type' => $native_tag ];
             $node_context = $context . ( $context ? ' > ' : '' ) . $label . ' ' . ( $index + 1 );
-            $add = function ( string $target, string $format, string $kind = 'text', $semantic_value = null ) use ( &$result, $label, $node_protected, $node_context, $nodes, $prefix, $node, $path ) {
+            $add = function ( string $target, string $format, string $kind = 'text', $semantic_value = null, bool $field_connected = false ) use ( &$result, $label, $node_protected, $node_context, $nodes, $prefix, $node, $path ) {
                 $value = Nova_Bridge_Suite_Recipe_Engine::get( $nodes, substr( $target, strlen( $prefix ) ) );
                 $native_value = $value;
                 if ( null !== $semantic_value ) { $value = $semantic_value; }
@@ -606,7 +618,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 if ( 'divi5' === $this->builder && is_string( $native_value ) && false !== strpos( $native_value, '@ET-DC@' ) ) { $sensitive_markup = true; }
                 $control = basename( $target );
                 // Themer retains empty connection entries for ordinary editable controls.
-                $connected = 'beaver' === $this->builder && ! empty( $node['settings']['connections'][$control] );
+                $connected = $field_connected || ( 'beaver' === $this->builder && ! empty( $node['settings']['connections'][$control] ) );
                 $writable = ! $node_protected && ! $sensitive_markup && ! $connected && is_string( $value );
                 $result['fields'][] = [ 'target' => $target, 'label' => $label . ' · ' . ucwords( str_replace( '_', ' ', $kind ) ), 'format' => $format, 'kind' => $kind, 'value' => $value,
                     'context' => $node_context, 'writable' => $writable, 'protected' => ! $writable, 'reason' => $writable ? '' : ( $connected ? 'This Beaver field has an active field connection. Edit or map its source instead.' : 'This native value belongs to a protected, dynamic or interactive region.' ) ] + $this->provenance( $node, $path, $target );
@@ -655,6 +667,12 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                     foreach ( nova_mapping_divi5_editorial_fields( $node ) as list( $control, $format, $kind ) ) {
                         $add( $path . '/attrs/' . $control, $format, $kind );
                     }
+                } elseif ( str_starts_with( $name, 'acf/' ) ) {
+                    // Each scalar is independent. An empty mapped value must never remove
+                    // the ACF block containing its unselected siblings and layout controls.
+                    foreach ( Nova_Mapping_Gutenberg_ACF::fields( $node, $path, $node_protected ) as $field ) {
+                        $result['fields'][] = $field + [ 'context' => $node_context ];
+                    }
                 } elseif ( 'core/html' === $name && isset( $node[Nova_Mapping_Gutenberg_HTML::SLOTS] ) ) {
                     foreach ( Nova_Mapping_Gutenberg_HTML::fields( $node, $path, $node_protected ) as $field ) {
                         $result['fields'][] = $field + [ 'context' => $node_context, 'reason' => $node_protected ? 'The owning block is locked.' : '' ]
@@ -687,6 +705,17 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                     foreach ( [ 'heading', 'text', 'label', 'link', 'caption', 'alt' ] as $key ) { if ( isset( $settings[ $key ] ) && is_string( $settings[ $key ] ) ) { $add( $path . '/settings/' . $key, 'text' === $key ? 'html' : ( 'link' === $key ? 'url' : 'text' ), $key ); } }
                     if ( 'photo' === ( $settings['type'] ?? '' ) && 'url' === ( $settings['photo_source'] ?? '' ) && isset( $settings['photo_url'] ) && is_string( $settings['photo_url'] ) ) { $add( $path . '/settings/photo_url', 'url', 'image_url' ); }
                     if ( in_array( $settings['type'] ?? '', [ 'accordion', 'tabs' ], true ) && is_array( $settings['items'] ?? null ) ) { $this->walk_inventory( $settings['items'], $path . '/settings/items', $result, $node_protected, $node_context . ' > FAQ items', [ 'node' => $node, 'path' => $path ] ); }
+                    if ( 'pp-infolist' === ( $settings['type'] ?? '' ) && ( empty( $settings['data_source'] ) || 'manual' === $settings['data_source'] ) && is_array( $settings['list_items'] ?? null ) ) {
+                        foreach ( $settings['list_items'] as $index => $item ) {
+                            if ( ! is_int( $index ) || ! is_array( $item ) ) { continue; }
+                            foreach ( [ 'title' => [ 'text', 'heading' ], 'description' => [ 'html', 'body' ] ] as $key => $spec ) {
+                                if ( ! isset( $item[$key] ) || ! is_string( $item[$key] ) ) { continue; }
+                                $connected = ! empty( $settings['connections']['list_items'] ) || ! empty( $item['connections'][$key] );
+                                $add( $path . '/settings/list_items/' . $index . '/' . $key, $spec[0], $spec[1], null, $connected );
+                                $result['fields'][count( $result['fields'] ) - 1]['label'] = 'PowerPack Info List · Item ' . ( $index + 1 ) . ' · ' . ucfirst( $key );
+                            }
+                        }
+                    }
                 }
                 $children = $node['children'] ?? []; $child_path = $path . '/children';
             } else {
@@ -734,6 +763,15 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     public function bind( array $native, array $binding, $value, array $context = [] ) {
         $checked = $this->validate_binding( $native, $binding ); if ( is_wp_error( $checked ) ) { return $checked; }
         $target = $binding['target'];
+        if ( 'gutenberg' === $this->builder ) {
+            foreach ( $this->fields( $native ) as $field ) {
+                if ( $field['target'] === $target && isset( $field['acf_key'] ) ) {
+                    $checked = Nova_Mapping_Gutenberg_ACF::validate_value( $field, $value );
+                    if ( is_wp_error( $checked ) ) { return $checked; }
+                    break;
+                }
+            }
+        }
         $original = Nova_Bridge_Suite_Recipe_Engine::get( $native, $target );
         $heading = ( 'divi4' === $this->builder || 'divi5' === $this->builder || ( 'wpbakery' === $this->builder && '/text' === substr( $target, -5 ) ) ) && self::heading_html( (string) $original );
         if ( $heading ) {

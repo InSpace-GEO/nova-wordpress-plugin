@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.4.3
+Stable tag: 1.5.16
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,154 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.16 =
+* Preserve an existing page's status when a delivery requests a draft.
+* Preserve existing demo-page status on deliveries with explicit publication status, while creating new demo pages as drafts.
+* Retain the existing demo behavior for deliveries without explicit publication status.
+
+= 1.5.15 =
+* Accept the optional publication status supplied by posting-service 0.12.0.
+* Apply the requested draft or published status to native posts while retaining published pages on later draft requests.
+* Preserve configured publishing behavior for deliveries without an explicit status.
+* Hold draft requests for destinations that cannot store an independent draft.
+
+= 1.5.14 =
+* Respect ACF conditional visibility when validating saved layouts and publishing native content.
+* Handle hidden parent groups and conditions controlled by ancestor fields while preserving stored values.
+* Keep visible required fields enforced and include native ACF rejection details.
+* Validate conditional text controls against the values that will be stored.
+
+= 1.5.13 =
+* Add a title-display setting to Dynamic Gutenberg templates, enabled for new templates.
+* Omit a repeated opening H1 when the theme displays the page title, while preserving section headings.
+* Keep different opening headings and additional title media for review.
+* Preserve existing saved template behavior until the setting is explicitly enabled and saved.
+
+= 1.5.12 =
+* Keep one publishing default when replacing a sole destination with a fixed URL prefix.
+* Normalize relative page URLs before mapping them into Dynamic fields.
+* Allow sample values for required HALO fields in Dynamic previews and review drafts.
+
+= 1.5.11 =
+* Restore featured-image, excerpt and additional scalar field controls in Dynamic Gutenberg templates.
+* Keep SEO metadata and inline image descriptions available alongside content-driven blocks.
+* Preserve an existing excerpt when a Dynamic delivery omits its source value.
+* Replace an approved default for the same WordPress destination without reporting a conflicting root URL.
+
+= 1.5.10 =
+* Create content-driven Gutenberg pages with native paragraphs, headings, lists, tables, quotes, images and separators.
+* Configure element styling through visual NOVA-to-Gutenberg mapping rows and familiar block icons.
+* Start new setups with Static template and use Dynamic template for content-driven Gutenberg rules.
+* Preview articles with the active theme's styles, global settings, fonts and custom CSS.
+* Preserve existing saved field mappings, repeated regions, publishing revisions and retry behavior.
+
+= 1.5.9 =
+* Map nested content in ACF Gutenberg blocks and their post-level descriptions and FAQ fields.
+* Highlight ACF content in the reference preview, including scroll-animated introductions and collapsed FAQ answers.
+* Enforce native ACF field validation and refresh cached field values after native writes.
+* Preserve unselected content, design settings, field references and older saved layouts.
+
+= 1.5.8 =
+* Allow stored-layout publishing when another unpublished draft has the same slug.
+* Recover retained drafts after a permalink check failed, including handover to a newer delivery version.
+* Preserve other drafts and continue checking published, scheduled, private and pending URL conflicts.
+
+= 1.5.7 =
+* Protect delivered locale fields from repeat Weglot translation, including native excerpts and mixed Elementor widgets.
+* Keep preserved source content eligible for automatic translation and retain existing localized values during updates.
+
+= 1.5.6 =
+* Reuse existing product tags for supported purchase-URL aliases.
+* Expose native Yoast taxonomy titles and descriptions for category and product-tag mappings.
+* Create missing Weglot originals for ungrouped deliveries using stable URL identities, including resumed jobs.
+* Preserve authored localized titles in shared Elementor H1 widgets.
+
+= 1.5.5 =
+* Derive newly generated Weglot originals' slugs from their original-language titles.
+* Retain URL-group source associations across localized and reported URL changes.
+* Reuse the registered original across sibling deliveries and retries after slug resolution.
+
+= 1.5.4 =
+* Apply the mapped taxonomy's registered permalink base to category deliveries that supply an unprefixed slug.
+* Resolve source and localized taxonomy URLs before creation or update, and report the actual destination URL.
+
+= 1.5.3 =
+* Create a missing Weglot original from translated deliveries using Weglot's translation API and the saved WordPress layout.
+* Support source creation for pages, mapped post types, WooCommerce categories and product tags, with recoverable native writes and shared locale associations.
+* Reuse existing originals and retain draft previews, localized custom fields and resolved language URLs.
+
+= 1.5.2 =
+* Allow Weglot test translations to use the original post's draft status and editor preview.
+* Wake dependent Weglot test translations when their original draft is saved, and report the verified draft status.
+* Allow translated WooCommerce category and product-tag tests with a verified original and matching localized URL.
+
+= 1.5.1 =
+* Map Elementor nested-accordion questions and answers, including optional FAQ rows and repeated panels.
+* Keep questions paired with their answers when empty optional rows are removed.
+* Reveal animated content in Elementor Canvas previews and make collapsed FAQ answers selectable.
+* Map individual Elementor icon-list text and links, and clarify background-image and Media Library alternative-text controls.
+
+= 1.5.0 =
+* Map SiteJob/HALO article and service fields using their registered REST names and schemas.
+* Preview and publish typed FAQs, buttons, references, supplementary content, form visibility and secondary images.
+* Verify field permissions, schema changes and native saved values while preserving omitted fields.
+
+= 1.4.15 =
+* Keep shared Beaver Builder components linked to the matching Polylang or WPML language template when publishing localized pages.
+* Show linked language templates and missing translations in the layout mapper, with provider-managed translations for TranslatePress and Weglot.
+* Validate shared template availability before publishing and protect shared controls from per-page content bindings.
+
+= 1.4.14 =
+* Preserve existing localized category and product-tag descriptions when the field is left unmapped.
+* Clarify destination-content preservation and hide internal metadata from the mapping editor.
+
+= 1.4.13 =
+* Protect localized category and product-tag fields inside Elementor product archive templates from secondary translation.
+* Preserve translation of product cards, navigation and other page regions.
+
+= 1.4.12 =
+* Publish mapped Elementor images and featured images in Weglot's per-language views.
+* Retain localized image imports for retry recovery and verify their saved attachment IDs and URLs.
+
+= 1.4.11 =
+* Map WooCommerce product tags to the Category content type, including native text, scalar custom fields, SEO fields and translated content.
+* Publish mapped WooCommerce category and product-tag translations through Weglot and TranslatePress.
+* Preserve native WPML taxonomy identities and language context during category/tag updates and readback.
+* Resolve earlier published originals from the exact primary URL in an authenticated NOVA URL group, with native identity and ownership checks.
+* Return the provider-generated category URL in publication receipts and retain localized field values during retry recovery.
+
+= 1.4.10 =
+* Publish Weglot and TranslatePress content at the verified original's provider-generated localized URL when its slug differs from NOVA's intended URL.
+* Retain the resolved URL throughout native writing and recovery, enforce the installation's publishing scope, and return the actual URL through the existing publication report.
+
+= 1.4.9 =
+* Publish native WooCommerce category deliveries at application demo URLs, including category updates and retry recovery.
+* Keep application demo posts and pages in draft and retain the existing handling for shared translated views.
+
+= 1.4.8 =
+* Synchronize fixed WooCommerce category templates with selected native content, declared SEO metadata and scalar ACF/SCF companion fields.
+* Publish those category mappings through the shared destination-fitting contract, with verified creation, existing-category updates and retry recovery.
+* Preserve unselected metadata and custom fields, and report the saved category revision's actual publishing support and synchronization status.
+* Use native category rich-text sanitization and complete ACF runtime definitions during validation and readback.
+
+= 1.4.7 =
+* Fix false concurrent-edit warnings when saving layouts, mapping drafts, endpoint mappings or content rules on sites with legacy database encoding or different PHP serialization settings.
+
+= 1.4.6 =
+* Map individual headings and descriptions inside PowerPack Info List modules for Beaver Builder.
+* Select the exact list-item field in the mapping preview while preserving icons, typography and other item settings.
+
+= 1.4.5 =
+* Save localized values for preserved fields from linked Polylang and WPML reference pages and select them for the delivery locale.
+* Show saved locale availability and reference fallbacks in the mapping editor. TranslatePress and Weglot retain their provider-managed translations.
+* Allow a manual locale value for a preserved field when no linked localized reference supplies one.
+* Offer to synchronize pending local mappings after saving the NOVA connection, with independent connection and mapping results.
+* Keep application demo URL deliveries in draft, including matching parent paths. Hold test destinations that have no independent draft state.
+* Refresh the updated Beaver page's generated CSS and JavaScript, including draft and preview assets.
+
+= 1.4.4 =
+* Allow local delivery journals up to 4 MiB so large existing-page layout updates retain their complete recovery state.
 
 = 1.4.3 =
 * Map individual text, link and image fields inside Beaver Builder HTML modules while preserving their surrounding markup.
@@ -155,7 +303,7 @@ Map a Cornerstone page or post from an existing example. Deliveries apply the sa
 
 = 1.0.6 =
 Save and sync directly from Content rules. Selecting the same example again can resume its mapping. New layouts select eligible page design settings by default, with bulk controls for changing the selection.
-The layout editor no longer offers a draft made from sample text. New editorial mappings omit the WordPress Footnotes block’s storage field.
+The layout editor no longer offers a draft made from sample text. New editorial mappings omit the WordPress Footnotes blockâ€™s storage field.
 
 = 1.0.5 =
 Select editorial ACF and registered WordPress text fields when mapping a fixed layout. Each language can receive its own field values with WPML, Polylang, TranslatePress and Weglot. WPML can link a single translation delivered before its original.

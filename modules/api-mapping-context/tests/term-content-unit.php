@@ -8,6 +8,7 @@ class WP_Error { private $code; private $message; private $data; function __cons
 class WP_REST_Response { private $data; public $headers = []; function __construct( $data ) { $this->data = $data; } function get_data() { return $this->data; } function header( $name, $value ) { $this->headers[$name] = $value; } }
 class WP_REST_Posts_Controller {}
 class WP_Post {}
+class WP_Term { static function get_instance( $id, $taxonomy ) { return get_term( $id, $taxonomy ); } }
 class WP_Post_Type {}
 class WP_REST_Request {
     private $body; private $headers; public $params = [];
@@ -23,6 +24,16 @@ function rest_ensure_response( $value ) { return new WP_REST_Response( $value );
 function register_rest_route( $namespace, $route, $handlers ) { $GLOBALS['routes'][$namespace . $route] = $handlers; }
 function add_action( ...$arguments ) {}
 function add_filter( ...$arguments ) {}
+function apply_filters( $name, $value, ...$arguments ) {
+    if ( 'wpml_current_language' === $name ) { return $GLOBALS['native_language'] ?? 'nl'; }
+    if ( 'wpml_element_language_details' === $name ) { return (object) [ 'language_code' => 'es' ]; }
+    return $value;
+}
+function do_action( $name, ...$arguments ) {
+    if ( 'wpml_switch_language' === $name && empty( $GLOBALS['refuse_language_switch'] ) ) {
+        $GLOBALS['native_language'] = $arguments[0];
+    }
+}
 function current_user_can( $cap, ...$arguments ) { return $GLOBALS['admin'] && ! in_array( $cap . ':' . implode( ':', $arguments ), $GLOBALS['denied'], true ); }
 function wp_verify_nonce( $nonce, $action ) { return 'valid' === $nonce && in_array( $action, [ 'wp_rest', 'wccbp_save_term' ], true ); }
 function wp_salt( $scheme ) { return 'term-unit-' . $scheme; }
@@ -194,4 +205,39 @@ check( $writes === $before_writes, 'The WooCommerce form fix changed existing no
 $_POST = [ 'wccbp_nonce' => 'valid' ]; WCCBP_Content_Below_Products::save_term_field( 31 ); check( $writes === $before_writes, 'An omitted category form field erased saved bottom content.' );
 $_POST = [ 'wccbp_nonce' => 'valid', 'content_below_products' => '' ]; WCCBP_Content_Below_Products::save_term_field( 31 ); check( get_term_meta( 31, 'content_below_products', true ) === '', 'The real category form cannot explicitly clear bottom content.' );
 $_POST = [];
+$before_localized = serialize( [ $terms, $term_values, $acf_values ] );
+$before_writes = $writes;
+$localized = good( Content::localized_fields( 'product_cat', 31, [
+    'name' => 'Lokalisierter Name', 'description' => '<p>Lokalisierte Einleitung.</p>',
+    'content_below_products' => '<p>Lokalisierter Inhalt.</p>',
+    'meta_all' => [ 'acf' => [ 'headline' => 'Neue Überschrift' ] ],
+] ), 'Mapped scalar category translations compile without native setters.' );
+check( $localized['native']['name']['value'] === 'Lokalisierter Name' &&
+    $localized['native']['description']['value'] === '<p>Lokalisierte Einleitung.</p>', 'Localized native fields lost their values.' );
+check( $localized['meta']['content_below_products']['value'] === '<p>Lokalisierter Inhalt.</p>' &&
+    $localized['meta']['headline']['key'] === 'field_headline', 'Localized metadata lost its native or ACF identity.' );
+rejected( Content::localized_fields( 'product_cat', 31, [ 'meta_all' => [ 'score' => 9 ] ] ), 409, 'A nontext value was accepted by the scalar category translator.' );
+rejected( Content::localized_fields( 'product_cat', 31, [ 'meta_all' => [ 'acf' => [ 'stats' => [ 'label' => 'Test', 'enabled' => true ] ] ] ] ), 409, 'Nested ACF values were accepted by the scalar category translator.' );
+check( $before_writes === $writes && $before_localized === serialize( [ $terms, $term_values, $acf_values ] ), 'Compiling localized fields changed native content.' );
+
+define( 'ICL_SITEPRESS_VERSION', 'fixture' );
+$terms[31]->term_taxonomy_id = 131;
+$native_language = 'nl';
+$term_write_mutator = static function () {
+    check( 'es' === $GLOBALS['native_language'], 'WPML setter did not enter the verified term language.' );
+};
+good( Content::apply( 'product_cat', 31, [ 'name' => 'Spanish category' ] ), 'Native category writes use their term language.' );
+check( 'nl' === $native_language, 'The category writer did not restore the request language.' );
+$term_write_mutator = null;
+try {
+    Content::with_language( 'product_cat', 31, static function () { throw new RuntimeException( 'fixture callback failure' ); } );
+} catch ( RuntimeException $error ) {
+    check( 'fixture callback failure' === $error->getMessage(), 'The callback exception changed.' );
+}
+check( 'nl' === $native_language, 'A failed category operation leaked its native language.' );
+$refuse_language_switch = true;
+$before_writes = $writes;
+rejected( Content::apply( 'product_cat', 31, [ 'name' => 'Blocked category' ] ), 409, 'A refused WPML context switch reached native setters.' );
+check( $writes === $before_writes, 'A refused native language switch wrote category fields.' );
+$refuse_language_switch = false;
 echo 'PASS ' . $checks . " term content transport checks.\n";

@@ -182,6 +182,9 @@ class WP_REST_Request {
     public function set_header( $name, $value ) {} public function set_body( $body ) { $this->body = $body; }
 }
 class Nova_Bridge_Suite_Layout_Recipes {
+    public static $metadata = [];
+    public static function defaults() { return get_option( Nova_WordPress_Environment::key( 'nova_bridge_layout_recipes_v1' ), [] )['defaults'] ?? []; }
+    public static function default_metadata( $resource ) { return self::$metadata[$resource] ?? null; }
     public static $calls = []; public static $replies = [];
     public static function sync( $request ) {
         $body = json_decode( $request->body, true );

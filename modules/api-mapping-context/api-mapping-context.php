@@ -44,6 +44,8 @@ require_once __DIR__ . '/includes/class-nova-bridge-suite-shared-layouts-admin.p
 Nova_Bridge_Suite_Shared_Layouts_Admin::bootstrap();
 Nova_Bridge_Suite_Layout_Recipes_Admin::bootstrap();
 Nova_Bridge_Suite_Term_Content::bootstrap();
+require_once __DIR__ . '/includes/class-nova-bridge-suite-term-seo.php';
+Nova_Bridge_Suite_Term_SEO::bootstrap();
 // Publishing is part of mapping: load all collaborators before registering hooks.
 foreach ( [ 'posting-client', 'posting-protocol', 'receipt-json', 'writing-adapter', 'mapping-sync', 'taxonomy-counts', 'elementor-derived', 'mapped-writer', 'rule-writer', 'posting-jobs', 'posting-connection', 'posting-discovery', 'posting-worker', 'posting-delivery', 'mapped-content-target', 'static-recipe-adapter', 'static-term-writer', 'stored-layout', 'stored-recipe-layout', 'stored-layout-provider', 'stored-layout-language', 'stored-layout-writer', 'stored-recipe-sync', 'owned-cpt-seo', 'owned-cpt-media', 'owned-cpt-sync', 'owned-cpt-writer' ] as $nova_posting_component ) {
     require_once dirname( NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_DIR ) . '/posting-service/includes/class-nova-bridge-suite-' . $nova_posting_component . '.php';

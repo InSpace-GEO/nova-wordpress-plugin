@@ -156,4 +156,34 @@ foreach ( [ 'crash_insert', 'crash_save', 'lost_receipt' ] as $interruption ) {
     foreach ( array_slice( $client->events, $before_events ) as $event ) { check( $event['attempt_id'] === op( 900 ), 'Reconciled native publication only sends receipts for current authority.' ); }
     check( count( $current['payload']['prior_attempts'] ) === 1, 'Native takeover retains its prior attempt history.' );
 }
+foreach ( [ 1, 3 ] as $version ) {
+    foreach ( [ 'draft', 'publish' ] as $status ) {
+        [ $f, $store, $client, $worker ] = delivery_setup( $version, null, $status === 'draft' ? 'publish' : 'draft' );
+        $f['snapshot']['publication_status'] = $status;
+        $f['raw'] = json_encode( $f['snapshot'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+        $f['etag'] = '"' . hash( 'sha256', $f['raw'] ) . '"';
+        $client->fixture = $f;
+        $f['job']['last_error'] = 'nova_posting_schema';
+        $done = ok( $worker->process( $f['job'] ) );
+        check( $done['state'] === 'complete' && $done['payload']['result']['cms_post_status'] === $status, 'A schema-blocked V' . $version . ' job resumes with its frozen publication status.' );
+        check( $done['payload']['snapshot_raw'] === $f['raw'] && $inserts === 1, 'Status metadata retains exact bytes and creates one native page.' );
+    }
+}
+
+foreach ( [ 'draft', 'publish' ] as $requested ) {
+    [ $f, $store, $client, $worker ] = delivery_setup( 3, 'https://example.test/lorem-ipsum-demo-service/', 'publish' );
+    $f['snapshot']['publication_status'] = 'draft';
+    $f['raw'] = json_encode( $f['snapshot'] ); $f['etag'] = '"' . hash( 'sha256', $f['raw'] ) . '"'; $client->fixture = $f;
+    $first = ok( $worker->process( $f['job'] ) );
+    check( $first['state'] === 'complete' && $first['payload']['result']['cms_post_status'] === 'draft', 'The worker creates a status-bearing demo draft.' );
+    $posts[$first['target_id']]->post_status = 'publish';
+    $f['snapshot']['publication_status'] = $requested;
+    $f['snapshot']['id'] = op( 810 ); $f['snapshot']['content_item_version_id'] = '502'; $f['snapshot']['version_number'] = 2;
+    $f['raw'] = json_encode( $f['snapshot'] ); $f['etag'] = '"' . hash( 'sha256', $f['raw'] ) . '"'; $client->fixture = $f;
+    $job = $f['job']; $job['operation_id'] = op( 811 ); $job['payload']['business_result_id'] = $job['operation_id'];
+    foreach ( [ 'id', 'content_item_version_id', 'version_number' ] as $key ) { $job['payload']['discovery'][$key] = $f['snapshot'][$key]; }
+    $second = ok( $worker->process( $job ) );
+    check( $second['state'] === 'complete' && $second['payload']['result']['cms_post_status'] === 'publish' && $second['target_id'] === $first['target_id'], 'The worker preserves a published demo for explicit ' . $requested . ' updates.' );
+}
+
 echo "Stored-layout delivery checks: $checks passed.\n";

@@ -45,15 +45,37 @@ final class Nova_Bridge_Suite_Recipe_Core {
     public function bind( array $native, array $binding, $value, array $context = [] ) { if ( class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) && Nova_Bridge_Suite_Recipe_Term_Fields::owns( $binding['target'] ) ) { return Nova_Bridge_Suite_Recipe_Term_Fields::bind( $native, $binding, $value ); } Nova_Bridge_Suite_Recipe_Engine::put( $native, $binding['target'], $value ); return $native; }
     public function replace_region( array $native, array $region, array $children, array $context = [] ) { if ( class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) && Nova_Bridge_Suite_Recipe_Term_Fields::owns( $region['target'] ) ) { return Nova_Bridge_Suite_Recipe_Term_Fields::replace_region( $native, $region, $children ); } Nova_Bridge_Suite_Recipe_Engine::splice( $native, $region['target'], $region['start'], $region['count'], $children ); return $native; }
     public function finalize( array $blueprint, string $seed, array $context = [] ) {
-        $doc = $blueprint['document']; $html = wp_kses_post( $doc['intro'] ?? '' );
+        $doc = $blueprint['document']; $html = ''; $ownership = [];
+        $append = static function ( string $fragment, string $path = '' ) use ( &$html, &$ownership, $context ): void {
+            // Translation storage sanitizes HTML. Measure the same fragments it retains.
+            if ( array_key_exists( 'owned_paths', $context ) ) { $fragment = wp_kses_post( $fragment ); }
+            if ( '' !== $path && array_key_exists( 'owned_paths', $context ) ) {
+                $ownership[] = [ 'offset' => strlen( $html ), 'length' => strlen( $fragment ), 'path' => $path,
+                    'owned' => in_array( $path, $context['owned_paths'], true ),
+                    'preserve' => in_array( $path, $context['preserved_paths'] ?? [], true ) || ! in_array( $path, $context['mapped_paths'] ?? [], true ) ];
+            }
+            $html .= $fragment;
+        };
+        $append( wp_kses_post( $doc['intro'] ?? '' ), '/document/intro' );
         foreach ( $doc['sections'] ?? [] as $index => $section ) {
             $body = $section['body'] ?? '';
             $original = $context['recipe']['blueprint']['document']['sections'][$index]['body'] ?? null;
             $unchanged = ! array_key_exists( 'intro', $doc ) && [] === $doc['faqs'] && $body === $original;
-            $html .= ( '' !== ( $section['heading'] ?? '' ) ? '<h2>' . esc_html( $section['heading'] ) . '</h2>' : '' ) . ( $unchanged ? $body : wp_kses_post( $body ) );
+            $append( '' !== ( $section['heading'] ?? '' ) ? '<h2>' . esc_html( $section['heading'] ) . '</h2>' : '', '/document/sections/' . $index . '/heading' );
+            $append( $unchanged ? $body : wp_kses_post( $body ), '/document/sections/' . $index . '/body' );
         }
-        if ( $doc['faqs'] ?? [] ) { $html .= '<section class="nova-faq"><h2>Frequently asked questions</h2>'; foreach ( $doc['faqs'] as $faq ) { $html .= '<details><summary>' . esc_html( $faq['question'] ) . '</summary>' . wp_kses_post( $faq['answer'] ) . '</details>'; } $html .= '</section>'; }
+        if ( $doc['faqs'] ?? [] ) {
+            $append( '<section class="nova-faq"><h2>Frequently asked questions</h2>' );
+            foreach ( $doc['faqs'] as $index => $faq ) {
+                $append( '<details>' );
+                $append( '<summary>' . esc_html( $faq['question'] ) . '</summary>', '/document/faqs/' . $index . '/question' );
+                $append( wp_kses_post( $faq['answer'] ), '/document/faqs/' . $index . '/answer' );
+                $append( '</details>' );
+            }
+            $append( '</section>' );
+        }
         $result = [ 'native_document' => $doc, 'writer_payload' => 'taxonomy' === $blueprint['type'] ? [ 'name' => $doc['title'], 'description' => $html ] : [ 'title' => $doc['title'], 'content' => $html, 'template' => $blueprint['template'] ?? '' ], 'preview_html' => $html, 'warnings' => [], 'summary' => [ 'sections' => count( $doc['sections'] ), 'faq_items' => count( $doc['faqs'] ) ] ];
+        if ( array_key_exists( 'owned_paths', $context ) ) { $result['ownership_ranges'] = $ownership; }
         if ( 'taxonomy' === $blueprint['type'] ) {
             // Omitted optional input must not copy an example category's value into another item.
             $mapped = []; $present = []; $content = $context['content'] ?? []; $recipe = $context['recipe'] ?? [];

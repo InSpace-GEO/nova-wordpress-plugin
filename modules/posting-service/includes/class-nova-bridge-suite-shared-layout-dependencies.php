@@ -49,6 +49,23 @@ final class Nova_Bridge_Suite_Shared_Layout_Dependencies {
         } else {
             $this->page_template( $blueprint['template'] ?? '', $record['resource_id'] ?? '' );
             $this->walk( $blueprint, $builder, '/blueprint' );
+            if ( isset( $record['locale_preservation']['variants'] ) ) {
+                foreach ( $record['locale_preservation']['variants'] as $index => &$variant ) {
+                    foreach ( $variant['values'] as $path => &$entry ) {
+                        $this->walk( $entry['value'], $builder, '/locales/' . $index . $path );
+                        if ( isset( $entry['native_value'] ) ) { $this->walk( $entry['native_value'], $builder, '/locales/' . $index . $path . '/native_value' ); }
+                    }
+                    unset( $entry );
+                }
+                unset( $variant );
+            }
+            if ( isset( $record['recipe']['locale_values'] ) ) {
+                foreach ( $record['recipe']['locale_values'] as $locale => &$values ) {
+                    foreach ( $values as $path => &$value ) { $this->walk( $value, $builder, '/manual_locales/' . $locale . $path ); }
+                    unset( $value );
+                }
+                unset( $values );
+            }
         }
         if ( null !== $this->expected && ( array_diff_key( $this->expected, $this->entries ) || array_diff_key( $this->remaps, $this->entries ) ) ) {
             $this->unsupported( 'manifest', 'The supplied dependencies or replacements do not belong to this exact layout. Download this revision again.' );

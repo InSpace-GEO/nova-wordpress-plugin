@@ -6,7 +6,7 @@ final class Nova_Bridge_Suite_Shared_Layouts {
     public const FORMAT = 'nova.shared-layouts/v1';
     public const MAX_BYTES = 8388608;
     public const MAX_LAYOUTS = 32;
-    private const RECORD_KEYS = [ 'id', 'revision', 'resource_id', 'posting_page_type', 'posting_page_types', 'label', 'builder', 'mode', 'recipe' ];
+    private const RECORD_KEYS = [ 'id', 'revision', 'resource_id', 'posting_page_type', 'posting_page_types', 'label', 'builder', 'mode', 'recipe', 'locale_preservation' ];
 
     private static function error( string $code, string $message, int $status = 409 ): WP_Error {
         return new WP_Error( 'nova_shared_layout_' . $code, $message, [ 'status' => $status ] );
