@@ -99,6 +99,10 @@ WPML and Polylang store the mapped values on the native post for each language. 
 
 ### Title, excerpt and removed elements
 
+Dynamic Gutenberg templates include **The theme displays the page title**. When enabled, an opening H1 that repeats the native page title is omitted from the article body. Matching ignores inline text formatting, HTML entities and whitespace differences. Other headings keep their configured levels. A different opening H1, or one containing additional media, stays in the article and is flagged for review.
+
+New Dynamic templates enable this setting. Existing saved templates retain their title behavior until you enable it and save a new revision. Disable it for a theme template that relies on the article's own H1.
+
 In a fixed post layout, **Title** and **Excerpt** (when the post type supports excerpts) appear in the field list next to **Featured image**. Map **Title** to describe the page title, which themes usually show as the H1, even when the theme or a builder template prints it outside the captured content. Without a mapping, the title is still written from the supplied heading, as before. **Excerpt** is written only when mapped.
 
 The preview also finds an excerpt or featured image rendered by a theme or Beaver Themer in a generic text or image module. It matches the example's stored excerpt and attachment in the main content, excluding related-post cards. If the value is missing or appears more than once there, select the field from the list. Reopen a saved WordPress layout to map its newly available **Excerpt**, then save and sync the revision.

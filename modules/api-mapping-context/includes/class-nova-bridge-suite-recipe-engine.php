@@ -371,7 +371,7 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             $native = self::apply_omissions( $native, $removed, $adapter );
             if ( ! empty( $state['native_media'] ) ) { $state['native_media'] = self::shift_pointers( $state['native_media'], $removed ); }
             if ( isset( $recipe['article'] ) ) {
-                $article = Nova_Mapping_Gutenberg_Article::render( $native, Nova_Mapping_Gutenberg_Article::after_omissions( $recipe['article'], $removed ) );
+                $article = Nova_Mapping_Gutenberg_Article::render( $native, Nova_Mapping_Gutenberg_Article::after_omissions( $recipe['article'], $removed ), (string) ( $state['post_fields']['title'] ?? $normalized['title'] ?? '' ) );
                 $native = $article['blueprint']; $state['warnings'] = array_merge( $state['warnings'], $article['warnings'] );
             }
             $result = self::checked( $adapter->finalize( $native, $seed, [ 'recipe' => $recipe, 'content' => $normalized, 'regions' => $state['regions'] ] ) );

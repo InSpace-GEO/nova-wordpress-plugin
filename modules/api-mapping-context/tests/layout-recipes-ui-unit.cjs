@@ -55,6 +55,9 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert(!t.host.textContent.includes('Choose an existing page as your example'));
   await t.controller.capture(0);t.flushFrames();
   assert.equal(t.controller.state.recipe.mode,'static');assert(t.host.textContent.includes('How NOVA content becomes blocks'));assert(!t.host.textContent.includes('Choose your fixed content fields'));
+  const themeTitle=controlFor(t,'The theme displays the page title');assert.equal(themeTitle.checked,false);
+  themeTitle.checked=true;themeTitle.events.change();t.flushFrames();
+  assert.equal(t.controller.state.recipe.article.theme_displays_title,true);
   native.fields.push({target:'/native_post/featured_image',label:'Featured image',kind:'image_url',format:'url',writable:true,native_media:{kind:'featured'}},{target:'/native_post/excerpt',label:'Excerpt',kind:'excerpt',format:'text',writable:true,roles:['meta_description']});
   native.posting_field_choices={'/@nova/custom-fields/meta/summary':{provider:'meta',name:'summary',key:'summary',type:'string',label:'Summary'}};
   native.seo_field_choices={'/@nova/seo/yoast/title':{provider:'yoast',field:'title',label:'Yoast SEO title'}};
@@ -87,6 +90,7 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   await t.controller.previewArticle();t.flushFrames();assert(t.host.all().some(e=>e.title==='Site-styled Gutenberg article preview'&&e.getAttribute('sandbox')==='allow-same-origin'));
   assert.equal(t.calls.filter(call=>call.path==='/preview').at(-1).payload.input.content.halo.service_intro_rich_text,'<p>Preview introduction.</p>');
   await t.controller.save();assert.equal(t.calls.find(c=>c.path==='/save').payload.recipe.article.rules.paragraph.class_name,'article-copy');
+  assert.equal(t.calls.find(c=>c.path==='/save').payload.recipe.article.theme_displays_title,true);
   t.flushFrames();assert(t.host.all().some(e=>e.tag==='button'&&e.textContent==='Create review draft'));
   const savedRecipe=clone(t.controller.state.recipe);await t.controller.reload();
   assert.deepEqual(t.controller.state.recipe.article,savedRecipe.article);assert.equal(t.controller.state.mode,'article');

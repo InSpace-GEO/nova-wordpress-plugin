@@ -770,6 +770,9 @@
         function articleEditor( state ) {
             var section = node( 'section', undefined, 'nlr-article-rules' ), article = state.recipe.article;
             section.append( node( 'h3', 'How NOVA content becomes blocks' ), help( 'Each element in the article becomes the Gutenberg block shown below. Open a row to adjust its settings.' ) );
+            section.append( check( 'The theme displays the page title', article.theme_displays_title === true, function ( enabled ) {
+                controller.edit( function () { article.theme_displays_title = enabled; } );
+            }, 'Remove an opening H1 when it repeats the page title. Other headings keep their configured levels. A different opening H1 is kept and flagged for review.' ) );
             var labels = node( 'div', undefined, 'nlr-transform-labels' );
             labels.append( node( 'span', 'From NOVA' ), node( 'span', '' ), node( 'span', 'On your page · Gutenberg' ) ); section.append( labels );
             [

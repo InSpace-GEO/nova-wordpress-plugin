@@ -9,7 +9,7 @@ final class Nova_Mapping_Gutenberg_Article {
     private $warnings = [];
 
     public static function defaults(): array {
-        return [ 'version' => 1, 'target' => '/document/0', 'rules' => [
+        return [ 'version' => 1, 'target' => '/document/0', 'theme_displays_title' => true, 'rules' => [
             'paragraph' => [ 'class_name' => '' ],
             'heading' => [ 'class_name' => '', 'level' => 'preserve' ],
             'list' => [ 'class_name' => '' ],
@@ -54,7 +54,8 @@ final class Nova_Mapping_Gutenberg_Article {
     /** Configuration stays on the immutable recipe, outside the source design. */
     public static function validate( array $article, array $blueprint, array $bindings, array $regions ): void {
         $defaults = self::defaults();
-        if ( array_diff( array_keys( $defaults ), array_keys( $article ) ) || array_diff( array_keys( $article ), array_merge( array_keys( $defaults ), [ 'sources' ] ) ) ) { throw new InvalidArgumentException( 'Supply the complete article rendering configuration.' ); }
+        if ( array_diff( [ 'version', 'target', 'rules' ], array_keys( $article ) ) || array_diff( array_keys( $article ), array_merge( array_keys( $defaults ), [ 'sources' ] ) ) ) { throw new InvalidArgumentException( 'Supply the complete article rendering configuration.' ); }
+        if ( array_key_exists( 'theme_displays_title', $article ) && ! is_bool( $article['theme_displays_title'] ) ) { throw new InvalidArgumentException( 'Choose whether the theme displays the page title.' ); }
         $sources = $article['sources'] ?? [];
         if ( ! is_array( $sources ) || count( $sources ) > 67 ) { throw new InvalidArgumentException( 'Choose a bounded set of article field sources.' ); }
         foreach ( $sources as $path => $source ) {
@@ -91,11 +92,11 @@ final class Nova_Mapping_Gutenberg_Article {
         return $article;
     }
 
-    public static function render( array $blueprint, array $article ): array {
+    public static function render( array $blueprint, array $article, string $title = '' ): array {
         $block = Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $article['target'] );
         $renderer = new self();
         $renderer->rules = $article['rules'];
-        $blocks = $renderer->convert( $block['innerHTML'] );
+        $blocks = $renderer->convert( $block['innerHTML'], ! empty( $article['theme_displays_title'] ) ? $title : null );
         // A group gives the article stable ownership and leaves sibling paths intact.
         $group = self::block( 'core/group', [ 'layout' => [ 'type' => 'default' ] ], '<div class="wp-block-group">', $blocks, '</div>' );
         Nova_Bridge_Suite_Recipe_Engine::put( $blueprint, $article['target'], $group );
@@ -107,7 +108,7 @@ final class Nova_Mapping_Gutenberg_Article {
             'innerContent' => array_merge( [ $opening ], array_fill( 0, count( $children ), null ), $closing === '' ? [] : [ $closing ] ) ];
     }
 
-    private function convert( string $html ): array {
+    private function convert( string $html, ?string $theme_title ): array {
         if ( trim( $html ) === '' ) { throw new InvalidArgumentException( 'Supply complete article HTML before publishing.' ); }
         if ( strlen( $html ) > 2097152 || ! class_exists( 'DOMDocument' ) || ! preg_match( '//u', $html ) ) { throw new InvalidArgumentException( 'Article HTML must be valid UTF-8 within 2 MiB and requires the DOM extension.' ); }
         $shortcode = preg_match( '/\[\/?(?:vc_|us_|et_pb_|fusion_|av_|cs_|ux_)[a-zA-Z0-9_-]*\b/', $html );
@@ -118,7 +119,28 @@ final class Nova_Mapping_Gutenberg_Article {
         try { $loaded = $document->loadHTML( '<?xml encoding="UTF-8"><!doctype html><html><body>' . $html . '</body></html>', LIBXML_NONET ); }
         finally { libxml_clear_errors(); libxml_use_internal_errors( $previous ); }
         if ( ! $loaded ) { throw new InvalidArgumentException( 'The article HTML could not be parsed.' ); }
-        return $this->children( $document->getElementsByTagName( 'body' )->item( 0 ), 0 );
+        $body = $document->getElementsByTagName( 'body' )->item( 0 );
+        if ( null !== $theme_title ) { $this->omit_duplicate_title( $body, $theme_title ); }
+        return $this->children( $body, 0 );
+    }
+
+    private static function title_text( string $html ): string {
+        $text = html_entity_decode( strip_tags( preg_replace( '~<br\b[^>]*>~i', ' ', $html ) ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        return trim( preg_replace( '/[\s\p{Z}]+/u', ' ', $text ) );
+    }
+
+    private function omit_duplicate_title( DOMNode $body, string $title ): void {
+        foreach ( $body->childNodes as $node ) {
+            if ( $node instanceof DOMComment || ( $node instanceof DOMText && preg_match( '/^[\s\p{Z}]*$/u', $node->textContent ) ) ) { continue; }
+            if ( $node instanceof DOMElement && strtolower( $node->tagName ) === 'h1' ) {
+                $expected = self::title_text( $title );
+                $html = $this->inner( $node );
+                $has_media = preg_match( '~<(?:img|video|audio|svg|iframe|object|embed|input)\b~i', $html );
+                if ( '' !== $expected && ! $has_media && self::title_text( $html ) === $expected ) { $body->removeChild( $node ); }
+                else { $this->warnings[] = 'The opening H1 could not be matched to the page title and was kept. Review the article title.'; }
+            }
+            break;
+        }
     }
 
     private function children( DOMNode $parent, int $depth ): array {

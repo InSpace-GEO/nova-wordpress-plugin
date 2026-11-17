@@ -254,7 +254,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             $article_warnings = [];
             if ( isset( $layout['article'] ) ) {
                 $article_config = Nova_Mapping_Gutenberg_Article::after_omissions( $layout['article'], $removed );
-                $article = Nova_Mapping_Gutenberg_Article::render( $blueprint, $article_config );
+                $article = Nova_Mapping_Gutenberg_Article::render( $blueprint, $article_config, (string) ( $post_fields['title'] ?? '' ) );
                 $blueprint = $article['blueprint']; $article_warnings = $article['warnings'];
             }
             $context = [ 'recipe' => [ 'blueprint' => $layout['blueprint'] ] ];
