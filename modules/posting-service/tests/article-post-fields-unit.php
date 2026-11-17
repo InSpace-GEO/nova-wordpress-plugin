@@ -36,6 +36,15 @@ check( is_wp_error( Writing::template_input( $invalid ) ), 'Rich HTML cannot sil
 $invalid = $draft; $invalid['article']['sources']['/native_post/title'] = 'content';
 check( is_wp_error( Writing::template_input( $invalid ) ), 'Unselected additional source is rejected' );
 check( is_wp_error( Layout::compile( $invalid, $values, 'changed-sources' ) ), 'Changing selected sources invalidates the immutable layout' );
+$url_article = $article;
+$url_path = '/@nova/custom-fields/acf/article_link';
+$url_article['recipe']['posting_fields'][$url_path] = [ 'provider' => 'acf', 'name' => 'article_link', 'key' => 'field_article_link', 'type' => 'url', 'label' => 'Article URL' ];
+$url_article['recipe']['article']['sources'][$url_path] = 'url';
+$url_draft = good( Layout::from_recipe( $url_article ), 'Project a typed article URL field' );
+$url_wire = good( Writing::template_input( $url_draft ), 'URL destinations use the existing scalar delivery contract' );
+check( array_column( $url_wire['mapping']['fields'], 'source_field', 'field_id' )[Writing::field_id( $url_path )] === 'url', 'Page URL source maps to the typed destination' );
+$url_values = $values + fitted( [ $url_path => 'https://example.org/article/' ] );
+check( good( Layout::compile( $url_draft, $url_values, 'url-field' ), 'Compile the normalized page URL' )['custom_fields']['article_link']['value'] === 'https://example.org/article/', 'Typed URL field receives an absolute page URL' );
 $legacy = $article; unset( $legacy['recipe']['article'], $legacy['recipe']['posting_fields'] );
 check( good( Writing::template_input( good( Layout::from_recipe( $legacy ), 'Legacy layout projection' ) ), 'Legacy fitting retained' )['definition']['version'] === 3, 'Existing static layouts retain their fitting contract' );
 echo "PASS dynamic post details and unchanged static contract.\n";

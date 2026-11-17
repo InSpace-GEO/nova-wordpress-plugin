@@ -46,15 +46,17 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         $same_destination = $owner && $selector && $owner['resource_id'] === $record['resource_id'] && $owner['installation_path'] === $selector['installation_path'];
         // Keep an installation's original single default until there are two destinations to distinguish.
         $has_type_routes = in_array( $type, array_column( $routes, 'page_type' ), true );
-        $multiple = $has_type_routes || ( $selected && $selected !== $previous_id );
+        $multiple = $has_type_routes || ( $selected && $selected !== $previous_id && ! $same_destination );
         $scoped = $modern && $multiple && null !== $prefix && '/' !== $prefix;
         $migration = null;
         if ( null !== $replace && ( $replace['page_type'] !== $type || $replace['template_id'] !== $selected || $replace['defaults_revision'] !== $body['revision'] || $scoped ) ) { return self::default_conflict( $type, $selected, $body['revision'] ); }
         $existing = $scoped ? ( $routes[$type . ':' . $prefix] ?? null ) : null;
-        if ( $existing && ( ( $existing['template_id'] !== $previous_id && ! ( $same_destination && $existing['template_id'] === $selected ) ) || ( isset( $existing['installation_path'] ) && $existing['installation_path'] !== $selector['installation_path'] ) ) ) {
+        $route_owner = $existing && $existing['template_id'] !== $previous_id ? Nova_Bridge_Suite_Layout_URL_Routes::previous_default( $client->site_id(), $existing['template_id'], $type ) : null;
+        $same_route_destination = $route_owner && $route_owner['resource_id'] === $record['resource_id'] && $route_owner['installation_path'] === $selector['installation_path'] && $route_owner['path_prefix'] === $prefix;
+        if ( $existing && ( ( $existing['template_id'] !== $previous_id && ! $same_route_destination ) || ( isset( $existing['installation_path'] ) && $existing['installation_path'] !== $selector['installation_path'] ) ) ) {
             return self::error( 'route_conflict', 'Another ' . $type . ' layout already handles URLs under ' . $prefix . '. WordPress registers the same URL pattern for both destinations. Give one destination a distinct permalink base before syncing.' );
         }
-        $existing_binding = $scoped && $previous_id && ( $routes[$type . ':' . $prefix]['template_id'] ?? null ) === $previous_id;
+        $existing_binding = $same_route_destination || ( $scoped && $previous_id && ( $routes[$type . ':' . $prefix]['template_id'] ?? null ) === $previous_id );
         if ( $selected && $selected !== $previous_id && ! $existing_binding ) {
             $other_prefix = $owner['path_prefix'] ?? null;
             if ( ! $modern && null !== $prefix && null !== $other_prefix && $prefix !== $other_prefix ) {
@@ -78,7 +80,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
             if ( null === $prefix ) { return self::error( 'route_unknown', 'WordPress cannot verify a fixed permalink base alongside existing ' . $type . ' URL routes. The current routing was kept.' ); }
             if ( $row['template_id'] === $previous_id && $row['path_prefix'] === $confirmed_prefix && $row['path_prefix'] !== $prefix && ( $row['installation_path'] ?? null ) === $selector['installation_path'] ) { unset( $routes[$key] ); }
         }
-        if ( $scoped && $selected && $selected === $previous_id ) { unset( $defaults[$type] ); }
+        if ( $scoped && $selected && ( $selected === $previous_id || $same_destination ) ) { unset( $defaults[$type] ); }
         return [ 'type' => $type, 'selector' => $scoped ? $selector : null, 'defaults' => $defaults, 'routes' => $routes, 'modern' => $modern, 'migration' => $migration ];
     }
 

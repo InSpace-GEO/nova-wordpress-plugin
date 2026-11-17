@@ -180,6 +180,9 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             if ( 1 === $configuration['template']['definition']['version'] ) {
                 $sources = $content['content'] ?? []; if ( ! is_array( $sources ) ) { self::fail( 'values', 'Direct delivery content must be a source object.' ); }
                 foreach ( [ 'url', 'page_type_frontend', 'language' ] as $name ) { $sources[$name] = $content[$name] ?? null; }
+                if ( isset( $local['article'] ) && in_array( 'url', array_column( $configuration['template']['mapping']['fields'], 'source_field' ), true ) ) {
+                    $sources['url'] = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( $sources['url'], $content['language'] ) );
+                }
                 $values = []; foreach ( $configuration['template']['mapping']['fields'] as $binding ) { if ( array_key_exists( $binding['source_field'], $sources ) && null !== $sources[$binding['source_field']] ) { $values[$binding['field_id']] = $sources[$binding['source_field']]; } }
             }
             $compiled = self::checked( Nova_Bridge_Suite_Stored_Layout::compile( Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $local ), $values, $content['site_id'] . ':' . $content['url_id'], $content['language'] ) );

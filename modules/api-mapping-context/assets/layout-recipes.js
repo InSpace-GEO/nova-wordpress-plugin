@@ -675,7 +675,6 @@
 				if ( selected[ path ] ) {
 					if ( state.mode === 'article' ) {
 						section.append( field( 'NOVA content for ' + label, select( articleFieldSources( entry ), ( state.recipe.article.sources || {} )[path] || '', function ( value ) { controller.edit( function () { setArticleSource( state, path, value ); } ); } ) ), check( 'Require a value for ' + label, !! selected[path].required, function ( value ) { controller.edit( function () { state.recipe.posting_fields[path].required = value; } ); } ) );
-						return;
 					}
 					if ( designSetting ) {
 						section.append( help( 'This saved mapping fills a design setting with article content. Keep it as configured, or explicitly copy the example’s design setting instead.' ), button( 'Copy example setting: ' + label, function () { controller.edit( function () { delete state.recipe.posting_fields[path]; if ( ! Object.keys( state.recipe.posting_fields ).length ) { delete state.recipe.posting_fields; } var fixed = state.design.pendingPresentationKeys || storedPresentationKeys( state.design ); setPresentationKeys( state.design, Array.from( new Set( fixed.concat( [ entry.name ] ) ) ) ); } ); } ) );
@@ -700,6 +699,7 @@
                             }, true ), entry.type === 'array' ? 'Enter a JSON list using the registered field schema. This value is used by the structure preview and test draft.' : 'Used by the structure preview and test draft. An empty input omits the field.' ) );
                         }
                     }
+					if ( state.mode === 'article' ) { return; }
 					var guidance = node( 'details' ); guidance.setAttribute( 'data-nlr-view-key', 'custom-guidance:' + path ); guidance.append( node( 'summary', 'Optional instructions for ' + label ) );
 					guidance.append( field( 'Instructions for ' + label, input( selected[ path ].instructions, function ( value ) {
 						controller.edit( function () { state.recipe.posting_fields[ path ].instructions = value; }, false );
