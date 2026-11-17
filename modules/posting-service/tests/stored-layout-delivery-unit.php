@@ -156,4 +156,18 @@ foreach ( [ 'crash_insert', 'crash_save', 'lost_receipt' ] as $interruption ) {
     foreach ( array_slice( $client->events, $before_events ) as $event ) { check( $event['attempt_id'] === op( 900 ), 'Reconciled native publication only sends receipts for current authority.' ); }
     check( count( $current['payload']['prior_attempts'] ) === 1, 'Native takeover retains its prior attempt history.' );
 }
+foreach ( [ 1, 3 ] as $version ) {
+    foreach ( [ 'draft', 'publish' ] as $status ) {
+        [ $f, $store, $client, $worker ] = delivery_setup( $version, null, $status === 'draft' ? 'publish' : 'draft' );
+        $f['snapshot']['publication_status'] = $status;
+        $f['raw'] = json_encode( $f['snapshot'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+        $f['etag'] = '"' . hash( 'sha256', $f['raw'] ) . '"';
+        $client->fixture = $f;
+        $f['job']['last_error'] = 'nova_posting_schema';
+        $done = ok( $worker->process( $f['job'] ) );
+        check( $done['state'] === 'complete' && $done['payload']['result']['cms_post_status'] === $status, 'A schema-blocked V' . $version . ' job resumes with its frozen publication status.' );
+        check( $done['payload']['snapshot_raw'] === $f['raw'] && $inserts === 1, 'Status metadata retains exact bytes and creates one native page.' );
+    }
+}
+
 echo "Stored-layout delivery checks: $checks passed.\n";

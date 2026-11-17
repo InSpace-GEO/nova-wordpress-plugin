@@ -436,6 +436,11 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $category_update = $static_term && ( $configuration['projection']['format'] ?? '' ) === 'nova.category-recipe/v1';
                 if ( ( ! $source_free && ( 'update' !== $operation || $target < 1 ) ) || $reference_type !== ( $reference['reference_type'] ?? null ) || ! is_int( $target ) || ( $static_term && ! $source_free && ! $category_update ) ) { return $this->native_failure( $job, $snapshot, 'routing_unavailable', [ 'no_native_commit' => true ] ); }
                 $publication = $routing['publication'] ?? 'preserve';
+                if ( ! $static_term && ! $shared_translation ) {
+                    $publication = Nova_Bridge_Suite_Publication_Policy::publication( $snapshot, $publication, $target ? (string) get_post_status( $target ) : '' );
+                } elseif ( 'draft' === ( $snapshot['publication_status'] ?? null ) && ( $static_term || ! Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) ) ) {
+                    return $this->native_failure( $job, $snapshot, 'publication_policy_unavailable', [ 'no_native_commit' => true ] );
+                }
                 if ( ! in_array( $publication, [ 'preserve', 'publish', 'draft' ], true ) || ( $static_term && 'publish' !== $publication ) ) { return $this->native_failure( $job, $snapshot, 'publication_policy_unavailable', [ 'no_native_commit' => true ] ); }
                 $desired = 'preserve' === $publication ? ( 'create' === $operation ? 'draft' : get_post_status( $target ) ) : $publication;
                 $context = [ 'site_id' => $job['site_id'], 'delivery_id' => $snapshot['id'], 'content_id' => $snapshot['content_item_id'], 'content_item_id' => $snapshot['content_item_id'], 'content_item_version_id' => $snapshot['content_item_version_id'], 'url_id' => $snapshot['url_id'], 'version' => $snapshot['version_number'], 'operation_id' => $job['operation_id'], 'business_result_id' => $job['operation_id'], 'target_post_id' => $target, 'operation' => $operation, 'desired_status' => $desired, 'actor_user_id' => $actor, 'attempt_id' => $fetched['attempt_id'], 'source_sha256' => $snapshot['source_sha256'], 'snapshot_sha256' => hash( 'sha256', $fetched['snapshot_raw'] ), 'delivery_etag' => $fetched['delivery_etag'], 'language' => $snapshot['language'] ];

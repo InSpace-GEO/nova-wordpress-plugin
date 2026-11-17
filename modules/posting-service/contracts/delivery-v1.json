@@ -1,6 +1,6 @@
 {
-  "source_commit": "966808db3cc3b63782db97d2d4bb218d91da5ceb",
-  "openapi_sha256": "1135b9b5f78b5abeceff807cf479864186db4b96bc653c0375b67e29823017bf",
+  "source_commit": "bef66babbec47667ea32f82607cb75bfbb606146",
+  "openapi_sha256": "956323d416a62b3635a0fdc805048f05f82096dd5c52bef9dc12bf9636fa1ba2",
   "schemas": {
     "Delivery": {
       "description": "Delivery identity, content and saved publishing configuration. Content uses destination field IDs when configured, or canonical source names without a template. Missing replacement values are omitted; original empty strings and arrays are preserved.",
@@ -84,6 +84,9 @@
           "type": "string",
           "nullable": true
         },
+        "publication_status": {
+          "$ref": "#/components/schemas/PublicationStatus"
+        },
         "configuration": {
           "$ref": "#/components/schemas/DeliveryConfiguration"
         },
@@ -139,6 +142,14 @@
           "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
         }
       }
+    },
+    "PublicationStatus": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "publish"
+      ],
+      "description": "How the connector leaves the page it writes, frozen from the backend's optional publishing.status (ADR 0037). Absent: the connector's own configuration decides."
     },
     "DeliveryConfiguration": {
       "type": "object",
@@ -367,6 +378,9 @@
         "schedule_status": {
           "type": "string",
           "nullable": true
+        },
+        "publication_status": {
+          "$ref": "#/components/schemas/PublicationStatus"
         },
         "configuration": {
           "type": "object",
@@ -1214,6 +1228,9 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "publication_status": {
+          "$ref": "#/components/schemas/PublicationStatus"
         }
       }
     },
