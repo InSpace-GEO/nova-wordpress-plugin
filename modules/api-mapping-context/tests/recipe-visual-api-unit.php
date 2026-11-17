@@ -78,8 +78,8 @@ $existing = visual_result( route( 'design', 'POST', [], $lookup ) )['resume_prof
 visual_ok( $existing['id'] === $saved['id'] && $existing['revision'] === $saved['revision'] && $existing['recipe'] === $saved['recipe'], 'A fresh wizard restores the saved mapping for the native page resolved from a URL.' );
 $current = $lookup; $current['resume'] = [ 'current_reference_id' => 11 ];
 visual_ok( visual_result( route( 'design', 'POST', [], $current ) )['resume_current'] === 11, 'An in-progress mapping takes precedence over the saved profile for the same URL.' );
-$filtered = $lookup; $filtered['resume'] = [ 'mode' => 'mixed' ];
-visual_ok( isset( visual_result( route( 'design', 'POST', [], $filtered ) )['recipe_preset'] ), 'Choosing dynamic explicitly does not reopen a fixed layout.' );
+$filtered = $lookup; $filtered['resume'] = [ 'mode' => 'static' ];
+visual_ok( isset( visual_result( route( 'design', 'POST', [], $filtered ) )['resume_profile'] ), 'The static choice resumes an existing fixed-field template.' );
 $filtered['resume'] = [ 'posting_page_type' => 'informative' ];
 visual_ok( isset( visual_result( route( 'design', 'POST', [], $filtered ) )['recipe_preset'] ), 'An explicit informative layout does not reuse a Service profile.' );
 $filtered = $lookup; $filtered['resource_id'] = 'post_type:post';

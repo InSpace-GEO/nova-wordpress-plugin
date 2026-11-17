@@ -152,6 +152,7 @@ final class Nova_Bridge_Suite_Writing_Adapter {
     /** Exact wire input. Fitting instructions go to V3; native IDs and guards stay local. */
     public static function template_input( array $draft, ?int $frozen_version = null ) {
         $notes = self::authoring_notes( $draft ); if ( is_wp_error( $notes ) ) { return $notes; }
+        if ( isset( $draft['article'] ) && 3 !== $frozen_version ) { return self::article_template( $draft ); }
         // Only frozen-profile verification supplies a version. New saves select from intent.
         if ( 3 === $frozen_version || ( null === $frozen_version && self::is_destination_draft( $draft ) ) ) {
             $hints = [];
@@ -217,12 +218,31 @@ final class Nova_Bridge_Suite_Writing_Adapter {
         return is_wp_error( $valid ) ? $valid : $input;
     }
 
+    /** A content-driven article copies the complete body before applying local element rules. */
+    private static function article_template( array $draft ) {
+        $description = self::destination_description( $draft ); if ( is_wp_error( $description ) ) { return $description; }
+        $sources = [ $draft['article']['target'] . '/innerHTML' => 'content', '/title' => 'h1', '/native_post/title' => 'h1' ];
+        foreach ( $draft['seo_fields'] ?? [] as $path => $field ) { $sources[$path] = 'title' === $field['field'] ? 'title' : 'meta_description'; }
+        $fields = []; $mapping = []; $known = array_column( $description['fields'], null, 'id' );
+        foreach ( $draft['fields'] as $path => $field ) {
+            if ( 'adapt' !== $field['mode'] ) { continue; }
+            if ( ! isset( $sources[$path] ) ) { return self::error( 'article_source', 'The article layout contains a destination without a complete source binding.' ); }
+            $id = self::field_id( $path );
+            $fields[] = [ 'id' => $id, 'label' => $known[$id]['label'], 'kind' => $known[$id]['value_type'], 'required' => $known[$id]['required'] ];
+            $mapping[] = [ 'field_id' => $id, 'source_field' => $sources[$path] ];
+        }
+        $input = [ 'name' => $description['name'], 'page_type' => $description['page_type'], 'definition' => [ 'version' => 1, 'fields' => $fields ], 'mapping' => [ 'version' => 1, 'fields' => $mapping ], 'enabled' => true ];
+        $valid = Nova_Bridge_Suite_Posting_Protocol::validate( $input, 'PublishingTemplateInput' );
+        return is_wp_error( $valid ) ? $valid : $input;
+    }
+
     public static function prepare( array $draft, array $source = [] ) {
         $input = self::template_input( $draft ); if ( is_wp_error( $input ) ) { return $input; }
         return [ 'template' => $input, 'warnings' => self::warnings( $draft ) ];
     }
 
     public static function warnings( array $draft ): array {
+        if ( isset( $draft['article'] ) ) { return [ 'The complete article content and native heading are copied directly from NOVA. WordPress applies the saved element rules locally.' ]; }
         if ( self::is_destination_draft( $draft ) ) { return [ 'V3 uses field purposes and instructions to select existing source text. It does not generate or rewrite content. The whole template uses fitting; existing source selections become preferences rather than exact copy bindings.', 'Only existing scalar destinations and fixed groups are supported. Required missing values or impossible constraints block fitting; optional missing values preserve the existing field.' ]; }
         $warnings = [ 'V1 copies the selected delivery fields directly, including supported nested targets. No LLM fitting is requested. Adding field or template instructions selects V3 on the next synchronization.' ];
         if ( ! empty( $draft['skipped_sources'] ) ) { $warnings[] = 'Skipped sources are omitted from this publishing mapping. NOVA may still deliver them; their generation is unchanged.'; }

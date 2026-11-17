@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-recipe-native-media.php';
 require_once __DIR__ . '/class-nova-bridge-suite-layout-custom-fields.php';
 require_once __DIR__ . '/class-nova-bridge-suite-layout-locales.php';
+require_once dirname( __DIR__ ) . '/adapters/gutenberg-article.php';
 
 final class Nova_Bridge_Suite_Recipe_Failure extends RuntimeException {
     public $error;
@@ -79,7 +80,7 @@ final class Nova_Bridge_Suite_Recipe_Engine {
     public static function validate( array $recipe ) {
         return self::guard( static function () use ( $recipe ) {
             self::json( $recipe );
-            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields', 'seo_fields', 'omissions', 'locale_values' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
+            if ( array_diff( array_keys( $recipe ), [ 'format', 'mode', 'builder', 'blueprint', 'bindings', 'regions', 'label', 'instructions', 'custom_fields', 'posting_fields', 'seo_fields', 'omissions', 'locale_values', 'article' ] ) || ( $recipe['format'] ?? '' ) !== self::FORMAT || ! in_array( $recipe['mode'] ?? '', [ 'static', 'mixed', 'rules' ], true ) || ! is_string( $recipe['builder'] ?? null ) || ! is_array( $recipe['blueprint'] ?? null ) ) { self::fail( 'Supply a complete versioned static, mixed or rules native recipe.' ); }
             Nova_Bridge_Suite_Layout_Locales::validate_manual( $recipe );
             if ( array_key_exists( 'posting_fields', $recipe ) ) {
                 if ( 'static' !== $recipe['mode'] || 'acf' === $recipe['builder'] ) { self::fail( 'Use a fixed native post layout to map editorial custom fields during delivery.' ); }
@@ -89,6 +90,10 @@ final class Nova_Bridge_Suite_Recipe_Engine {
                 require_once __DIR__ . '/class-nova-wordpress-layout-seo.php';
                 if ( 'static' !== $recipe['mode'] ) { self::fail( 'SEO metadata uses a fixed content layout.' ); }
                 Nova_WordPress_Layout_SEO::selections( $recipe );
+            }
+            if ( isset( $recipe['article'] ) ) {
+                if ( 'gutenberg' !== $recipe['builder'] || 'static' !== $recipe['mode'] || ! is_array( $recipe['article'] ) ) { self::fail( 'Content-driven articles require a fixed Gutenberg article region.' ); }
+                Nova_Mapping_Gutenberg_Article::validate( $recipe['article'], $recipe['blueprint'], $recipe['bindings'] ?? [], $recipe['regions'] ?? [] );
             }
             self::metadata( $recipe ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
             $checked = self::checked( $adapter->validate_blueprint( $recipe['blueprint'] ) );
@@ -342,7 +347,13 @@ final class Nova_Bridge_Suite_Recipe_Engine {
     public static function compile( array $recipe, array $content, string $seed ) {
         return self::guard( static function () use ( $recipe, $content, $seed ) {
             if ( ! self::plain( $seed, 256 ) || '' === $seed ) { self::fail( 'Compilation needs a bounded stable operation identity.' ); }
-            $recipe = self::checked( self::validate( $recipe ) ); $normalized = self::checked( self::normalize( $content ) ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
+            $recipe = self::checked( self::validate( $recipe ) );
+            if ( isset( $recipe['article'] ) ) {
+                $article_binding = array_values( array_filter( $recipe['bindings'], static function ( $binding ) use ( $recipe ) { return $binding['target'] === $recipe['article']['target'] . '/innerHTML'; } ) )[0];
+                $raw = self::get( $content, $article_binding['source'], $found );
+                if ( ! $found || ! is_string( $raw ) || '' === trim( $raw ) || wp_kses_post( $raw ) !== $raw ) { self::fail( 'Supply complete permitted article HTML.' ); }
+            }
+            $normalized = self::checked( self::normalize( $content ) ); $adapter = self::checked( self::adapter( $recipe['builder'] ) );
             $state = [ 'warnings' => $normalized['_normalization_warnings'] ?? [], 'regions' => [], 'bindings' => 0, 'instances' => 0, 'generated_bytes' => 0 ];
             $native = self::compile_scope( $recipe['blueprint'], $recipe['bindings'] ?? [], $recipe['regions'] ?? [], $normalized, $adapter, $seed, [], $state, 0 );
             $removed = self::omission_targets( $recipe['omissions'] ?? [] );
@@ -359,7 +370,12 @@ final class Nova_Bridge_Suite_Recipe_Engine {
             }
             $native = self::apply_omissions( $native, $removed, $adapter );
             if ( ! empty( $state['native_media'] ) ) { $state['native_media'] = self::shift_pointers( $state['native_media'], $removed ); }
+            if ( isset( $recipe['article'] ) ) {
+                $article = Nova_Mapping_Gutenberg_Article::render( $native, Nova_Mapping_Gutenberg_Article::after_omissions( $recipe['article'], $removed ) );
+                $native = $article['blueprint']; $state['warnings'] = array_merge( $state['warnings'], $article['warnings'] );
+            }
             $result = self::checked( $adapter->finalize( $native, $seed, [ 'recipe' => $recipe, 'content' => $normalized, 'regions' => $state['regions'] ] ) );
+            if ( isset( $recipe['article'] ) ) { $result['preview_html'] = $result['writer_payload']['native_document']; }
             if ( ! is_array( $result ) || ! isset( $result['native_document'], $result['writer_payload'], $result['preview_html'] ) || ! is_array( $result['writer_payload'] ) || ! is_string( $result['preview_html'] ) ) { self::fail( 'The adapter did not return a complete native document, writer payload and structure preview.' ); }
             if ( ! empty( $state['post_fields'] ) ) { $result['post_fields'] = $state['post_fields']; }
             if ( ! empty( $recipe['omissions'] ) ) { $result['omitted'] = count( $recipe['omissions'] ); }

@@ -330,6 +330,13 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     /** Known native one-column foundations, independent of any source page ID. */
     public function starter( string $mode = 'mixed' ) {
         $this->helpers();
+        if ( 'article' === $mode && 'gutenberg' === $this->builder ) {
+            require_once dirname( __DIR__ ) . '/adapters/gutenberg-article.php';
+            $blueprint = [ 'document' => [ self::block( 'core/html', [], Nova_Mapping_Gutenberg_Article::sample() ) ], 'template' => '', 'meta' => [] ];
+            $artifact = $this->envelope( $blueprint );
+            $artifact['suggested_bindings'] = [ [ 'target' => '/document/0/innerHTML', 'source' => '/body', 'format' => 'html', 'label' => 'Complete article', 'instructions' => 'Select the complete article body in its original order, including every heading, paragraph, list and table.', 'required' => true ] ];
+            $artifact['suggested_regions'] = []; return $artifact;
+        }
         $heading = 'Example heading'; $body = '<p>Example paragraph. Replace this through a content binding or repeated region.</p>';
         if ( 'gutenberg' === $this->builder ) {
             $document = [ self::block( 'core/group', [], '<div class="wp-block-group">', '</div>', [ self::block( 'core/heading', [ 'level' => 2 ], '<h2 class="wp-block-heading">' . $heading . '</h2>' ), self::block( 'core/paragraph', [], $body ) ] ) ];

@@ -129,7 +129,12 @@ final class Nova_WordPress_Translation_Fields {
                     }
                     if ( is_string( $value ) ) { $block_fields[] = [ 'binding' => $binding, 'value' => $value ]; }
                 }
+                if ( isset( $local['article'] ) ) {
+                    $article_target = $local['article']['target'];
+                    $block_fields = array_merge( array_values( array_filter( $block_fields, static function ( $field ) use ( $article_target ) { return $field['binding']['target'] !== $article_target . '/innerHTML'; } ) ), Nova_Mapping_Gutenberg_Article::ownership_fields( $blueprint, $compiled['article_target'] ) );
+                }
                 foreach ( $previous['ownership']['blocks']['fields'] ?? [] as $kept ) {
+                    if ( isset( $local['article'] ) && ( ! empty( $kept['binding']['article_fragment'] ) || strpos( $kept['binding']['target'], $local['article']['target'] . '/' ) === 0 ) ) { continue; }
                     if ( isset( $replaced[$kept['binding']['target']] ) ) { continue; }
                     Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $kept['binding']['target'], $found );
                     if ( ! $found ) { continue; }

@@ -114,6 +114,8 @@ rejected( route( 'design', 'POST', [], [ 'builder' => 'core', 'mode' => 'mixed',
 rejected( route( 'design', 'POST', [], [ 'builder' => 'core', 'mode' => 'mixed', 'resource_id' => 'post_type:product' ] ), 403, 'Products Coming soon was configurable' );
 rejected( route( 'design', 'POST', [], [ 'builder' => 'core', 'mode' => 'mixed', 'resource_id' => 'post_type:page', 'reference_id' => 12 ] ), 403, 'An example from a different endpoint was accepted' );
 rejected( route( 'design', 'POST', [], [ 'builder' => 'core', 'mode' => 'mixed', 'resource_id' => 'post_type:page', 'reference_id' => 22 ] ), 403, 'An uneditable example was accepted' );
+$default_design = data( route( 'design', 'POST', [], [ 'builder' => 'core', 'resource_id' => 'post_type:page', 'reference_id' => 0 ] ) );
+check( $default_design['recipe_preset']['mode'] === 'static' && empty( $default_design['recipe_preset']['regions'] ), 'A new design defaults to fixed fields without an explicit approach' );
 foreach ( [ 'static', 'mixed', 'rules' ] as $mode ) {
     $before = $options; $design = design( 'core', $mode ); $recipe = $design['recipe_preset']; check( $recipe['mode'] === $mode && $recipe['blueprint'] === $design['blueprint'] && $options === $before, 'A mode lost its complete sealed blueprint or changed options' );
     check( ( 'static' === $mode ) === empty( $recipe['regions'] ), 'Static fields or dynamic regions were not distinct' );

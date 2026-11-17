@@ -116,6 +116,11 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             self::checked( $adapter->validate_blueprint( Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $targets, $adapter ) ) );
             $layout['omissions'] = $targets;
         }
+        if ( isset( $draft['article'] ) ) {
+            if ( 'gutenberg' !== $builder ) { self::fail( 'Article rendering requires the Gutenberg builder.' ); }
+            Nova_Mapping_Gutenberg_Article::validate( $draft['article'], $blueprint, array_map( static function ( $binding ) use ( $draft ) { $binding['required'] = ! empty( $draft['fields'][$binding['target'] ?? '']['required'] ); return $binding; }, array_values( $bindings ) ), [] );
+            $layout['article'] = $draft['article'];
+        }
         $layout['digest'] = Nova_Bridge_Suite_Recipe_Engine::digest( $layout );
         $bounded = $draft; $bounded['stored_layout'] = $layout;
         $limit = 'beaver' === $builder ? 1048576 : 524288;
@@ -186,6 +191,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 $draft['source_hints'][$path] = [ $source ];
                 $draft['seo_fields'][$path] = $entry;
             }
+            if ( isset( $recipe['article'] ) ) { $draft['article'] = $recipe['article']; }
             $draft['stored_layout'] = self::seal( $draft, $builder, $resource, $recipe['blueprint'], [ 'title' => '', 'excerpt' => 'core' === $builder ? ( $recipe['blueprint']['document']['excerpt'] ?? '' ) : '' ], $record['locale_preservation'] ?? [] );
             return $draft;
         } );
@@ -245,6 +251,12 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 $removed = $adapter::vacant_rows( $blueprint, $vacant, $kept, $removed );
             }
             if ( $removed ) { $blueprint = Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $removed, $adapter ); $media = Nova_Bridge_Suite_Recipe_Engine::shift_pointers( $media, $removed ); }
+            $article_warnings = [];
+            if ( isset( $layout['article'] ) ) {
+                $article_config = Nova_Mapping_Gutenberg_Article::after_omissions( $layout['article'], $removed );
+                $article = Nova_Mapping_Gutenberg_Article::render( $blueprint, $article_config );
+                $blueprint = $article['blueprint']; $article_warnings = $article['warnings'];
+            }
             $context = [ 'recipe' => [ 'blueprint' => $layout['blueprint'] ] ];
             if ( $capture_ownership ) {
                 $context['owned_paths'] = array_column( array_filter( $layout['bindings'], static function ( $binding, $path ) use ( $values ) {
@@ -261,7 +273,9 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 $result['identity_map'] = $compiled['identity_map'] ?? [];
                 $result['ownership_ranges'] = $compiled['ownership_ranges'] ?? null;
                 $result['compiled_blueprint'] = $blueprint;
+                if ( isset( $article_config ) ) { $result['article_target'] = $article_config['target']; }
             }
+            if ( $article_warnings ) { $result['warnings'] = $article_warnings; }
             if ( $custom ) { $result['custom_fields'] = $custom; }
             return $result;
         } );
