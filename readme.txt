@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.15
+Stable tag: 1.5.16
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.16 =
+* Preserve an existing page's status when a delivery requests a draft.
+* Preserve existing demo-page status on deliveries with explicit publication status, while creating new demo pages as drafts.
+* Retain the existing demo behavior for deliveries without explicit publication status.
 
 = 1.5.15 =
 * Accept the optional publication status supplied by posting-service 0.12.0.
