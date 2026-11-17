@@ -46,4 +46,34 @@ $historical = nova_writer_fixture();
 $historical['configuration']['local']['guidance_mode'] = 'set'; $historical['configuration']['local']['guidance'] = 'Earlier local-only notes.';
 $historical['configuration']['profile_digest'] = hash( 'sha256', Nova_Bridge_Suite_Writing_Adapter::canonical_json( $historical['configuration']['local'] ) );
 check( 'Generated fixture heading' === plan_fixture( $historical )['changes']['post']['post_title'], 'An approved historical V1 delivery retains direct behavior despite old local notes.' );
-echo "PASS V3 native plans, fixed nested fields, omissions, version promotion and historical V1\n";
+// Fitted link validation must also survive the final native URL-field guard.
+$link_path = '/meta_all/contact_link';
+$link = $v3;
+$link['configuration']['local']['fields'][ $link_path ] = [ 'mode' => 'adapt', 'source_path' => '', 'required' => true, 'instructions' => '',
+    'description' => [ 'label' => 'Contact link', 'purpose' => 'Open the contact page.', 'value_type' => 'url', 'constraints' => [] ] ];
+$link['configuration']['local']['target_descriptors'][ $link_path ] = [ 'path' => $link_path, 'reference_type' => 'post', 'reference_id' => 7, 'signature' => 'fixture-layout' ];
+$link['inventory'][ $link_path ] = [ 'path' => $link_path, 'writable' => true, 'type' => 'url' ];
+add_meta( $link, 'contact_link', 'https://writer-fixture.invalid/contact/' );
+$link_meta_id = (int) end( $link['snapshot']['meta'] )['meta_id'];
+foreach ( [ '/contact/', '/caf%C3%A9/?source=button#contact', 'https://example.test/contact/' ] as $url ) {
+    $link['content']['destination_values'][ Nova_Bridge_Suite_Writing_Adapter::field_id( $link_path ) ] = $url;
+    nova_writer_fixture_refresh( $link );
+    check( plan_fixture( $link )['changes']['meta'][ $link_meta_id ] === $url, 'The native URL field preserves each valid fitted link exactly.' );
+}
+foreach ( [ '//other.test/contact/', '/%2fother.test/', '/%5cother.test/', '/bad%00', '/bad%20path', '/bad%FF', '/bad%ZZ', 'contact/', 'javascript:alert(1)' ] as $url ) {
+    $link['content']['destination_values'][ Nova_Bridge_Suite_Writing_Adapter::field_id( $link_path ) ] = $url;
+    nova_writer_fixture_refresh( $link );
+    rejects( 'fitted_values', function () use ( $link ) { plan_fixture( $link ); } );
+}
+// Native field types still constrain a destination described as plain text.
+$link['configuration']['local']['fields'][ $link_path ]['description']['value_type'] = 'text';
+$link['content']['destination_values'][ Nova_Bridge_Suite_Writing_Adapter::field_id( $link_path ) ] = '//other.test/';
+nova_writer_fixture_refresh( $link );
+rejects( 'target_value', function () use ( $link ) { plan_fixture( $link ); } );
+$legacy_link = nova_writer_fixture();
+bind_heading( $legacy_link, $link_path, [ 'path' => $link_path, 'writable' => true, 'type' => 'url' ] );
+add_meta( $legacy_link, 'contact_link', 'https://writer-fixture.invalid/contact/' );
+$legacy_link['content']['content']['h1'] = '/contact/';
+rejects( 'target_value', function () use ( $legacy_link ) { plan_fixture( $legacy_link ); } );
+
+echo "PASS V3 native plans, fixed nested fields, omissions, URL fields, version promotion and historical V1\n";
