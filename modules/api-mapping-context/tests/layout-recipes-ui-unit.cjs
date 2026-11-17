@@ -67,6 +67,14 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert.equal(t.controller.state.recipe.article.sources['/@nova/custom-fields/meta/summary'],'h1');
   summary=controlFor(t,'Summary');summary.checked=false;summary.events.change();t.flushFrames();
   assert.equal(t.controller.state.recipe.article.sources,undefined);
+  native.posting_field_choices['/@nova/custom-fields/halo/service_intro_rich_text']={provider:'halo',name:'service_intro_rich_text',key:'service_intro_rich_text',type:'string',label:'HALO intro',schema:{type:'string',description:'Introduction'}};
+  t.controller.state.design=clone(native);t.controller.go(3);t.flushFrames();
+  const halo=controlFor(t,'HALO intro');halo.checked=true;halo.events.change();t.flushFrames();
+  const required=controlFor(t,'Require a value for HALO intro');required.checked=true;required.events.change();t.flushFrames();
+  const sample=controlFor(t,'Preview value for HALO intro');sample.value='<p>Preview introduction.</p>';sample.events.input();t.flushFrames();
+  assert.equal(t.controller.state.content.halo.service_intro_rich_text,'<p>Preview introduction.</p>');
+  assert.equal(t.controller.state.recipe.posting_fields['/@nova/custom-fields/halo/service_intro_rich_text'].required,true);
+  assert.equal(t.controller.state.recipe.article.sources['/@nova/custom-fields/halo/service_intro_rich_text'],'content');
   assert(t.host.textContent.includes('SEO metadata'));
   const transforms=t.host.all().filter(item=>item.className==='nlr-transform');assert.equal(transforms.length,7);
   assert.deepEqual(transforms.map(row=>row.children[0].querySelector('code').textContent),['<p>','<h1>–<h6>','<ul> / <ol>','<table>','<blockquote>','<img>','<hr>']);
@@ -77,6 +85,7 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   const classes=controlFor(t,'Paragraph CSS classes');classes.value='article-copy';classes.events.input();
   assert.equal(t.controller.state.recipe.article.rules.heading.level,4);
   await t.controller.previewArticle();t.flushFrames();assert(t.host.all().some(e=>e.title==='Site-styled Gutenberg article preview'&&e.getAttribute('sandbox')==='allow-same-origin'));
+  assert.equal(t.calls.filter(call=>call.path==='/preview').at(-1).payload.input.content.halo.service_intro_rich_text,'<p>Preview introduction.</p>');
   await t.controller.save();assert.equal(t.calls.find(c=>c.path==='/save').payload.recipe.article.rules.paragraph.class_name,'article-copy');
   t.flushFrames();assert(t.host.all().some(e=>e.tag==='button'&&e.textContent==='Create review draft'));
   const savedRecipe=clone(t.controller.state.recipe);await t.controller.reload();

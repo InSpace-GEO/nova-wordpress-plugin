@@ -46,7 +46,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         $same_destination = $owner && $selector && $owner['resource_id'] === $record['resource_id'] && $owner['installation_path'] === $selector['installation_path'];
         // Keep an installation's original single default until there are two destinations to distinguish.
         $has_type_routes = in_array( $type, array_column( $routes, 'page_type' ), true );
-        $multiple = $has_type_routes || ( $selected && $selected !== $previous_id );
+        $multiple = $has_type_routes || ( $selected && $selected !== $previous_id && ! $same_destination );
         $scoped = $modern && $multiple && null !== $prefix && '/' !== $prefix;
         $migration = null;
         if ( null !== $replace && ( $replace['page_type'] !== $type || $replace['template_id'] !== $selected || $replace['defaults_revision'] !== $body['revision'] || $scoped ) ) { return self::default_conflict( $type, $selected, $body['revision'] ); }
@@ -78,7 +78,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
             if ( null === $prefix ) { return self::error( 'route_unknown', 'WordPress cannot verify a fixed permalink base alongside existing ' . $type . ' URL routes. The current routing was kept.' ); }
             if ( $row['template_id'] === $previous_id && $row['path_prefix'] === $confirmed_prefix && $row['path_prefix'] !== $prefix && ( $row['installation_path'] ?? null ) === $selector['installation_path'] ) { unset( $routes[$key] ); }
         }
-        if ( $scoped && $selected && $selected === $previous_id ) { unset( $defaults[$type] ); }
+        if ( $scoped && $selected && ( $selected === $previous_id || $same_destination ) ) { unset( $defaults[$type] ); }
         return [ 'type' => $type, 'selector' => $scoped ? $selector : null, 'defaults' => $defaults, 'routes' => $routes, 'modern' => $modern, 'migration' => $migration ];
     }
 
