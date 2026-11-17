@@ -108,6 +108,9 @@ check( $new_pages['status'] === 'synced' && Nova_Bridge_Suite_Layout_URL_Routes:
 $client->defaults['service'] = $old_prefixed['template_id'];
 check( sync_route( $client, $connection, $prefixed_replacement )['status'] === 'synced' && ! isset( $client->defaults['service'] ), 'Resync clears the superseded fallback when the replacement already owns the route.' );
 check( sync_route( $client, $connection, $page )['status'] === 'synced', 'Pages can take the fallback after repairing the duplicate state.' );
+$scoped_replacement = route_recipe( $record, 'masterclass', 7 );
+$scoped_result = sync_route( $client, $connection, $scoped_replacement );
+check( $scoped_result['status'] === 'synced' && $client->defaults['service'] === $new_pages['template_id'] && Nova_Bridge_Suite_Layout_URL_Routes::index( $client->routes )['service:/masterclass/']['template_id'] === $scoped_result['template_id'], 'Replacing an already routed native destination preserves the separate Pages default.' );
 update_option( 'home', 'https://wordpress.example/eindhoven' );
 check( Nova_Bridge_Suite_Layout_URL_Routes::selector( 'post_type:masterclass' ) === [ 'path_prefix' => '/eindhoven/masterclass/', 'installation_path' => '/eindhoven/' ], 'Subdirectory installs provide their canonical origin path separately from their native route.' );
 check( Nova_Bridge_Suite_Layout_URL_Routes::selector( 'post_type:page' )['path_prefix'] === '/' && Nova_Bridge_Suite_Layout_URL_Routes::selector( 'post_type:second' )['path_prefix'] === '/', 'Root-style Pages and root-based CPTs remain the catch-all on a subdirectory installation.' );
