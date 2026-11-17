@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/class-nova-bridge-suite-publication-policy.php';
+require_once __DIR__ . '/class-nova-bridge-suite-posting-actor.php';
 /** Source-free native publishing from an immutable layout and fitted scalar values. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
@@ -268,6 +269,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     }
     private static function check_content( array $plan, int $id, bool $include_featured = true ): array {
         $state = self::plan_state( $plan, $id );
+        if ( ! $plan['target_post_id'] && isset( $plan['context']['author_user_id'] ) && $state['author'] !== (int) $plan['context']['author_user_id'] ) { self::fail( 'author', 'The created page does not have its selected author.' ); }
         if ( $state['type'] !== $plan['post_type'] || $state['title'] !== $plan['post_fields']['title'] || $state['excerpt'] !== ( $plan['post_fields']['excerpt'] ?? '' ) || $state['slug'] !== $plan['target']['slug'] || $state['parent'] !== $plan['target']['parent'] || $state['owner'] !== self::owner( $plan ) || ( $plan['target_post_id'] && $state['author'] !== $plan['native_before']['author'] ) ) { self::fail( 'native_mismatch', 'The retained page identity or fitted fields differ from the approved plan.' ); }
         self::checked( Nova_Bridge_Suite_Stored_Layout_Provider::verify( $plan['builder'] ?? 'elementor', $id, $plan['payload'], $plan['operation_id'], $include_featured ) );
         self::checked( Nova_Bridge_Suite_Stored_Layout_Language::verify( 'post_type:' . $plan['post_type'], $id, $plan['target'] ) );
@@ -349,6 +351,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 $key = self::operation_key( $operation ); $record = self::option( $key );
                 if ( null !== $record && ( ! is_array( $record ) || ( $record['plan_digest'] ?? '' ) !== $plan['plan_digest'] ) ) { self::fail( 'operation_reused', 'This operation belongs to a different native plan.' ); }
                 if ( $record && 'committed' === $record['state'] ) { self::verify_record( $plan, $record ); return self::complete( $plan, $record ); }
+                $author = self::checked( Nova_Bridge_Suite_Posting_Actor::author_id( $plan['context'] ) );
                 if ( ! $record ) { if ( self::association( $plan['delivery_identity'], ! empty( $plan['compact_beaver_scope'] ) ) !== $plan['association_before'] ) { self::fail( 'association_changed', 'The URL association changed after planning.' ); } $record = [ 'state' => 'prepared', 'plan_digest' => $plan['plan_digest'], 'plan' => $plan, 'post_id' => $plan['target_post_id'] ]; self::checkpoint( $key, $record ); }
                 $association = self::association( $plan['delivery_identity'], ! empty( $plan['compact_beaver_scope'] ) );
                 if ( $association !== $plan['association_before'] && ( $association['operation_id'] ?? '' ) !== $operation ) { self::fail( 'association_pending', 'Another operation owns this URL.' ); }
@@ -364,7 +367,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                         $record['state'] = 'creating'; self::checkpoint( $key, $record ); $marker = self::reservation_marker( $plan );
                         $protect = static function ( $data, $postarr, $raw ) use ( $marker ) { if ( ( $raw['post_content_filtered'] ?? null ) === $marker ) { $data['post_content_filtered'] = $marker; } return $data; };
                         add_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX, 3 );
-                        try { $id = wp_insert_post( wp_slash( [ 'post_type' => $plan['post_type'], 'post_status' => 'draft', 'post_title' => $plan['post_fields']['title'], 'post_name' => $plan['target']['slug'], 'post_parent' => $plan['target']['parent'], 'post_author' => get_current_user_id(), 'post_content_filtered' => $marker ] ), true ); } finally { remove_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX ); }
+                        try { $id = wp_insert_post( wp_slash( [ 'post_type' => $plan['post_type'], 'post_status' => 'draft', 'post_title' => $plan['post_fields']['title'], 'post_name' => $plan['target']['slug'], 'post_parent' => $plan['target']['parent'], 'post_author' => $author, 'post_content_filtered' => $marker ] ), true ); } finally { remove_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX ); }
                         if ( is_wp_error( $id ) || ! $id || self::reserved_post( $plan ) !== (int) $id ) { self::fail( 'create_unknown', 'WordPress did not confirm its reserved page. Reconcile this same operation.' ); }
                         $record['post_id'] = (int) $id; $record['state'] = 'reserved'; self::checkpoint( $key, $record );
                     }

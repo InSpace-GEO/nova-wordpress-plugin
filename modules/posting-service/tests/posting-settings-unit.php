@@ -58,7 +58,7 @@ function check( $ok, $message ) { if ( ! $ok ) { throw new RuntimeException( $me
 $input = [ 'base_url' => 'https://posting.example', 'site_id' => '12345678-1234-4234-8234-123456789abc', 'token' => 'nova_pk_fixture1234567890', 'webhook_secret' => 'fixture-signing-secret' ];
 check( ! Nova_Bridge_Suite_Posting_Settings::connection()['enabled'], 'An unconfigured site stays idle.' );
 $first = Nova_Bridge_Suite_Posting_Settings::sanitize( $input );
-check( $first['enabled'] && ! $first['paused'] && 28 === $first['actor_user_id'], 'A configured site starts compatible delivery with the recommended actor.' );
+check( $first['enabled'] && ! $first['paused'] && 17 === $first['actor_user_id'] && 28 === $first['author_user_id'], 'A new connection retains the saving administrator for execution and the recommended account for authorship.' );
 foreach ( array_keys( $input ) as $field ) {
     $saved = $first; unset( $saved[ $field ] );
     check( ! Nova_Bridge_Suite_Posting_Settings::connection()['enabled'], 'An incomplete site stays idle even if the old delivery flag is on.' );
@@ -68,12 +68,15 @@ check( Nova_Bridge_Suite_Posting_Settings::connection()['enabled'] && ! Nova_Bri
 $saved = $first;
 $blank = array_merge( $input, [ 'token' => '', 'webhook_secret' => '' ] );
 $next = Nova_Bridge_Suite_Posting_Settings::sanitize( $blank );
-check( $next['token'] === $saved['token'] && $next['webhook_secret'] === $saved['webhook_secret'] && 28 === $next['actor_user_id'], 'Blank secret controls retain stored values and omitted actor input preserves the selection.' );
+check( $next['token'] === $saved['token'] && $next['webhook_secret'] === $saved['webhook_secret'] && 17 === $next['actor_user_id'] && 28 === $next['author_user_id'], 'Blank secret controls retain stored values and omitted actor input preserves the selection.' );
 $selected = Nova_Bridge_Suite_Posting_Settings::sanitize( $blank + [ 'actor_user_id' => '17' ] );
-check( 17 === $selected['actor_user_id'] && $selected['actor_user_selected'], 'An administrator can choose a different eligible user.' );
+check( 17 === $selected['actor_user_id'] && 17 === $selected['author_user_id'] && $selected['actor_user_selected'], 'An administrator can choose a different eligible user.' );
 foreach ( [ '999', '28abc', -28, [ 28 ] ] as $invalid_actor ) {
     check( Nova_Bridge_Suite_Posting_Settings::sanitize( $blank + [ 'actor_user_id' => $invalid_actor ] ) === $saved && end( $errors ) === 'nova_posting_actor', 'An invalid selection cannot replace the saved actor.' );
 }
+$author_selected = Nova_Bridge_Suite_Posting_Settings::sanitize( $blank + [ 'author_user_id' => '28' ] );
+check( 17 === $author_selected['actor_user_id'] && 28 === $author_selected['author_user_id'], 'Choosing an author retains separate administrator execution authority.' );
+check( Nova_Bridge_Suite_Posting_Settings::effective_connection( [ 'actor_user_id' => 28 ] )['author_user_id'] === 28, 'Existing connections retain their original author before resaving.' );
 $admin = false;
 check( Nova_Bridge_Suite_Posting_Settings::sanitize( $input ) === $saved, 'Nonadministrator cannot replace connection.' );
 $admin = true;
@@ -124,12 +127,12 @@ foreach ( [ '[paused]', '[enabled]', 'Confirm service compatibility', 'Publishin
 }
 check( str_contains( $markup, '<dialog id="nova-switch-dialog"' ) && str_contains( $markup, 'Copy and synchronize' ) && str_contains( $markup, 'Switch without copying' ) && str_contains( $markup, 'will be cancelled' ) && ! str_contains( $markup, 'type="checkbox" name="' . Nova_Bridge_Suite_Posting_Settings::OPTION . '[confirm_environment_switch]' ) && ! str_contains( $markup, 'type="checkbox" name="' . Nova_Bridge_Suite_Posting_Settings::OPTION . '[copy_environment_layouts]' ), 'A configured connection asks about copying only in a dialog; no switch checkboxes remain in the form.' );
 check( str_contains( $markup, 'data-site-id="' . $saved['site_id'] . '"' ) && str_contains( $markup, 'data-nova-switch="copy_environment_layouts"' ) && str_contains( $markup, 'data-nova-switch="sync_copied_layouts"' ), 'The dialog compares against the saved connection and sends copy and sync together.' );
-check( str_contains( $markup, 'for="nova-posting-actor">Posting user</label>' ) && str_contains( $markup, 'value="28" selected="selected">NOVA &lt;author&gt;</option>' ), 'The form selects and escapes the saved posting user.' );
+check( str_contains( $markup, 'for="nova-posting-actor">Posting author</label>' ) && str_contains( $markup, 'value="28" selected="selected">NOVA &lt;author&gt;</option>' ), 'The form selects and escapes the saved posting user.' );
 unset( $users[28] ); $markup = render_form();
-check( str_contains( $markup, '<option value="" selected>Choose a posting user' ) && ! str_contains( $markup, 'value="17" selected' ), 'A revoked user does not silently switch accounts on render.' );
+check( str_contains( $markup, '<option value="" selected>Choose a posting author' ) && ! str_contains( $markup, 'value="17" selected' ), 'A revoked user does not silently switch accounts on render.' );
 $users = []; $markup = render_form();
-check( str_contains( $markup, '[actor_user_id]" disabled' ) && str_contains( $markup, 'Give a user on this site permission to publish content' ), 'An empty candidate list explains how to resolve publishing access.' );
-check( 28 === Nova_Bridge_Suite_Posting_Settings::sanitize( $blank )['actor_user_id'], 'A credential-only save preserves a previously selected, now unavailable user.' );
+check( str_contains( $markup, '[author_user_id]" disabled' ) && str_contains( $markup, 'Give a user on this site an Author role' ), 'An empty candidate list explains how to resolve publishing access.' );
+check( 28 === Nova_Bridge_Suite_Posting_Settings::sanitize( $blank )['author_user_id'], 'A credential-only save preserves a previously selected, now unavailable user.' );
 Nova_Bridge_Suite_Layout_Recipes::$pending = true;
 Nova_Bridge_Suite_Connection_Layout_Sync::after_save( [], Nova_Bridge_Suite_Posting_Settings::connection(), Nova_Bridge_Suite_Posting_Settings::connection() );
 $prompt = render_form();

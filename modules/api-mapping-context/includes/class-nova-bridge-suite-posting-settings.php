@@ -34,8 +34,9 @@ final class Nova_Bridge_Suite_Posting_Settings {
         }
         $value['site_id'] = strtolower( $value['site_id'] );
         $value['actor_user_id'] = (int) $value['actor_user_id'];
+        $value['author_user_id'] = (int) ( $value['author_user_id'] ?? $value['actor_user_id'] );
         // Keep the connector's existing interface. Local switches from earlier releases no longer control delivery.
-        $value['enabled'] = $value['actor_user_id'] > 0 && is_string( $value['webhook_secret'] ) && '' !== $value['webhook_secret'] && null === ( new Nova_Bridge_Suite_Posting_Client( $value ) )->connection_error();
+        $value['enabled'] = $value['actor_user_id'] > 0 && $value['author_user_id'] > 0 && is_string( $value['webhook_secret'] ) && '' !== $value['webhook_secret'] && null === ( new Nova_Bridge_Suite_Posting_Client( $value ) )->connection_error();
         $value['paused'] = false;
         $value['url_scope_enabled'] = ! empty( $value['url_scope_enabled'] );
         $value['receive_shared_layouts'] = ! empty( $value['receive_shared_layouts'] );
@@ -93,16 +94,21 @@ final class Nova_Bridge_Suite_Posting_Settings {
                 $next[ $key ] = $secret;
             }
         }
-        if ( array_key_exists( 'actor_user_id', $input ) ) {
-            $actor = filter_var( $input['actor_user_id'], FILTER_VALIDATE_INT, [ 'options' => [ 'min_range' => 1 ] ] );
-            if ( false === $actor || ! Nova_Bridge_Suite_Posting_Actor::eligible( $actor ) ) {
-                add_settings_error( self::OPTION, 'nova_posting_actor', 'Choose a posting user who can publish content on this WordPress site.' );
+        $author_key = array_key_exists( 'author_user_id', $input ) ? 'author_user_id' : 'actor_user_id';
+        if ( array_key_exists( $author_key, $input ) ) {
+            $author = filter_var( $input[ $author_key ], FILTER_VALIDATE_INT, [ 'options' => [ 'min_range' => 1 ] ] );
+            if ( false === $author || ! Nova_Bridge_Suite_Posting_Actor::author_eligible( $author ) ) {
+                add_settings_error( self::OPTION, 'nova_posting_actor', 'Choose an active author on this WordPress site.' );
                 return $old;
             }
-            $next['actor_user_id'] = $actor;
+            $next['author_user_id'] = $author;
+            // Only an administrator can reach this save. Retain that explicit
+            // authority for native permission checks and keep the byline separate.
+            $next['actor_user_id'] = get_current_user_id();
             $next['actor_user_selected'] = true;
         } elseif ( empty( $old['actor_user_id'] ) && ! empty( $input ) ) {
-            $next['actor_user_id'] = Nova_Bridge_Suite_Posting_Actor::default_id();
+            $next['author_user_id'] = Nova_Bridge_Suite_Posting_Actor::default_id();
+            $next['actor_user_id'] = get_current_user_id();
         }
         // The form always posts the textarea, including when the routing checkbox is unchecked.
         if ( array_key_exists( 'url_scope_excluded_paths', $input ) ) {
@@ -227,17 +233,17 @@ JS;
             if ( $secret ) { echo '<br><span class="description">' . ( ! empty( $settings[ $key ] ) ? 'A credential is configured. Leave blank to keep it.' : 'No credential configured.' ) . '</span>'; }
             echo '</p>';
         }
-        $users = Nova_Bridge_Suite_Posting_Actor::choices( $settings['actor_user_selected'] ? $settings['actor_user_id'] : 0 );
+        $users = Nova_Bridge_Suite_Posting_Actor::choices( $settings['actor_user_selected'] ? $settings['author_user_id'] : 0 );
         // Older releases recorded the last administrator to save, without a user selection.
-        $actor = $settings['actor_user_selected'] ? $settings['actor_user_id'] : Nova_Bridge_Suite_Posting_Actor::default_id( $users );
-        echo '<p><label for="nova-posting-actor">Posting user</label><br><select id="nova-posting-actor" name="' . esc_attr( self::OPTION ) . '[actor_user_id]"' . ( $users ? ' required' : ' disabled' ) . '>';
+        $actor = $settings['actor_user_selected'] ? $settings['author_user_id'] : Nova_Bridge_Suite_Posting_Actor::default_id( $users );
+        echo '<p><label for="nova-posting-actor">Posting author</label><br><select id="nova-posting-actor" name="' . esc_attr( self::OPTION ) . '[author_user_id]"' . ( $users ? ' required' : ' disabled' ) . '>';
         if ( ! isset( $users[ $actor ] ) ) {
-            echo '<option value="" selected>' . ( $users ? 'Choose a posting user' : 'No eligible posting user' ) . '</option>';
+            echo '<option value="" selected>' . ( $users ? 'Choose a posting author' : 'No available author' ) . '</option>';
         }
         foreach ( $users as $id => $name ) {
             echo '<option value="' . esc_attr( $id ) . '" ' . selected( $id, $actor, false ) . '>' . esc_html( $name ) . '</option>';
         }
-        echo '</select><br><span class="description">' . ( $users ? 'Choose an account that can publish the content types you map, then save the connection.' : 'Give a user on this site permission to publish content, then select that user here.' ) . '</span></p>';
+        echo '</select><br><span class="description">' . ( $users ? 'Choose the author for newly created content. Publishing uses the permissions of the administrator who saves this connection.' : 'Give a user on this site an Author role, then select that account here.' ) . '</span></p>';
         if ( '' !== $settings['site_id'] ) { self::render_switch_dialog(); }
         self::render_sync_dialog( $settings );
         submit_button( 'Save NOVA connection' );

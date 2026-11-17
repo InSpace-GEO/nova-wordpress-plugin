@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/class-nova-bridge-suite-publication-policy.php';
+require_once __DIR__ . '/class-nova-bridge-suite-posting-actor.php';
 /** Journaled, source-free native Elementor documents from frozen local rendering rules. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
@@ -250,9 +251,12 @@ final class Nova_Bridge_Suite_Rule_Writer {
                 if ( $record && $record['state'] === 'committed' ) { self::verify_record( $plan, $record ); return self::finalize( $plan, $record, self::native_state( (int) $record['post_id'] ) ); }
                 if ( $record && $record['state'] === 'saving' ) {
                     $state = self::native_state( (int) $record['post_id'] );
+        if ( ! $plan['target_post_id'] && isset( $plan['context']['author_user_id'] ) && $state['author'] !== (int) $plan['context']['author_user_id'] ) { self::fail( 'author', 'The created page does not have its selected author.' ); }
                     if ( self::semantics_match( $plan['elements'], $state['elements'] ) ) { return self::finalize( $plan, $record, $state ); }
                     self::fail( 'save_unknown', 'A native save may have partially completed. Review the retained draft; it will not be overwritten or duplicated automatically.' );
                 }
+                $author = Nova_Bridge_Suite_Posting_Actor::author_id( $plan['context'] );
+                if ( is_wp_error( $author ) ) { self::fail( 'author', $author->get_error_message() ); }
                 if ( ! $record ) {
                     if ( isset( $plan['delivery_identity'] ) ) {
                         $current = self::association( $plan['delivery_identity'] );
@@ -276,7 +280,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
                         $marker = self::reservation_marker( $plan );
                         $protect = static function ( $data, $postarr, $unsanitized ) use ( $marker ) { if ( ( $unsanitized['post_content_filtered'] ?? null ) === $marker ) { $data['post_content_filtered'] = $marker; } return $data; };
                         add_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX, 3 );
-                        try { $id = wp_insert_post( [ 'post_type' => $plan['post_type'], 'post_status' => 'draft', 'post_title' => wp_slash( $plan['title'] ), 'post_name' => $plan['slug'], 'post_parent' => $plan['parent'], 'post_author' => get_current_user_id(), 'post_content_filtered' => $marker ], true ); }
+                        try { $id = wp_insert_post( [ 'post_type' => $plan['post_type'], 'post_status' => 'draft', 'post_title' => wp_slash( $plan['title'] ), 'post_name' => $plan['slug'], 'post_parent' => $plan['parent'], 'post_author' => $author, 'post_content_filtered' => $marker ], true ); }
                         finally { remove_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX ); }
                         if ( is_wp_error( $id ) || ! $id ) { self::fail( 'create_unknown', 'WordPress did not confirm draft creation. Retry this same operation to reconcile the reservation.' ); }
                         if ( self::reserved_post( $plan ) !== (int) $id ) { self::fail( 'reservation_changed', 'WordPress changed the atomic reservation identity. Reconcile the created draft before retrying.' ); }
@@ -310,6 +314,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
 
     private static function verify_record( array $plan, array $record ): array {
         $state = self::native_state( (int) $record['post_id'] );
+        if ( ! $plan['target_post_id'] && isset( $plan['context']['author_user_id'] ) && $state['author'] !== (int) $plan['context']['author_user_id'] ) { self::fail( 'author', 'The created page does not have its selected author.' ); }
         if ( ! empty( $plan['test_delivery_draft'] ) && get_post_status( (int) $record['post_id'] ) !== 'draft' ) { self::fail( 'test_publication', 'The test item must remain a draft.' ); }
         if ( self::digest( $state ) !== ( $record['native_digest'] ?? '' ) || $state['owner'] !== self::owner( $plan ) ) { self::fail( 'human_changed', 'The generated page changed after its verified save. Reconcile it before automatic publication confirmation or replacement.' ); }
         return self::result( $record );

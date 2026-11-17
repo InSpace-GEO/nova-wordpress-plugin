@@ -47,11 +47,15 @@ $users = [
 ];
 $users[17]->spam = 1; $users[18]->deleted = 1;
 $users[11]->caps = [ 'edit_post', 'create_post' ]; $users[12]->caps = [ 'edit_case_study', 'publish_case_study' ];
+function get_current_user_id() { return 8; }
 $user_queries = $count_queries = []; $fetched_users = 0;
 $choices = Actor::choices();
 check( [ 8 => 'Alex', 9 => 'Lina', 3 => 'Zed' ] === $choices, 'The select lists site publishers by display name.' );
 foreach ( array_keys( $users ) as $id ) { check( isset( $choices[ $id ] ) === Actor::eligible( $id ), 'The server enforces the same eligibility as the form.' ); }
 check( ! Actor::eligible( 0 ) && ! Actor::eligible( 999 ), 'Missing and anonymous users are ineligible.' );
+check( Actor::author_eligible(11) && Actor::author_eligible(21) === false && !Actor::author_eligible(10), 'Authorship needs active site membership and can use a non-publishing contributor.' );
+check( !Actor::author_eligible(17) && !Actor::author_eligible(18), 'Spam and deleted accounts cannot be authors.' );
+check( Actor::author_id(['author_user_id' => 11]) === 11 && Actor::author_id([]) === 8, 'Explicit authorship is independent of the execution user, with legacy fallback.' );
 $counts = [ 3 => 8, 8 => 0, 9 => 17, 10 => 500, 11 => 200 ];
 check( Actor::default_id( $choices ) === 9, 'Most active eligible CPT author wins.' );
 $counts[3] = 17; check( Actor::default_id( $choices ) === 3, 'Positive count ties use lowest eligible ID.' );
@@ -67,6 +71,8 @@ $multisite = true; $users[24] = account( 24, 'Network publisher on site', 'post'
 $users[24]->stored_caps = $users[25]->stored_caps = [];
 $network_choices = Actor::choices();
 check( isset( $network_choices[24] ) && ! isset( $network_choices[25] ), 'Network super admins with synthetic grants are included only on sites to which they belong.' );
+$users[25]->caps[] = 'manage_options';
+check( Actor::eligible(25) && !Actor::author_eligible(25), 'A network administrator can execute on an authorized site while author selection stays site-local.' );
 $multisite = false;
 for ( $id = 50; $id < 560; ++$id ) { $users[ $id ] = account( $id, "User $id", 'case_study' ); }
 $counts = [ 550 => 72 ]; $user_queries = $count_queries = [];

@@ -28,9 +28,24 @@ final class Nova_Bridge_Suite_Posting_Actor {
     }
 
     public static function eligible( int $id ): bool {
+        if ( $id < 1 ) { return false; }
+        $user = get_userdata( $id );
+        if ( ! $user || ( ! is_user_member_of_blog( $id, get_current_blog_id() ) && ! user_can( $user, 'manage_options' ) ) ) { return false; }
+        return self::can_post( $user, self::publishing_types() );
+    }
+
+    /** Attribution requires an active site member, independently of publishing capabilities. */
+    public static function author_eligible( int $id ): bool {
         if ( $id < 1 || ! is_user_member_of_blog( $id, get_current_blog_id() ) ) { return false; }
         $user = get_userdata( $id );
-        return $user && self::can_post( $user, self::publishing_types() );
+        return $user && empty( $user->spam ) && empty( $user->deleted );
+    }
+
+    /** Older local plans attributed new content to their executing user. */
+    public static function author_id( array $context ) {
+        if ( ! array_key_exists( 'author_user_id', $context ) ) { return get_current_user_id(); }
+        $id = (int) $context['author_user_id'];
+        return self::author_eligible( $id ) ? $id : new WP_Error( 'nova_posting_author', 'The selected author is no longer an active member of this WordPress site.', [ 'status' => 403 ] );
     }
 
     /** Find site members with a role or direct publishing grant, then verify effective permissions. */
@@ -55,7 +70,7 @@ final class Nova_Bridge_Suite_Posting_Actor {
             }
         }
         foreach ( $extra as $user ) {
-            if ( $user && ! isset( $choices[ $user->ID ] ) && is_user_member_of_blog( $user->ID, $site ) && self::can_post( $user, $types ) ) {
+            if ( $user && ! isset( $choices[ $user->ID ] ) && self::author_eligible( (int) $user->ID ) ) {
                 $choices[ (int) $user->ID ] = $user->display_name;
             }
         }
