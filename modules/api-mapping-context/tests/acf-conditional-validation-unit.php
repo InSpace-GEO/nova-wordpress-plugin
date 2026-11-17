@@ -2,7 +2,7 @@
 /** Native rejection reasons must survive mapping approval and editorial transport. */
 require __DIR__ . '/layout-recipes-api-unit.php';
 
-function acf_get_validation_errors() { return $GLOBALS['acf_diagnostic_errors'] ?? false; }
+function acf_get_validation_errors() { return ( $GLOBALS['acf_diagnostic_errors'] ?? [] ) ?: false; }
 function acf_validate_value( $value, $field, $input ) {
     $failure = $GLOBALS['acf_diagnostic_failure'] ?? null;
     if ( null === $failure ) {
@@ -99,6 +99,9 @@ check( is_wp_error( Transport::validate_named_acf( [ 'heading' => '' ], $acf_sch
 $unknown = $acf_schema;
 $unknown['heading']['conditional_logic'][0][0]['operator'] = 'unsupported';
 check( is_wp_error( Transport::validate_named_acf( $hidden, $unknown ) ), 'An unevaluable condition must retain required validation.' );
+$text_toggle = af( 'mode' );
+$text_heading = af( 'heading', 'text', [ 'required' => true, 'conditional_logic' => [ [ [ 'field' => $text_toggle['key'], 'operator' => '==', 'value' => 'show' ] ] ] ] );
+check( is_wp_error( Transport::validate_named_acf( [ 'mode' => '<b>show</b>', 'heading' => '' ], [ 'mode' => $text_toggle, 'heading' => $text_heading ] ) ), 'Sanitizing a controller must not make a required field visible only after validation.' );
 
 foreach ( [ 'group', 'repeater', 'flexible_content' ] as $type ) {
     $container = af( 'content', $type, [ 'sub_fields' => [ $toggle, $heading ] ] );
@@ -114,8 +117,36 @@ foreach ( [ 'group', 'repeater', 'flexible_content' ] as $type ) {
     $first = $type === 'group' ? $valid['content']['value'] : $valid['content']['value'][0];
     check( array_key_exists( $heading['key'], $first ) && $first[$heading['key']] === '', 'Hidden nested values must remain present for ' . $type . ' persistence.' );
     $row['header_mode'] = 'banner';
+    $acf_diagnostic_errors = [];
     $invalid = Transport::validate_named_acf( [ 'content' => $type === 'group' ? $row : [ $row ] ], [ 'content' => $container ] );
     check( is_wp_error( $invalid ) && str_contains( $invalid->get_error_message(), 'required' ), 'Native nested required failures must propagate from ' . $type . ' callbacks.' );
+}
+
+$choice = af( 'choice', 'select', [ 'required' => true, 'choices' => [ 'a' => 'A' ] ] );
+$details = af( 'details', 'group', [ 'sub_fields' => [ $choice ], 'conditional_logic' => $heading['conditional_logic'] ] );
+$acf_schema = [ 'header_mode' => $toggle, 'details' => $details ];
+$input = [ 'header_mode' => 'none', 'details' => [ 'choice' => '' ] ];
+$valid = Transport::validate_named_acf( $input, $acf_schema );
+check( ! is_wp_error( $valid ) && $valid['details']['value'][$choice['key']] === '', 'A hidden ancestor must permit an empty required select while retaining its value.' );
+check( true === Nova_Bridge_Suite_Recipe_ACF::validate_constraints( array_values( $acf_schema ), $input, '/document', 0, Nova_Bridge_Suite_Recipe_ACF::conditions( $acf_schema ) ), 'Recipe constraints must skip the hidden subtree.' );
+$input['header_mode'] = 'banner';
+check( is_wp_error( Transport::validate_named_acf( $input, $acf_schema ) ), 'Making the parent visible must restore the child select requirement.' );
+
+foreach ( [ 'group', 'repeater', 'flexible_content' ] as $type ) {
+    $child = $heading;
+    $container = af( 'details', $type, [ 'sub_fields' => [ $child ] ] );
+    $row = [ 'heading' => '' ];
+    if ( $type === 'flexible_content' ) {
+        unset( $container['sub_fields'] );
+        $container['layouts'] = [ [ 'key' => 'layout_ancestor', 'name' => 'ancestor', 'sub_fields' => [ $child ] ] ];
+        $row['acf_fc_layout'] = 'ancestor';
+    }
+    $acf_schema = [ 'header_mode' => $toggle, 'details' => $container ];
+    $input = [ 'header_mode' => 'none', 'details' => $type === 'group' ? $row : [ $row ] ];
+    check( ! is_wp_error( Transport::validate_named_acf( $input, $acf_schema ) ), 'A nested ' . $type . ' condition may reference its ancestor field.' );
+    check( true === Nova_Bridge_Suite_Recipe_ACF::validate_constraints( array_values( $acf_schema ), $input, '/document', 0, Nova_Bridge_Suite_Recipe_ACF::conditions( $acf_schema ) ), 'Constraint checking must share ancestor context for ' . $type . '.' );
+    $input['header_mode'] = 'banner';
+    check( is_wp_error( Transport::validate_named_acf( $input, $acf_schema ) ), 'The ancestor may make its ' . $type . ' descendant required again.' );
 }
 
 echo 'PASS ' . ( $checks - $baseline_checks ) . " ACF validation diagnostics assertions\n";

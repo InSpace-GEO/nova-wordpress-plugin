@@ -449,19 +449,21 @@ final class Nova_Bridge_Suite_Recipe_ACF {
     }
     /** Enforce declared cardinality/text bounds before native schema transport writes. */
     /** $conditions maps field keys to ACF conditional logic; a field hidden by it is not required, as in the ACF editor. */
-    public static function validate_constraints( array $fields, array $values, string $path = '/document', int $depth = 0, array $conditions = [] ) {
+    public static function validate_constraints( array $fields, array $values, string $path = '/document', int $depth = 0, array $conditions = [], array $ancestors = [] ) {
         if ( $depth > 12 ) { return self::error( 'The installed custom-field structure exceeds its supported nesting depth.', 422 ); }
+        $context = Nova_Bridge_Suite_Content_Transport::acf_condition_values( $fields, $values, $ancestors );
         foreach ( $fields as $field ) {
+            if ( Nova_Bridge_Suite_Content_Transport::acf_field_hidden( [ 'conditional_logic' => $conditions[$field['key'] ?? ''] ?? [] ], $fields, $values, $context ) ) { continue; }
             $value = $values[$field['name']] ?? null; $next = $path . '/' . self::escape( $field['name'] ); $type = $field['type'];
-            $required = ! empty( $field['required'] ) && ! Nova_Bridge_Suite_Content_Transport::acf_field_hidden( [ 'conditional_logic' => $conditions[$field['key'] ?? ''] ?? [] ], $fields, $values );
-            if ( 'group' === $type && is_array( $value ) ) { $checked = self::validate_constraints( $field['sub_fields'] ?? [], $value, $next, $depth + 1, $conditions ); if ( is_wp_error( $checked ) ) { return $checked; } }
+            $required = ! empty( $field['required'] );
+            if ( 'group' === $type && is_array( $value ) ) { $checked = self::validate_constraints( $field['sub_fields'] ?? [], $value, $next, $depth + 1, $conditions, $context ); if ( is_wp_error( $checked ) ) { return $checked; } }
             elseif ( in_array( $type, [ 'repeater', 'flexible_content' ], true ) && is_array( $value ) ) {
                 $minimum = max( (int) ( $field['min'] ?? 0 ), $required ? 1 : 0 ); $maximum = min( 500, (int) ( ( $field['max'] ?? 0 ) ?: 500 ) );
                 if ( count( $value ) < $minimum || count( $value ) > $maximum ) { return self::error( 'The collection at ' . $next . ' is outside its installed minimum/maximum row count.', 422 ); }
                 foreach ( $value as $index => $row ) {
                     $children = $field['sub_fields'] ?? [];
                     if ( 'flexible_content' === $type ) { foreach ( $field['layouts'] ?? [] as $layout ) { if ( ( $row['acf_fc_layout'] ?? '' ) === $layout['name'] ) { $children = $layout['sub_fields']; break; } } }
-                    if ( is_array( $row ) ) { $checked = self::validate_constraints( $children, $row, $next . '/' . $index, $depth + 1, $conditions ); if ( is_wp_error( $checked ) ) { return $checked; } }
+                    if ( is_array( $row ) ) { $checked = self::validate_constraints( $children, $row, $next . '/' . $index, $depth + 1, $conditions, $context ); if ( is_wp_error( $checked ) ) { return $checked; } }
                 }
                 if ( 'flexible_content' === $type ) {
                     $counts = array_count_values( array_column( $value, 'acf_fc_layout' ) );

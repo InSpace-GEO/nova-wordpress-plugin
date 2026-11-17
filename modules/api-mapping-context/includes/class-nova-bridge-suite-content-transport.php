@@ -198,19 +198,34 @@ final class Nova_Bridge_Suite_Content_Transport {
 		return array_filter( $fields, 'is_array' );
 	}
 
-    /** True only when every rule group can be evaluated against sibling values and none passes. */
-    public static function acf_field_hidden( array $field, array $siblings, array $values ): bool {
+    /** Closest row values override ancestors; values from other repeater rows are never borrowed. */
+    public static function acf_condition_values( array $fields, array $values, array $ancestors = [] ): array {
+        foreach ( $fields as $field ) {
+            if ( ! isset( $field['key'], $field['name'] ) ) { continue; }
+            if ( array_key_exists( $field['key'], $values ) ) { $value = $values[$field['key']]; }
+            elseif ( array_key_exists( $field['name'], $values ) ) { $value = $values[$field['name']]; }
+            else { continue; }
+            // Visibility follows the text that will be stored by this transport.
+            if ( is_string( $value ) && in_array( $field['type'] ?? '', [ 'text', 'textarea', 'wysiwyg', 'email', 'url', 'oembed', 'color_picker', 'date_picker', 'date_time_picker', 'time_picker' ], true ) ) {
+                $value = in_array( $field['type'], [ 'textarea', 'wysiwyg' ], true ) ? wp_kses_post( $value ) : sanitize_text_field( $value );
+            }
+            $ancestors[$field['key']] = $value;
+        }
+        return $ancestors;
+    }
+
+    /** True only when every rule group can be evaluated against this row or its ancestors and none passes. */
+    public static function acf_field_hidden( array $field, array $siblings, array $values, array $ancestors = [] ): bool {
         $logic = $field['conditional_logic'] ?? [];
         if ( ! $logic ) { return false; }
-        $names = []; foreach ( $siblings as $sibling ) { if ( isset( $sibling['key'], $sibling['name'] ) ) { $names[$sibling['key']] = $sibling['name']; } }
+        $available = self::acf_condition_values( $siblings, $values, $ancestors );
         foreach ( $logic as $group ) {
             if ( ! is_array( $group ) || ! $group ) { return false; }
             $passes = true;
             foreach ( $group as $rule ) {
                 $key = is_array( $rule ) ? ( $rule['field'] ?? '' ) : '';
-                if ( ! isset( $names[$key] ) ) { return false; }
-                if ( ! array_key_exists( $key, $values ) && ! array_key_exists( $names[$key], $values ) ) { return false; }
-                $match = self::rule_matches( $values[$key] ?? $values[$names[$key]] ?? null, (string) ( $rule['operator'] ?? '' ), $rule['value'] ?? '' );
+                if ( ! array_key_exists( $key, $available ) ) { return false; }
+                $match = self::rule_matches( $available[$key], (string) ( $rule['operator'] ?? '' ), $rule['value'] ?? '' );
                 if ( null === $match ) { return false; }
                 if ( ! $match ) { $passes = false; break; }
             }
@@ -238,15 +253,14 @@ final class Nova_Bridge_Suite_Content_Transport {
     public static function validate_named_acf( array $input, array $schema ) {
         if ( strlen( wp_json_encode( $input ) ) > 2097152 || count( $input ) > 500 ) { return self::error( 'The declared ACF fields exceed the size limit.' ); }
         $out = [];
+        $context = self::acf_condition_values( $schema, $input );
         foreach ( $input as $name => $value ) {
             if ( ! isset( $schema[$name] ) || ! self::safe_acf_field( $schema[$name] ) ) { return self::error( 'Unknown or protected ACF field: ' . $name ); }
             $field = $schema[$name];
             $hidden = self::acf_field_hidden( $field, $schema, $input );
-            $validation_field = $field;
-            if ( $hidden ) { $validation_field['required'] = false; }
-            $checked = self::validate_acf_value( $value, $validation_field, 'acf.' . $name );
+            $checked = self::validate_acf_value( $value, $field, 'acf.' . $name, 0, $hidden, $context );
             if ( is_wp_error( $checked ) ) { return $checked; }
-            $valid = $hidden ? true : self::validate_native_acf( $checked, $field, 'acf.' . $name, 'ACF validation failed for ' . $name );
+            $valid = $hidden ? true : self::validate_native_acf( $checked, $field, 'acf.' . $name, 'ACF validation failed for ' . $name, $context );
             if ( is_wp_error( $valid ) ) { return $valid; }
             $out[$name] = [ 'field' => $field, 'value' => $checked ];
         }
@@ -254,7 +268,7 @@ final class Nova_Bridge_Suite_Content_Transport {
     }
 
     /** Hidden inputs are absent in ACF's editor validation, but their stored values still travel with the layout. */
-    private static function acf_validation_value( $value, array $field ) {
+    private static function acf_validation_value( $value, array $field, array $ancestors ) {
         $type = $field['type'] ?? '';
         if ( ! is_array( $value ) || ! in_array( $type, [ 'group', 'repeater', 'flexible_content' ], true ) ) { return $value; }
         $rows = 'group' === $type ? [ $value ] : $value;
@@ -266,11 +280,12 @@ final class Nova_Bridge_Suite_Content_Transport {
                 }
             }
             $values = $row;
+            $context = self::acf_condition_values( $siblings, $values, $ancestors );
             foreach ( $siblings as $child ) {
                 $key = $child['key'];
                 if ( ! array_key_exists( $key, $row ) ) { continue; }
-                if ( self::acf_field_hidden( $child, $siblings, $values ) ) { unset( $row[$key] ); }
-                else { $row[$key] = self::acf_validation_value( $row[$key], $child ); }
+                if ( self::acf_field_hidden( $child, $siblings, $values, $context ) ) { unset( $row[$key] ); }
+                else { $row[$key] = self::acf_validation_value( $row[$key], $child, $context ); }
             }
         }
         unset( $row );
@@ -278,11 +293,11 @@ final class Nova_Bridge_Suite_Content_Transport {
     }
 
     /** Include only errors added by this validation call, preserving ACF's request-wide error state. */
-    private static function validate_native_acf( $value, array $field, string $path, string $message ) {
+    private static function validate_native_acf( $value, array $field, string $path, string $message, array $context ) {
         if ( ! function_exists( 'acf_validate_value' ) ) { return true; }
-        $before = function_exists( 'acf_get_validation_errors' ) ? (array) acf_get_validation_errors() : [];
-        $valid = acf_validate_value( self::acf_validation_value( $value, $field ), $field, $path );
-        $errors = function_exists( 'acf_get_validation_errors' ) ? (array) acf_get_validation_errors() : [];
+        $before = function_exists( 'acf_get_validation_errors' ) ? ( acf_get_validation_errors() ?: [] ) : [];
+        $valid = acf_validate_value( self::acf_validation_value( $value, $field, $context ), $field, $path );
+        $errors = function_exists( 'acf_get_validation_errors' ) ? ( acf_get_validation_errors() ?: [] ) : [];
         $details = [];
         foreach ( array_slice( $errors, count( $before ) ) as $error ) {
             $input = $error['input'] ?? null;
@@ -424,16 +439,15 @@ final class Nova_Bridge_Suite_Content_Transport {
 			if ( is_wp_error( $valid ) ) { return $valid; }
 			$result['meta'][ $key ] = rest_sanitize_value_from_schema( $item, $schema, 'meta_all.' . $key );
 		}
+		$context = self::acf_condition_values( $catalog['acf'], $acf_input );
 		foreach ( $acf_input as $name => $item ) {
 			if ( ! isset( $catalog['acf'][ $name ] ) ) { return self::error( 'Unknown, protected, or inapplicable ACF field: ' . $name ); }
 			if ( ! self::can_write_acf( $post_type, $post_id, $name ) ) { return self::error( 'ACF meta authorization denied: ' . $name, 403 ); }
 			$field = $catalog['acf'][ $name ];
 			$hidden = self::acf_field_hidden( $field, $catalog['acf'], $acf_input );
-			$validation_field = $field;
-			if ( $hidden ) { $validation_field['required'] = false; }
-			$normalized = self::validate_acf_value( $item, $validation_field, 'meta_all.acf.' . $name );
+			$normalized = self::validate_acf_value( $item, $field, 'meta_all.acf.' . $name, 0, $hidden, $context );
 			if ( is_wp_error( $normalized ) ) { return $normalized; }
-			$valid = $hidden ? true : self::validate_native_acf( $normalized, $field, 'meta_all.acf.' . $name, 'ACF validation failed for ' . $name . '.' );
+			$valid = $hidden ? true : self::validate_native_acf( $normalized, $field, 'meta_all.acf.' . $name, 'ACF validation failed for ' . $name . '.', $context );
 			if ( is_wp_error( $valid ) ) { return $valid; }
 			$result['acf'][ $name ] = [ 'field' => $field, 'value' => $normalized ];
 		}
@@ -450,12 +464,13 @@ final class Nova_Bridge_Suite_Content_Transport {
 		return $schema;
 	}
 
-	private static function validate_acf_value( $value, array $field, string $path, int $depth = 0 ) {
+	private static function validate_acf_value( $value, array $field, string $path, int $depth = 0, bool $hidden = false, array $context = [] ) {
 		if ( $depth > 12 ) { return self::error( 'ACF nesting limit exceeded: ' . $path ); }
+		if ( $hidden ) { $field['required'] = false; }
 		$type = $field['type'];
 		if ( in_array( $type, [ 'group', 'repeater', 'flexible_content' ], true ) ) {
 			if ( ! is_array( $value ) ) { return self::error( $path . ' requires a structured ' . $type . ' value.' ); }
-			if ( 'group' === $type ) { return self::validate_acf_children( $value, $field['sub_fields'] ?? [], $path, $depth ); }
+			if ( 'group' === $type ) { return self::validate_acf_children( $value, $field['sub_fields'] ?? [], $path, $depth, $hidden, $context ); }
 			if ( count( $value ) > 500 || ( $value && array_keys( $value ) !== range( 0, count( $value ) - 1 ) ) ) { return self::error( $path . ' requires a list of at most 500 rows.' ); }
 			$out = [];
 			foreach ( $value as $index => $row ) {
@@ -470,7 +485,7 @@ final class Nova_Bridge_Suite_Content_Transport {
 					$children = $layout['sub_fields'] ?? [];
 					unset( $row['acf_fc_layout'] );
 				}
-				$normalized = self::validate_acf_children( $row, $children, $path . '.' . $index, $depth );
+				$normalized = self::validate_acf_children( $row, $children, $path . '.' . $index, $depth, $hidden, $context );
 				if ( is_wp_error( $normalized ) ) { return $normalized; }
 				if ( null !== $layout_name ) { $normalized['acf_fc_layout'] = $layout_name; }
 				$out[] = $normalized;
@@ -556,8 +571,9 @@ final class Nova_Bridge_Suite_Content_Transport {
 		return in_array( $type, [ 'wysiwyg', 'textarea' ], true ) ? wp_kses_post( $value ) : sanitize_text_field( $value );
 	}
 
-	private static function validate_acf_children( array $value, array $children, string $path, int $depth ) {
+	private static function validate_acf_children( array $value, array $children, string $path, int $depth, bool $hidden, array $ancestors ) {
 		$known = []; $keys = [];
+		$context = self::acf_condition_values( $children, $value, $ancestors );
 		foreach ( $children as $child ) {
 			if ( ! self::safe_acf_field( $child, $depth + 1 ) ) { continue; }
 			$known[ $child['name'] ] = $known[ $child['name'] ] ?? $child;
@@ -570,8 +586,8 @@ final class Nova_Bridge_Suite_Content_Transport {
 		foreach ( $value as $name => $item ) {
 			if ( ! isset( $known[ $name ] ) ) { return self::error( 'Unknown nested ACF field: ' . $path . '.' . $name ); }
 			$field = $known[ $name ];
-			if ( self::acf_field_hidden( $field, $children, $value ) ) { $field['required'] = false; }
-			$checked = self::validate_acf_value( $item, $field, $path . '.' . $name, $depth + 1 );
+			$child_hidden = $hidden || self::acf_field_hidden( $field, $children, $value, $context );
+			$checked = self::validate_acf_value( $item, $field, $path . '.' . $name, $depth + 1, $child_hidden, $context );
 			if ( is_wp_error( $checked ) ) { return $checked; }
 			foreach ( $keys[ $name ] as $key ) { $out[ $key ] = $checked; }
 		}
