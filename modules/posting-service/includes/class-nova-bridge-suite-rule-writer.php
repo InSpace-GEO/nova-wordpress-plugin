@@ -123,7 +123,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
             self::routing( $content, $configuration['profile'] );
             $association = self::association( $content );
             if ( $association && ! in_array( $association['state'] ?? '', [ 'committed', 'retired' ], true ) ) { self::fail( 'association_pending', 'An earlier native operation for this URL must be reconciled first.' ); }
-            return [ 'mode' => 'local_rules', 'reference' => [ 'reference_type' => 'post', 'reference_id' => (int) ( $association['post_id'] ?? 0 ) ], 'routing' => [ 'operation' => $association ? 'update' : 'create', 'publication' => Nova_Bridge_Suite_Publication_Policy::publication( $content, $association ? 'preserve' : 'draft' ) ] ];
+            return [ 'mode' => 'local_rules', 'reference' => [ 'reference_type' => 'post', 'reference_id' => (int) ( $association['post_id'] ?? 0 ) ], 'routing' => [ 'operation' => $association ? 'update' : 'create', 'publication' => Nova_Bridge_Suite_Publication_Policy::publication( $content, $association ? 'preserve' : 'draft', $association ? (string) get_post_status( $association['post_id'] ) : '' ) ] ];
         } );
     }
 

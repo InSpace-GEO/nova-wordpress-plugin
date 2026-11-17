@@ -9,8 +9,13 @@ final class Nova_Bridge_Suite_Publication_Policy {
         return is_string( $path ) && 1 === preg_match( '#/(?:lorem-ipsum-demo-informative|lorem-ipsum-demo-service|lorem-ipsum-demo-category)(?:/|$)#i', rawurldecode( $path ) );
     }
 
-    public static function publication( array $content, string $configured ): string {
-        return self::test_url( $content['url'] ?? null ) ? 'draft' : $configured;
+    public static function publication( array $content, string $configured, string $existing_status = '' ): string {
+        if ( self::test_url( $content['url'] ?? null ) ) { return 'draft'; }
+        if ( ! array_key_exists( 'publication_status', $content ) ) { return $configured; }
+        $requested = $content['publication_status'];
+        if ( ! in_array( $requested, [ 'draft', 'publish' ], true ) ) { return 'unsupported'; }
+        // Frozen backend intent applies to new pages, while a published page keeps its public status.
+        return 'draft' === $requested && 'publish' === $existing_status ? 'publish' : $requested;
     }
 
     public static function allows_shared_test( $provider ): bool {

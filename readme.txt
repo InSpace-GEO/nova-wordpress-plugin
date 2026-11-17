@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.14
+Stable tag: 1.5.15
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.15 =
+* Accept the optional publication status supplied by posting-service 0.12.0.
+* Apply the requested draft or published status to native posts while retaining published pages on later draft requests.
+* Preserve configured publishing behavior for deliveries without an explicit status.
+* Hold draft requests for destinations that cannot store an independent draft.
 
 = 1.5.14 =
 * Respect ACF conditional visibility when validating saved layouts and publishing native content.
