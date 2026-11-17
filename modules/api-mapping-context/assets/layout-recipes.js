@@ -626,7 +626,7 @@
                     if ( enabled && active ) { fields[path] = copy( entry ); } else { delete fields[path]; }
                     if ( Object.keys( fields ).length ) { state.recipe.seo_fields = fields; } else { delete state.recipe.seo_fields; }
                 } ); }, active ? ( entry.field === 'title' ? 'Source: NOVA SEO title (title)' : 'Source: NOVA meta description (meta_description)' ) : 'Plugin inactive. Restore it or deselect this field before saving.' ) );
-                if ( selected[path] ) { section.append( field( 'Optional SEO instructions: ' + entry.label, input( selected[path].instructions || '', function ( value ) { controller.edit( function () { state.recipe.seo_fields[path].instructions = value; }, false ); }, true ) ) ); }
+                if ( selected[path] && state.mode !== 'article' ) { section.append( field( 'Optional SEO instructions: ' + entry.label, input( selected[path].instructions || '', function ( value ) { controller.edit( function () { state.recipe.seo_fields[path].instructions = value; }, false ); }, true ) ) ); }
             } );
             return section;
         }
@@ -641,6 +641,9 @@
                 if ( selectedAlias || haloAlias ) { delete entries[path]; }
             } );
 			Object.keys( entries ).forEach( function ( path ) { var setting = designFields[ entries[path].name ]; if ( setting && setting.template_setting && ! selected[path] ) { delete entries[path]; } } );
+			if ( state.mode === 'article' ) {
+				Object.keys( entries ).forEach( function ( path ) { if ( ! articleFieldSources( entries[path] ).length && ! selected[path] ) { delete entries[path]; } } );
+			}
 			if ( state.customEnabled ) {
 				( state.recipe.custom_fields.bindings || [] ).forEach( function ( binding ) {
 					if ( binding.target.startsWith( '/document/' ) ) { delete entries[ '/@nova/custom-fields/acf/' + binding.target.slice( 10 ) ]; }
@@ -660,15 +663,20 @@
 						var fields = Object.assign( {}, state.recipe.posting_fields || {} );
 						if ( enabled && choices[ path ] ) {
 							fields[ path ] = copy( choices[ path ] );
+							if ( state.mode === 'article' ) { setArticleSource( state, path, articleFieldSources( entry )[0].value ); }
 							// A mapped editorial value takes precedence over the example's fixed value.
 							var fixed = state.design.pendingPresentationKeys || storedPresentationKeys( state.design );
 							if ( fixed.includes( entry.name ) ) { setPresentationKeys( state.design, fixed.filter( function ( key ) { return key !== entry.name; } ) ); }
 						}
-						else { delete fields[ path ]; }
+						else { delete fields[ path ]; if ( state.mode === 'article' ) { setArticleSource( state, path, '' ); } }
 						if ( Object.keys( fields ).length ) { state.recipe.posting_fields = fields; } else { delete state.recipe.posting_fields; }
 					} );
 				}, hint ) );
 				if ( selected[ path ] ) {
+					if ( state.mode === 'article' ) {
+						section.append( field( 'NOVA content for ' + label, select( articleFieldSources( entry ), ( state.recipe.article.sources || {} )[path] || '', function ( value ) { controller.edit( function () { setArticleSource( state, path, value ); } ); } ) ), check( 'Require a value for ' + label, !! selected[path].required, function ( value ) { controller.edit( function () { state.recipe.posting_fields[path].required = value; } ); } ) );
+						return;
+					}
 					if ( designSetting ) {
 						section.append( help( 'This saved mapping fills a design setting with article content. Keep it as configured, or explicitly copy the example’s design setting instead.' ), button( 'Copy example setting: ' + label, function () { controller.edit( function () { delete state.recipe.posting_fields[path]; if ( ! Object.keys( state.recipe.posting_fields ).length ) { delete state.recipe.posting_fields; } var fixed = state.design.pendingPresentationKeys || storedPresentationKeys( state.design ); setPresentationKeys( state.design, Array.from( new Set( fixed.concat( [ entry.name ] ) ) ) ); } ); } ) );
 					}
@@ -709,6 +717,37 @@
             }
 			return section;
 		}
+
+        function articleFieldSources( entry ) {
+            if ( [ 'array', 'boolean', 'integer' ].includes( entry.type ) ) { return []; }
+            if ( entry.type === 'url' ) { return [ { value: 'url', label: 'Page URL' }, { value: 'image_url', label: 'Primary image URL' } ]; }
+            if ( entry.type === 'wysiwyg' || entry.provider === 'halo' && /rich_text$/.test( entry.name ) ) {
+                return [ { value: 'content', label: 'Complete article' }, { value: 'top_content', label: 'Top content' }, { value: 'bottom_content', label: 'Bottom content' } ];
+            }
+            return [ { value: 'meta_description', label: 'Meta description' }, { value: 'h1', label: 'Article title' }, { value: 'title', label: 'SEO title' }, { value: 'image_alt', label: 'Image description' }, { value: 'url', label: 'Page URL' }, { value: 'language', label: 'Language' } ];
+        }
+        function setArticleSource( state, path, source ) {
+            var sources = Object.assign( {}, state.recipe.article.sources || {} );
+            if ( source ) { sources[path] = source; } else { delete sources[path]; }
+            if ( Object.keys( sources ).length ) { state.recipe.article.sources = sources; } else { delete state.recipe.article.sources; }
+        }
+        function articlePostFieldsEditor( state ) {
+            var section = node( 'details', undefined, 'nlr-region-list' );
+            section.setAttribute( 'data-nlr-view-key', 'article-post-details' );
+            section.append( node( 'summary', 'Title, featured image and excerpt' ), help( 'The article title becomes the WordPress title. Images inside the article become Image blocks. Select a featured image or excerpt below to fill those separate WordPress fields.' ) );
+            ( state.design.fields || [] ).filter( function ( entry ) { return [ '/native_post/featured_image', '/native_post/excerpt' ].includes( entry.target ); } ).forEach( function ( entry ) {
+                var selected = ( state.recipe.bindings || [] ).some( function ( item ) { return item.target === entry.target; } );
+                var image = entry.target === '/native_post/featured_image';
+                section.append( check( entry.label, selected, function ( enabled ) { controller.edit( function () {
+                    if ( enabled ) {
+                        var binding = assignRole( state.recipe, entry, image ? 'image_url' : 'meta_description', 'main:fixed' );
+                        binding.required = false;
+                        binding.source = image ? '/image/url' : '/description';
+                    } else { state.recipe.bindings = state.recipe.bindings.filter( function ( item ) { return item.target !== entry.target; } ); }
+                } ); }, image ? 'NOVA primary image → WordPress featured image' : 'NOVA meta description → WordPress excerpt' ) );
+            } );
+            return section;
+        }
 
         // WordPress core block icons keep the mapping recognizable from the block inserter.
         function articleBlockIcon( kind ) {
@@ -942,7 +981,7 @@
 					panel.append( node( 'div', 'Reference: ' + source.title + ' · ' + source.builder, 'nlr-readonly' ), help( state.design.visual_preview && state.design.visual_preview.reason || 'A live reference canvas is unavailable. All captured writable fields remain available below.' ) );
 				}
 				var seoEditor = seoFieldsEditor( state ); if ( seoEditor ) { panel.append( seoEditor ); } panel.append( node( 'h3', state.mode === 'static' ? 'Choose your fixed content fields' : 'Choose content fields and saved regions' ), node( 'div', 'Choose a purpose for each field you want NOVA to fill. Unselected content, styles and responsive settings stay protected. To change styling or device layout, edit the design in your builder and capture it again.', 'nlr-protected' ), recipeEditor( 'main', state.recipe, state.design ) ); if ( state.customDesign ) { panel.append( check( state.design.source_reference && state.design.source_reference.reference_type === 'term' ? 'Map additional ACF category fields (' + state.customDesign.fields.filter( function ( item ) { return item.writable !== false; } ).length + ' fields)' : 'Include custom fields', state.customEnabled, function ( value ) { controller.includeCustom( value ); }, 'Use the same content for this builder layout and the site’s declared custom field schema. Fields not rendered on the page remain selectable in their schema.' ) ); if ( state.customEnabled ) { var customPanel = node( 'details' ); customPanel.setAttribute( 'data-nlr-view-key', 'custom-fields-editor' ); customPanel.append( node( 'summary', 'Custom fields and nested rows' ), help( 'Closing this section keeps your mappings enabled.' ), recipeEditor( 'custom', state.recipe.custom_fields, state.customDesign ) ); panel.append( customPanel ); } } var templateContext = node( 'details' ); templateContext.append( node( 'summary', 'Extra Template Context (optional)' ), field( 'Instructions for the whole template', input( state.recipe.instructions || '', function ( value ) { controller.edit( function () { state.recipe.instructions = value; }, false ); }, true ), 'Add shared guidance for all mapped fields when needed.' ) ); panel.append( templateContext ); warnings( state.design.warnings, panel ); }
-			if ( state.step === 3 && state.mode === 'article' ) { panel.append( articleEditor( state ) ); var articleSeo = seoFieldsEditor( state ); if ( articleSeo ) { panel.append( articleSeo ); } }
+			if ( state.step === 3 && state.mode === 'article' ) { panel.append( articleEditor( state ), articlePostFieldsEditor( state ) ); var articleSeo = seoFieldsEditor( state ); if ( articleSeo ) { panel.append( articleSeo ); } var articleFields = editorialFieldsEditor( state ); if ( articleFields ) { panel.append( articleFields ); } }
 			if ( state.step === 3 ) { appendSaveControls( panel, state ); }
 			if ( state.step < 3 ) {
 				var actions = node( 'div', undefined, 'nlr-savebar' );

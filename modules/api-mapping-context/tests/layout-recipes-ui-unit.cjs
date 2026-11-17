@@ -55,6 +55,19 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert(!t.host.textContent.includes('Choose an existing page as your example'));
   await t.controller.capture(0);t.flushFrames();
   assert.equal(t.controller.state.recipe.mode,'static');assert(t.host.textContent.includes('How NOVA content becomes blocks'));assert(!t.host.textContent.includes('Choose your fixed content fields'));
+  native.fields.push({target:'/native_post/featured_image',label:'Featured image',kind:'image_url',format:'url',writable:true,native_media:{kind:'featured'}},{target:'/native_post/excerpt',label:'Excerpt',kind:'excerpt',format:'text',writable:true,roles:['meta_description']});
+  native.posting_field_choices={'/@nova/custom-fields/meta/summary':{provider:'meta',name:'summary',key:'summary',type:'string',label:'Summary'}};
+  native.seo_field_choices={'/@nova/seo/yoast/title':{provider:'yoast',field:'title',label:'Yoast SEO title'}};
+  t.controller.state.design=clone(native);t.controller.go(3);t.flushFrames();
+  for(const label of ['Featured image','Excerpt']){const box=controlFor(t,label);assert.equal(box.checked,false);box.checked=true;box.events.change();t.flushFrames();}
+  assert.equal(t.controller.state.recipe.bindings.find(item=>item.target==='/native_post/featured_image').native_media,true);
+  assert.equal(t.controller.state.recipe.bindings.find(item=>item.target==='/native_post/excerpt').required,false);
+  let summary=controlFor(t,'Summary');summary.checked=true;summary.events.change();t.flushFrames();
+  const source=controlFor(t,'NOVA content for Summary');source.value='h1';source.events.change();t.flushFrames();
+  assert.equal(t.controller.state.recipe.article.sources['/@nova/custom-fields/meta/summary'],'h1');
+  summary=controlFor(t,'Summary');summary.checked=false;summary.events.change();t.flushFrames();
+  assert.equal(t.controller.state.recipe.article.sources,undefined);
+  assert(t.host.textContent.includes('SEO metadata'));
   const transforms=t.host.all().filter(item=>item.className==='nlr-transform');assert.equal(transforms.length,7);
   assert.deepEqual(transforms.map(row=>row.children[0].querySelector('code').textContent),['<p>','<h1>–<h6>','<ul> / <ol>','<table>','<blockquote>','<img>','<hr>']);
   for(const row of transforms){assert.equal(row.open,false);assert(row.children[0].querySelector('svg'));assert.equal(row.children[0].querySelector('svg').getAttribute('aria-hidden'),'true');assert(row.children[0].textContent.includes('Settings'));}

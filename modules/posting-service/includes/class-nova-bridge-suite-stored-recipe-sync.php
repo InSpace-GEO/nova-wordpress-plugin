@@ -41,6 +41,9 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         if ( is_wp_error( $routes ) ) { return $routes; }
         $selector = Nova_Bridge_Suite_Layout_URL_Routes::selector( $record['resource_id'], $record['source_reference'] ?? [] );
         $prefix = $selector['path_prefix'] ?? null;
+        $owner = $selected && $selected !== $previous_id ? Nova_Bridge_Suite_Layout_URL_Routes::previous_default( $client->site_id(), $selected, $type ) : null;
+        // Saving a new default for the same native destination explicitly supersedes its old layout.
+        $same_destination = $owner && $selector && $owner['resource_id'] === $record['resource_id'] && $owner['installation_path'] === $selector['installation_path'];
         // Keep an installation's original single default until there are two destinations to distinguish.
         $has_type_routes = in_array( $type, array_column( $routes, 'page_type' ), true );
         $multiple = $has_type_routes || ( $selected && $selected !== $previous_id );
@@ -48,17 +51,16 @@ final class Nova_Bridge_Suite_Stored_Recipe_Sync {
         $migration = null;
         if ( null !== $replace && ( $replace['page_type'] !== $type || $replace['template_id'] !== $selected || $replace['defaults_revision'] !== $body['revision'] || $scoped ) ) { return self::default_conflict( $type, $selected, $body['revision'] ); }
         $existing = $scoped ? ( $routes[$type . ':' . $prefix] ?? null ) : null;
-        if ( $existing && ( $existing['template_id'] !== $previous_id || ( isset( $existing['installation_path'] ) && $existing['installation_path'] !== $selector['installation_path'] ) ) ) {
+        if ( $existing && ( ( $existing['template_id'] !== $previous_id && ! ( $same_destination && $existing['template_id'] === $selected ) ) || ( isset( $existing['installation_path'] ) && $existing['installation_path'] !== $selector['installation_path'] ) ) ) {
             return self::error( 'route_conflict', 'Another ' . $type . ' layout already handles URLs under ' . $prefix . '. WordPress registers the same URL pattern for both destinations. Give one destination a distinct permalink base before syncing.' );
         }
         $existing_binding = $scoped && $previous_id && ( $routes[$type . ':' . $prefix]['template_id'] ?? null ) === $previous_id;
         if ( $selected && $selected !== $previous_id && ! $existing_binding ) {
-            $owner = Nova_Bridge_Suite_Layout_URL_Routes::previous_default( $client->site_id(), $selected, $type );
             $other_prefix = $owner['path_prefix'] ?? null;
             if ( ! $modern && null !== $prefix && null !== $other_prefix && $prefix !== $other_prefix ) {
                 return self::error( 'routes_unavailable', 'The two WordPress destinations have distinct permalink paths. Update posting service to support URL routes, then sync this saved layout again. The existing default was kept.' );
             }
-            if ( null === $replace && ( ! $modern || null === $prefix || null === $other_prefix || $prefix === $other_prefix ) ) {
+            if ( null === $replace && ! $same_destination && ( ! $modern || null === $prefix || null === $other_prefix || $prefix === $other_prefix ) ) {
                 $reason = $modern ? ( '/' === $prefix && '/' === $other_prefix ? 'Both WordPress destinations use root URLs. NOVA cannot distinguish the two layouts by URL.' : 'WordPress could not distinguish the two destinations by their registered permalink paths.' ) : '';
                 if ( $scoped ) { return self::error( 'route_conflict', $reason . ' Keep the current default and review the registered permalink bases before syncing.' ); }
                 return self::default_conflict( $type, $selected, $body['revision'], $reason );

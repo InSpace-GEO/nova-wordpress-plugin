@@ -54,7 +54,15 @@ final class Nova_Mapping_Gutenberg_Article {
     /** Configuration stays on the immutable recipe, outside the source design. */
     public static function validate( array $article, array $blueprint, array $bindings, array $regions ): void {
         $defaults = self::defaults();
-        if ( count( $article ) !== 3 || array_diff( array_keys( $article ), array_keys( $defaults ) ) ) { throw new InvalidArgumentException( 'Supply the complete article rendering configuration.' ); }
+        if ( array_diff( array_keys( $defaults ), array_keys( $article ) ) || array_diff( array_keys( $article ), array_merge( array_keys( $defaults ), [ 'sources' ] ) ) ) { throw new InvalidArgumentException( 'Supply the complete article rendering configuration.' ); }
+        $sources = $article['sources'] ?? [];
+        if ( ! is_array( $sources ) || count( $sources ) > 67 ) { throw new InvalidArgumentException( 'Choose a bounded set of article field sources.' ); }
+        foreach ( $sources as $path => $source ) {
+            if ( ! is_string( $path ) || ! preg_match( '~^/(?:native_post/(?:title|excerpt|featured_image)|@nova/custom-fields/(?:acf|meta|halo)/[A-Za-z0-9_-]+)$~D', $path )
+                || ! in_array( $source, [ 'h1', 'title', 'meta_description', 'content', 'top_content', 'bottom_content', 'image_url', 'image_alt', 'url', 'language', 'page_type_frontend' ], true ) ) {
+                throw new InvalidArgumentException( 'Choose an existing NOVA source for each additional article field.' );
+            }
+        }
         if ( ( $article['version'] ?? null ) !== 1 || ! is_string( $article['target'] ?? null ) || ! is_array( $article['rules'] ?? null ) ) { throw new InvalidArgumentException( 'The article renderer configuration is invalid.' ); }
         $rules = $article['rules'];
         if ( count( $rules ) !== count( $defaults['rules'] ) || array_diff( array_keys( $rules ), array_keys( $defaults['rules'] ) ) ) { throw new InvalidArgumentException( 'Use the supported article element rules.' ); }

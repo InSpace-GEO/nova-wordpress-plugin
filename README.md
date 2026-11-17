@@ -119,6 +119,10 @@ The page preview outlines WPBakery, Avada and Divi 4 elements directly. It shows
 
 ### Mapping SEO metadata
 
+Dynamic Gutenberg templates also expose **Title, featured image and excerpt**, **SEO metadata** and **Additional content fields**. The WordPress title uses the article heading. Select **Featured image** to import NOVA's primary image, or **Excerpt** to copy the meta description. Images already inside the article become native Image blocks and retain their supplied alternative text.
+
+For additional scalar text, rich-text or URL fields, choose the NOVA source to copy. Dynamic templates copy those values directly while keeping the complete article body. Structured HALO fields continue to use the Static template's field fitting. Existing saved templates retain their selected fields and publishing contract.
+
 New fixed post layouts automatically select **SEO title** and **Meta description** for detected Yoast SEO, Rank Math, SEOPress, All in One SEO, The SEO Framework, SmartCrawl, Slim SEO and Squirrly SEO installations. Save and sync normally; opening **SEO metadata** in step 3 is only needed to deselect a field or add instructions. Reopening an existing mapping preserves its saved selections, including deselections.
 
 The SEO title uses NOVA's `title` value; the meta description uses `meta_description`. These are separate from the visible page heading. The same purposes are available when mapping other native text fields. Optional instructions can refine the mapping. Omitting an optional SEO value preserves its current value; NOVA never copies the example page's metadata.

@@ -221,14 +221,22 @@ final class Nova_Bridge_Suite_Writing_Adapter {
     /** A content-driven article copies the complete body before applying local element rules. */
     private static function article_template( array $draft ) {
         $description = self::destination_description( $draft ); if ( is_wp_error( $description ) ) { return $description; }
-        $sources = [ $draft['article']['target'] . '/innerHTML' => 'content', '/title' => 'h1', '/native_post/title' => 'h1' ];
+        $sources = [ $draft['article']['target'] . '/innerHTML' => 'content', '/title' => 'h1', '/native_post/title' => 'h1', '/native_post/excerpt' => 'meta_description', '/native_post/featured_image' => 'image_url' ];
         foreach ( $draft['seo_fields'] ?? [] as $path => $field ) { $sources[$path] = 'title' === $field['field'] ? 'title' : 'meta_description'; }
-        $fields = []; $mapping = []; $known = array_column( $description['fields'], null, 'id' );
+        foreach ( $draft['article']['sources'] ?? [] as $path => $source ) {
+            if ( ( $draft['fields'][$path]['mode'] ?? '' ) !== 'adapt' ) { return self::error( 'article_source', 'An article source refers to an unselected destination.' ); }
+            $sources[$path] = $source;
+        }
+        $fields = []; $mapping = []; $known = array_column( $description['fields'], null, 'id' ); $stock = self::source_fields();
         foreach ( $draft['fields'] as $path => $field ) {
             if ( 'adapt' !== $field['mode'] ) { continue; }
             if ( ! isset( $sources[$path] ) ) { return self::error( 'article_source', 'The article layout contains a destination without a complete source binding.' ); }
             $id = self::field_id( $path );
-            $fields[] = [ 'id' => $id, 'label' => $known[$id]['label'], 'kind' => $known[$id]['value_type'], 'required' => $known[$id]['required'] ];
+            $source_type = $stock[$sources[$path]]['type'] ?? '';
+            $target_type = $known[$id]['value_type'];
+            $compatible = $source_type === $target_type || ( 'url' === $target_type && in_array( $sources[$path], [ 'image_url', 'url' ], true ) ) || ( 'email' === $target_type && 'text' === $source_type );
+            if ( ! $compatible ) { return self::error( 'article_source_type', 'Choose a NOVA source with the same content type as ' . $known[$id]['label'] . '.' ); }
+            $fields[] = [ 'id' => $id, 'label' => $known[$id]['label'], 'kind' => $source_type, 'required' => $known[$id]['required'] ];
             $mapping[] = [ 'field_id' => $id, 'source_field' => $sources[$path] ];
         }
         $input = [ 'name' => $description['name'], 'page_type' => $description['page_type'], 'definition' => [ 'version' => 1, 'fields' => $fields ], 'mapping' => [ 'version' => 1, 'fields' => $mapping ], 'enabled' => true ];
