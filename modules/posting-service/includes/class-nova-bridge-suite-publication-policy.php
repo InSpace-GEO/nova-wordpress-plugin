@@ -10,12 +10,13 @@ final class Nova_Bridge_Suite_Publication_Policy {
     }
 
     public static function publication( array $content, string $configured, string $existing_status = '' ): string {
-        if ( self::test_url( $content['url'] ?? null ) ) { return 'draft'; }
-        if ( ! array_key_exists( 'publication_status', $content ) ) { return $configured; }
+        $test = self::test_url( $content['url'] ?? null );
+        if ( ! array_key_exists( 'publication_status', $content ) ) { return $test ? 'draft' : $configured; }
         $requested = $content['publication_status'];
         if ( ! in_array( $requested, [ 'draft', 'publish' ], true ) ) { return 'unsupported'; }
-        // Frozen backend intent applies to new pages, while a published page keeps its public status.
-        return 'draft' === $requested && 'publish' === $existing_status ? 'publish' : $requested;
+        // Draft intent preserves existing pages, including status-bearing demo retries.
+        if ( '' !== $existing_status && ( $test || 'draft' === $requested ) ) { return $existing_status; }
+        return $test ? 'draft' : $requested;
     }
 
     public static function allows_shared_test( $provider ): bool {

@@ -465,7 +465,8 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 || ( $source_writer && ! empty( $job['payload']['plan']['source']['term'] ) );
             $weglot_translation = in_array( $job['payload']['native_writer'] ?? '', [ 'dictionary_translation', 'weglot_source' ], true )
                 && Nova_Bridge_Suite_Publication_Policy::allows_shared_test( $job['payload']['plan']['provider'] ?? null );
-            if ( ! $static_term && ! $weglot_translation && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && ( $job['payload']['plan']['desired_status'] ?? $job['payload']['plan']['context']['desired_status'] ?? '' ) !== 'draft' ) {
+            $preserve_existing_demo = isset( $snapshot['publication_status'] ) && ! empty( $job['payload']['context']['target_post_id'] );
+            if ( ! $static_term && ! $weglot_translation && ! $preserve_existing_demo && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) && ( $job['payload']['plan']['desired_status'] ?? $job['payload']['plan']['context']['desired_status'] ?? '' ) !== 'draft' ) {
                 return $this->block( $job, 'test_delivery_requires_draft_plan' );
             }
             $native_id_key = $static_term ? 'term_id' : 'post_id';

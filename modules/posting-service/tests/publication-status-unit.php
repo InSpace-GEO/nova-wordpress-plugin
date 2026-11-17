@@ -48,4 +48,10 @@ check( $inserts === 0, 'A rejected publication request creates no page.' );
 reset_native();
 check( Nova_Bridge_Suite_Publication_Policy::publication( [ 'url' => '/lorem-ipsum-demo-service/', 'publication_status' => 'publish' ], 'publish' ) === 'draft', 'Existing application demo URLs remain drafts.' );
 check( Nova_Bridge_Suite_Publication_Policy::publication( [], 'preserve', 'publish' ) === 'preserve', 'An absent status preserves the existing mapping behavior.' );
+foreach ( [ 'draft', 'publish', 'private', 'pending', 'future' ] as $existing ) {
+    check( Nova_Bridge_Suite_Publication_Policy::publication( [ 'publication_status' => 'draft' ], 'publish', $existing ) === $existing, 'Frozen draft intent preserves the current ' . $existing . ' state.' );
+    foreach ( [ 'draft', 'publish' ] as $requested ) {
+        check( Nova_Bridge_Suite_Publication_Policy::publication( [ 'url' => '/lorem-ipsum-demo-service/', 'publication_status' => $requested ], 'publish', $existing ) === $existing, 'Status-bearing demo updates preserve the existing ' . $existing . ' state.' );
+    }
+}
 echo 'PASS ' . ( $checks - $before_checks ) . " publication-status assertions\n";
