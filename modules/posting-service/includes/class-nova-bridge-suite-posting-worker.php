@@ -197,16 +197,17 @@ final class Nova_Bridge_Suite_Posting_Worker {
         }
         $payload = $job['payload'];
         $history = $payload['prior_attempts'] ?? [];
-        $history[] = [ 'phase' => $job['phase'], 'operation_id' => $job['operation_id'], 'actor_user_id' => $payload['context']['actor_user_id'] ?? $payload['actor_user_id'] ?? null ] + array_intersect_key( $payload, array_flip( [ 'attempt_id', 'events', 'pending_event', 'event_bytes', 'event_sha256', 'event_continue', 'native_absence_proof', 'result', 'failure_code' ] ) );
+        $history[] = [ 'phase' => $job['phase'], 'operation_id' => $job['operation_id'], 'actor_user_id' => $payload['context']['actor_user_id'] ?? $payload['actor_user_id'] ?? null, 'author_user_id' => $this->author_id( $job ) ] + array_intersect_key( $payload, array_flip( [ 'attempt_id', 'events', 'pending_event', 'event_bytes', 'event_sha256', 'event_continue', 'native_absence_proof', 'result', 'failure_code' ] ) );
         // A retained plan may already own a reserved/committed page. Reconcile it
         // under the target lock instead of planning a second create operation.
         if ( isset( $payload['plan'] ) ) {
             $payload['attempt_resume_phase'] = isset( $payload['result'] ) ? 'committed' : 'applying';
         } else {
             if ( true === ( $payload['native_absence_proof']['no_native_commit'] ?? false ) ) {
-                unset( $payload['actor_user_id'] );
+                unset( $payload['actor_user_id'], $payload['author_user_id'] );
             } elseif ( isset( $payload['context']['actor_user_id'] ) ) {
                 $payload['actor_user_id'] = $payload['context']['actor_user_id'];
+                $payload['author_user_id'] = $payload['context']['author_user_id'] ?? $payload['context']['actor_user_id'];
             }
             foreach ( [ 'context', 'configuration', 'selected_policy', 'native_writer', 'result' ] as $key ) { unset( $payload[$key] ); }
         }
@@ -234,6 +235,12 @@ final class Nova_Bridge_Suite_Posting_Worker {
 
     private function actor_id( array $job ): int {
         return (int) ( $job['payload']['context']['actor_user_id'] ?? $job['payload']['actor_user_id'] ?? $this->connection['actor_user_id'] ?? 0 );
+    }
+
+    private function author_id( array $job ): int {
+        return (int) ( $job['payload']['context']['author_user_id'] ?? $job['payload']['author_user_id']
+            ?? $job['payload']['context']['actor_user_id'] ?? $job['payload']['actor_user_id']
+            ?? $this->connection['author_user_id'] ?? $this->connection['actor_user_id'] ?? 0 );
     }
 
     /** Fixed mappings can point two URLs at the same native post. Only URL-routed plans can be separated. */
@@ -367,7 +374,9 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 if ( ! $committed_attempt && ! Nova_Bridge_Suite_Posting_Actor::eligible( $actor ) ) {
                     return $this->jobs->save( $job, [ 'state' => 'ready', 'next_attempt' => time() + 300, 'attempts' => 0, 'last_error' => 'publishing_user_unavailable' ] );
                 }
-                $job = $this->queue_event( $job, $snapshot, 'received_complete', [], 'received', [ 'actor_user_id' => $actor ] );
+                $author = $this->author_id( $job );
+                if ( ! $committed_attempt && ! Nova_Bridge_Suite_Posting_Actor::author_eligible( $author ) ) { return $this->block( $job, 'publishing_author_unavailable' ); }
+                $job = $this->queue_event( $job, $snapshot, 'received_complete', [], 'received', [ 'actor_user_id' => $actor, 'author_user_id' => $author ] );
                 if ( is_wp_error( $job ) || 'running' !== $job['state'] || 'received' !== $job['phase'] ) { return $job; }
             }
             if ( 'received' === $job['phase'] && isset( $job['payload']['attempt_resume_phase'], $job['payload']['plan'] ) ) {
@@ -381,6 +390,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
             if ( ! $actor_eligible && 'committed' !== $job['phase'] ) {
                 return 'received' === $job['phase'] ? $this->native_failure( $job, $snapshot, 'publishing_user_unavailable', [ 'no_native_commit' => true, 'boundary' => 'before_apply' ] ) : $this->block( $job, 'publishing_user_unavailable' );
             }
+            if ( 'committed' !== $job['phase'] && ! Nova_Bridge_Suite_Posting_Actor::author_eligible( $this->author_id( $job ) ) ) { return $this->block( $job, 'publishing_author_unavailable' ); }
             if ( 'received' === $job['phase'] ) {
                 // Once selected, a local rule revision belongs to this job. A later binding edit
                 // cannot reinterpret a retained delivery after a crash or a delayed draft publish.
@@ -443,7 +453,7 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 }
                 if ( ! in_array( $publication, [ 'preserve', 'publish', 'draft' ], true ) || ( $static_term && 'publish' !== $publication ) ) { return $this->native_failure( $job, $snapshot, 'publication_policy_unavailable', [ 'no_native_commit' => true ] ); }
                 $desired = 'preserve' === $publication ? ( 'create' === $operation ? 'draft' : get_post_status( $target ) ) : $publication;
-                $context = [ 'site_id' => $job['site_id'], 'delivery_id' => $snapshot['id'], 'content_id' => $snapshot['content_item_id'], 'content_item_id' => $snapshot['content_item_id'], 'content_item_version_id' => $snapshot['content_item_version_id'], 'url_id' => $snapshot['url_id'], 'version' => $snapshot['version_number'], 'operation_id' => $job['operation_id'], 'business_result_id' => $job['operation_id'], 'target_post_id' => $target, 'operation' => $operation, 'desired_status' => $desired, 'actor_user_id' => $actor, 'attempt_id' => $fetched['attempt_id'], 'source_sha256' => $snapshot['source_sha256'], 'snapshot_sha256' => hash( 'sha256', $fetched['snapshot_raw'] ), 'delivery_etag' => $fetched['delivery_etag'], 'language' => $snapshot['language'] ];
+                $context = [ 'site_id' => $job['site_id'], 'delivery_id' => $snapshot['id'], 'content_id' => $snapshot['content_item_id'], 'content_item_id' => $snapshot['content_item_id'], 'content_item_version_id' => $snapshot['content_item_version_id'], 'url_id' => $snapshot['url_id'], 'version' => $snapshot['version_number'], 'operation_id' => $job['operation_id'], 'business_result_id' => $job['operation_id'], 'target_post_id' => $target, 'operation' => $operation, 'desired_status' => $desired, 'actor_user_id' => $actor, 'author_user_id' => $this->author_id( $job ), 'attempt_id' => $fetched['attempt_id'], 'source_sha256' => $snapshot['source_sha256'], 'snapshot_sha256' => hash( 'sha256', $fetched['snapshot_raw'] ), 'delivery_etag' => $fetched['delivery_etag'], 'language' => $snapshot['language'] ];
                 $job = $this->save_payload( $job, [ 'configuration' => $configuration, 'selected_policy' => $selected, 'context' => $context, 'native_writer' => $writer_name ], 'received' );
                 if ( is_wp_error( $job ) ) { return $job; }
                 $plan = call_user_func( [ $this->writer, 'plan' ], $snapshot, $configuration, $context );

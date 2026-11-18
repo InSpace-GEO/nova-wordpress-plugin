@@ -59,7 +59,7 @@ final class Nova_Bridge_Suite_Posting_Delivery {
         $connection = Nova_Bridge_Suite_Posting_Settings::connection();
         if ( empty( $connection['enabled'] ) ) { delete_option( self::BOOTSTRAP_OPTION ); if ( wp_next_scheduled( self::CRON_HOOK ) ) { wp_clear_scheduled_hook( self::CRON_HOOK ); } return; }
         if ( ! self::ensure_schema() ) { return; }
-        $key = hash( 'sha256', wp_json_encode( [ 'webhook-runner-v1', $connection['base_url'] ?? '', $connection['site_id'] ?? '', $connection['token'] ?? '', $connection['webhook_secret'] ?? '', ! empty( $connection['paused'] ), (int) ( $connection['actor_user_id'] ?? 0 ) ] ) );
+        $key = hash( 'sha256', wp_json_encode( [ 'webhook-runner-v1', $connection['base_url'] ?? '', $connection['site_id'] ?? '', $connection['token'] ?? '', $connection['webhook_secret'] ?? '', ! empty( $connection['paused'] ), (int) ( $connection['actor_user_id'] ?? 0 ), (int) ( $connection['author_user_id'] ?? $connection['actor_user_id'] ?? 0 ) ] ) );
         if ( get_option( self::BOOTSTRAP_OPTION, '' ) === $key ) { return; }
         $store = new Nova_Bridge_Suite_Posting_Jobs();
         if ( is_wp_error( $store->lock( 'webhook-bootstrap' ) ) ) { return; }
