@@ -79,3 +79,15 @@ $output = parse_blocks( $written );
 recipe_assert( $output[0] === $native['document'][0] && $output[2] === $native['document'][2] && $output[1]['attrs'] === $native['document'][1]['attrs'], 'Keep ACF presentation settings and form references' );
 $native['document'][1]['attrs']['templateLock'] = 'all';
 recipe_assert( ! array_filter( $gutenberg->fields( $native ), static fn( $field ) => $field['writable'] ), 'Children inherit the ACF wrapper lock' );
+
+$recipe['bindings'][3]['id'] = 'nova_role_rich_text_1234567890abcdef';
+$input[3] = '<section id="details"><p>Opening.</p><h2>Details</h2><ul><li>First item</li></ul></section><p>Closing.</p>';
+$values = array_combine( [ 'value_0', 'value_1', 'value_2', 'value_3' ], $input );
+$expanded = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, $values, 'expanded-body' ), 'Expand a nested Rich text paragraph' );
+$blocks = parse_blocks( $expanded['writer_payload']['native_document'] );
+$body = $blocks[1]['innerBlocks'][3];
+recipe_assert( 'core/group' === $body['blockName'] && [ 'core/group', 'core/paragraph' ] === array_column( $body['innerBlocks'], 'blockName' ), 'Body stays at its original nested position' );
+recipe_assert( [ 'core/paragraph', 'core/heading', 'core/list' ] === array_column( $body['innerBlocks'][0]['innerBlocks'], 'blockName' ), 'Section content remains editable as individual blocks' );
+recipe_assert( $blocks[2] === $native['document'][2], 'The protected following form survives expansion' );
+$recipe['bindings'][3]['id'] = 'nova_role_intro_1234567890abcdef';
+recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, $values, 'inline-intro' ) ), 'An introduction still obeys the inline paragraph constraint' );
