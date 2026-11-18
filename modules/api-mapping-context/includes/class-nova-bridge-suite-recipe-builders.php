@@ -590,7 +590,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             'locator' => [ 'strategy' => $strategy, 'native_node_id' => $id, 'anchor' => $safe_anchor ? $anchor : '', 'precision' => 'element', 'status' => 'none' === $strategy ? 'unavailable' : 'candidate', 'reason' => 'none' === $strategy ? 'This provider does not expose a verified native page locator for this element. Use its named field in the list.' : '' ] ];
     }
 
-    private function walk_inventory( array $nodes, string $prefix, array &$result, bool $protected = false, string $context = '', array $owner = [], bool $inside_otter = false ): void {
+    private function walk_inventory( array $nodes, string $prefix, array &$result, bool $protected = false, string $context = '', array $owner = [], bool $mark_core_children = false ): void {
         $items = [];
         foreach ( $nodes as $index => $node ) {
             if ( ! is_array( $node ) ) { continue; }
@@ -619,7 +619,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             $display_value = $this->node_example( $node );
             $items[] = [ 'index' => $index, 'label' => $label . ( $display_value ? ' — ' . $display_value : '' ), 'native_type' => $native_tag ];
             $node_context = $context . ( $context ? ' > ' : '' ) . $label . ' ' . ( $index + 1 );
-            $add = function ( string $target, string $format, string $kind = 'text', $semantic_value = null, bool $field_connected = false ) use ( &$result, $label, $node_protected, $node_context, $nodes, $prefix, $node, $path, $inside_otter ) {
+            $add = function ( string $target, string $format, string $kind = 'text', $semantic_value = null, bool $field_connected = false ) use ( &$result, $label, $node_protected, $node_context, $nodes, $prefix, $node, $path, $mark_core_children ) {
                 $value = Nova_Bridge_Suite_Recipe_Engine::get( $nodes, substr( $target, strlen( $prefix ) ) );
                 $native_value = $value;
                 if ( null !== $semantic_value ) { $value = $semantic_value; }
@@ -633,7 +633,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 $result['fields'][] = [ 'target' => $target, 'label' => $label . ' · ' . ucwords( str_replace( '_', ' ', $kind ) ), 'format' => $format, 'kind' => $kind, 'value' => $value,
                     'context' => $node_context, 'writable' => $writable, 'protected' => ! $writable, 'reason' => $writable ? '' : ( $connected ? 'This Beaver field has an active field connection. Edit or map its source instead.' : 'This native value belongs to a protected, dynamic or interactive region.' ) ] + $this->provenance( $node, $path, $target );
                 if ( null !== $semantic_value ) { $result['fields'][count( $result['fields'] ) - 1]['sample'] = $semantic_value; }
-                if ( $inside_otter && '/innerHTML' === substr( $target, strlen( $path ) ) && Nova_Mapping_Gutenberg_Otter::core_target( (string) $node['blockName'] ) ) {
+                if ( $mark_core_children && '/innerHTML' === substr( $target, strlen( $path ) ) && Nova_Mapping_Gutenberg_Otter::core_target( (string) $node['blockName'] ) ) {
                     $result['fields'][count( $result['fields'] ) - 1]['locator'] = Nova_Mapping_Gutenberg_Otter::locator( $path, $node, '/innerHTML' );
                 }
             };
@@ -758,9 +758,10 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 $children = $node['children'] ?? []; $child_path = $path . '/children';
             }
             // WPBakery and Avada parent elements (tabs, carousels, content boxes, theme containers) hold editable children too.
-            if ( is_array( $children ) && ( $this->structural( $native_tag ) || ( in_array( $this->builder, [ 'wpbakery', 'avada' ], true ) && $children ) ) ) {
-                $otter_children = 'gutenberg' === $this->builder && ( $inside_otter || Nova_Mapping_Gutenberg_Otter::is_block( $native_tag ) );
-                $this->walk_inventory( $children, $child_path, $result, $node_protected, $node_context, [], $otter_children );
+            $acf_children = 'gutenberg' === $this->builder && str_starts_with( $native_tag, 'acf/' ) && ! empty( $children );
+            if ( is_array( $children ) && ( $acf_children || $this->structural( $native_tag ) || ( in_array( $this->builder, [ 'wpbakery', 'avada' ], true ) && $children ) ) ) {
+                $mark_children = 'gutenberg' === $this->builder && ( $mark_core_children || $acf_children || Nova_Mapping_Gutenberg_Otter::is_block( $native_tag ) );
+                $this->walk_inventory( $children, $child_path, $result, $node_protected, $node_context, [], $mark_children );
             }
         }
         if ( ! $protected ) { $result['containers'][] = [ 'target' => $prefix, 'label' => '' === $prefix || '/document' === $prefix ? 'Complete layout' : $context . ' · content region', 'items' => $items ]; }
