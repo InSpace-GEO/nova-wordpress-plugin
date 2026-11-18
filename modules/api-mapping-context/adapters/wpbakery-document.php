@@ -173,14 +173,51 @@ function nova_mapping_wpb_compact_to_shortcodes( $compact ) {
 	return $build( $compact );
 }
 
+/** Only a complete shortcode tree can claim block comments embedded in its text elements. */
+function nova_mapping_wpb_has_nested_block_comments( string $content ): bool {
+	if ( ! str_contains( $content, '[' ) || ! preg_match( '/<!--\s+wp:/i', $content ) || ! function_exists( 'get_shortcode_regex' ) ) { return false; }
+	$document = nova_mapping_wpb_parse_shortcodes_to_compact( $content );
+	if ( ! $document || nova_mapping_wpb_compact_to_shortcodes( $document ) !== $content ) { return false; }
+	$found = false;
+	$walk = static function ( array $nodes, bool $inside_row = false ) use ( &$walk, &$found ): bool {
+		foreach ( $nodes as $node ) {
+			if ( preg_match( '/<!--\s*\/?wp:/i', $node['raw_before'] . $node['raw_open'] . $node['raw_close'] . $node['raw_after'] ) ) { return false; }
+			if ( preg_match( '/<!--\s*\/?wp:/i', $node['text'] ) ) {
+				if ( ! $inside_row || 'vc_column_text' !== $node['tag'] ) { return false; }
+				$found = true;
+			}
+			if ( ! $walk( $node['children'], $inside_row || in_array( $node['tag'], [ 'vc_row', 'vc_row_inner' ], true ) ) ) { return false; }
+		}
+		return true;
+	};
+	return $walk( $document ) && $found;
+}
+
+function nova_mapping_wpb_us_link( string $value ): ?array {
+	$link = json_decode( rawurldecode( $value ), true );
+	return is_array( $link ) && is_string( $link['url'] ?? null ) ? $link : null;
+}
+
 function nova_mapping_wpb_packed_link_url( $value, &$found = null ) {
 	$found = false;
-	if ( ! is_scalar( $value ) || ! preg_match( '/(^|\|)url:([^|]*)/', (string) $value, $match ) ) {
-		return '';
+	if ( ! is_scalar( $value ) ) { return ''; }
+	if ( preg_match( '/(^|\|)url:([^|]*)/', (string) $value, $match ) ) {
+		$found = true;
+		return urldecode( $match[2] );
 	}
+	$link = nova_mapping_wpb_us_link( (string) $value );
+	$found = null !== $link;
+	return $link['url'] ?? '';
+}
 
-	$found = true;
-	return urldecode( (string) $match[2] );
+function nova_mapping_wpb_replace_packed_link_url( string $original, string $url ): string {
+	if ( nova_mapping_wpb_packed_link_url( $original ) === $url ) { return $original; }
+	$link = nova_mapping_wpb_us_link( $original );
+	if ( null !== $link ) {
+		$link['url'] = $url;
+		return rawurlencode( wp_json_encode( $link ) );
+	}
+	return preg_replace_callback( '/(^|\|)url:[^|]*/', static fn( $match ) => $match[1] . 'url:' . rawurlencode( $url ), $original, 1 );
 }
 
 function nova_mapping_wpb_regenerate_shortcodes_custom_css_meta( $post_id, $shortcodes ) {

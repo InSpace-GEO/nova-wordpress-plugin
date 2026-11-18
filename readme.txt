@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.19
+Stable tag: 1.6.0
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.6.0 =
+* Map and preview Otter headings, button labels and links, accordion titles, icon-list text and supported WordPress blocks nested in Otter layouts.
+* Save mapped Otter layouts as native WordPress blocks with their original styling and structure.
+* Recognize WPBakery layouts with block comments inside text elements and support encoded UpSolution button links.
 
 = 1.5.19 =
 * Separate the posting author from the administrator-authorized execution account.
