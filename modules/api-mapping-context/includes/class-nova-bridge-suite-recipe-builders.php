@@ -2,6 +2,7 @@
 /** Native document adapters for the shared layout recipe compiler. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once dirname( __DIR__ ) . '/adapters/wpbakery-salient.php';
+require_once dirname( __DIR__ ) . '/adapters/wpbakery-qode-bridge.php';
 require_once __DIR__ . '/class-nova-bridge-suite-beaver-publishing.php';
 require_once __DIR__ . '/class-nova-bridge-suite-beaver-shared.php';
 
@@ -95,7 +96,7 @@ final class Nova_Bridge_Suite_Recipe_Builders {
         $divi5 = 1 === preg_match( '/<!--\s+wp:divi\//i', $content ) || 'on' === get_post_meta( $post_id, '_et_pb_use_divi_5', true );
         if ( $divi5 ) { $builders[] = 'divi5'; }
         if ( preg_match( '/\[et_pb_/i', $content ) || ! $divi5 && 'on' === get_post_meta( $post_id, '_et_pb_use_builder', true ) ) { $builders[] = 'divi4'; }
-        if ( preg_match( '/\[vc_/i', $content ) ) { $builders[] = 'wpbakery'; }
+        if ( preg_match( '/\[vc_/i', $content ) || Nova_Mapping_Qode_Bridge::has_layout( $content ) ) { $builders[] = 'wpbakery'; }
         if ( preg_match( '/\[fusion_/i', $content ) || ! empty( get_post_meta( $post_id, '_fusion_builder_shortcodes', true ) ) ) { $builders[] = 'avada'; }
         require_once __DIR__ . '/class-nova-bridge-suite-recipe-flatsome.php';
         if ( Nova_Bridge_Suite_Recipe_Flatsome::has_document( $content ) ) { $builders[] = 'flatsome'; }
@@ -293,7 +294,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 $content = (string) $post->post_content;
                 if ( 'avada' === $this->builder && '' === trim( $content ) ) { $content = (string) get_post_meta( $post_id, '_fusion_builder_shortcodes', true ); }
                 $marker = [ 'wpbakery' => '[vc_', 'avada' => '[fusion_', 'divi4' => '[et_pb_' ][ $this->builder ];
-                if ( false === strpos( $content, $marker ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'The selected item does not contain this builder’s native layout.' ); }
+                if ( false === strpos( $content, $marker ) && ! ( 'wpbakery' === $this->builder && Nova_Mapping_Qode_Bridge::has_layout( $content ) ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'The selected item does not contain this builder’s native layout.' ); }
                 if ( 'divi4' === $this->builder && 'divi4-shortcodes' !== nova_mapping_divi_content_format( $content ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'Choose the adapter matching the actual Divi document format.' ); }
                 $blueprint['document'] = nova_mapping_wpb_parse_shortcodes_to_compact( $content );
                 if ( nova_mapping_wpb_compact_to_shortcodes( $blueprint['document'] ) !== $content ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'capture', 'This shortcode document cannot be captured without changing native source fragments. No partial layout was returned.' ); }
@@ -302,7 +303,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 if ( 'divi5' === $this->builder ) {
                     $checked = nova_mapping_divi5_validate_create_document( (string) $post->post_content );
                     if ( is_wp_error( $checked ) ) { return $checked; }
-                } elseif ( preg_match( '/\[(?:vc_|fusion_|et_pb_)|<!--\s+wp:divi\//i', $post->post_content ) || get_post_meta( $post_id, '_fl_builder_enabled', true ) || get_post_meta( $post_id, '_breakdance_data', true ) || 'builder' === get_post_meta( $post_id, '_elementor_edit_mode', true ) ) {
+                } elseif ( preg_match( '/\[(?:vc_|fusion_|et_pb_)|<!--\s+wp:divi\//i', $post->post_content ) || Nova_Mapping_Qode_Bridge::has_layout( $post->post_content ) || get_post_meta( $post_id, '_fl_builder_enabled', true ) || get_post_meta( $post_id, '_breakdance_data', true ) || 'builder' === get_post_meta( $post_id, '_elementor_edit_mode', true ) ) {
                     return Nova_Bridge_Suite_Recipe_Builders::error( 'reference', 'Choose the native builder adapter for this content item.' );
                 }
                 // Divi's frontend block parser expands global layouts. Capture the stored nodes and their references.
@@ -452,7 +453,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     private function page_meta( int $post_id ): array {
         $result = [];
         foreach ( (array) get_post_meta( $post_id ) as $key => $values ) {
-            $keep = 'wpbakery' === $this->builder ? ( in_array( $key, [ '_wpb_post_custom_css', '_vc_post_settings' ], true ) || Nova_Mapping_Salient::meta_key( $key ) )
+            $keep = 'wpbakery' === $this->builder ? ( in_array( $key, [ '_wpb_post_custom_css', '_vc_post_settings' ], true ) || Nova_Mapping_Salient::meta_key( $key ) || Nova_Mapping_Qode_Bridge::meta_key( $key ) )
                 : ( 'avada' === $this->builder ? 0 === strpos( $key, 'pyre_' )
                 : ( in_array( $this->builder, [ 'divi4', 'divi5' ], true ) ? in_array( $key, [ '_et_pb_page_layout', '_et_pb_show_title', '_et_pb_custom_css', '_et_pb_post_hide_nav' ], true )
                 : ( 'beaver' === $this->builder ? '_fl_builder_data_settings' === $key
@@ -561,7 +562,10 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         $nodes = $native['document'] ?? $native; $prefix = isset( $native['document'] ) ? '/document' : '';
         $this->walk_inventory( $nodes, $prefix, $result );
         if ( 'gutenberg' === $this->builder && isset( $native['meta'] ) ) { $result['fields'] = array_merge( $result['fields'], Nova_Mapping_Gutenberg_ACF::meta_fields( $native['meta'] ) ); }
-        if ( 'wpbakery' === $this->builder && isset( $native['document'] ) ) { $result['fields'] = array_merge( $result['fields'], Nova_Mapping_Salient::fields( $native['meta'] ?? [] ) ); }
+        if ( 'wpbakery' === $this->builder && isset( $native['document'] ) ) {
+            $meta = $native['meta'] ?? [];
+            $result['fields'] = array_merge( $result['fields'], Nova_Mapping_Salient::fields( $meta ), Nova_Mapping_Qode_Bridge::fields( $meta ) );
+        }
         return $result;
     }
 
@@ -801,6 +805,10 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             }
         }
         $original = Nova_Bridge_Suite_Recipe_Engine::get( $native, $target );
+        if ( 'wpbakery' === $this->builder && Nova_Mapping_Qode_Bridge::is_title_target( $target ) ) {
+            $displayed = html_entity_decode( wp_strip_all_tags( (string) $original ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            $value = $displayed === $value ? $original : esc_html( (string) $value );
+        }
         $heading = ( 'divi4' === $this->builder || 'divi5' === $this->builder || ( 'wpbakery' === $this->builder && '/text' === substr( $target, -5 ) ) ) && self::heading_html( (string) $original );
         if ( $heading ) {
             $value = self::inline_value( (string) $value, true ); if ( is_wp_error( $value ) ) { return $value; }
@@ -1008,7 +1016,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         if ( ! current_user_can( 'manage_options' ) || ! $object || ! current_user_can( $object->cap->create_posts ?? $object->cap->edit_posts ) || ! current_user_can( $object->cap->edit_posts ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'permission', 'You do not have permission to create this draft.', 403 ); }
         $this->helpers();
         require_once dirname( __DIR__ ) . '/adapters/class-native-draft.php';
-        if ( 'wpbakery' === $this->builder ) { $check = Nova_Mapping_Salient::probe( $payload['wpbakery_document'] ?? [], $payload['meta'] ?? [] ); if ( is_wp_error( $check ) ) { return $check; } }
+        if ( 'wpbakery' === $this->builder ) { $check = self::probe_wpbakery( $payload ); if ( is_wp_error( $check ) ) { return $check; } }
         $id = Nova_Native_Layout_Draft::create( $this->builder, $payload, $post_fields );
         if ( is_wp_error( $id ) ) { return $id; }
         $post = get_post( $id );
@@ -1021,6 +1029,13 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     /* Known-ID publishing for saved WPBakery, Avada and Beaver layouts. */
     private const PUBLISHERS = [ 'wpbakery' => [ 'name' => 'WPBakery', 'state' => [ '_wpb_vc_js_status', '_wpb_shortcodes_custom_css' ] ], 'avada' => [ 'name' => 'Avada', 'state' => [ '_fusion_builder_status', '_fusion_builder_shortcodes', '_fusion_builder_content' ] ] ];
     private function publisher(): ?array { return self::PUBLISHERS[ $this->builder ] ?? null; }
+
+    private static function probe_wpbakery( array $payload ) {
+        $nodes = $payload['wpbakery_document'] ?? [];
+        $meta = $payload['meta'] ?? [];
+        $check = Nova_Mapping_Salient::probe( $nodes, $meta );
+        return is_wp_error( $check ) ? $check : Nova_Mapping_Qode_Bridge::probe( $nodes, $meta );
+    }
     /** Builder state written next to the document, as the native draft writer does. */
     private function publication_state( string $content ): array {
         return 'avada' === $this->builder ? [ '_fusion_builder_status' => 'active', '_fusion_builder_shortcodes' => $content, '_fusion_builder_content' => $content ] : [ '_wpb_vc_js_status' => 'true' ];
@@ -1045,7 +1060,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         if ( 'beaver' === $this->builder ) { return Nova_Bridge_Suite_Beaver_Publishing::probe( $type, $payload, $status ); }
         $support = $this->publication_support( $type ); if ( ! $support['supported'] ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'provider', $support['reason'] ); }
         $content = $this->publication_document( $payload ); if ( is_wp_error( $content ) ) { return $content; }
-        if ( 'wpbakery' === $this->builder ) { $check = Nova_Mapping_Salient::probe( $payload['wpbakery_document'], $payload['meta'] ?? [] ); if ( is_wp_error( $check ) ) { return $check; } }
+        if ( 'wpbakery' === $this->builder ) { $check = self::probe_wpbakery( $payload ); if ( is_wp_error( $check ) ) { return $check; } }
         return [ 'wordpress' => (string) ( $GLOBALS['wp_version'] ?? '' ), 'provider_version' => $this->builder . '-shortcodes-v1', $this->builder => $this->version() ];
     }
     public function publication_snapshot( int $id, array $payload ) {
@@ -1073,7 +1088,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     public function publication_verify( int $id, array $payload ) {
         if ( 'beaver' === $this->builder ) { return Nova_Bridge_Suite_Beaver_Publishing::verify( $id, $payload ); }
         $content = $this->publication_document( $payload ); if ( is_wp_error( $content ) ) { return $content; }
-        if ( 'wpbakery' === $this->builder ) { $check = Nova_Mapping_Salient::probe( $payload['wpbakery_document'], $payload['meta'] ?? [] ); if ( is_wp_error( $check ) ) { return $check; } }
+        if ( 'wpbakery' === $this->builder ) { $check = self::probe_wpbakery( $payload ); if ( is_wp_error( $check ) ) { return $check; } }
         $state = $this->publication_snapshot( $id, $payload ); if ( is_wp_error( $state ) ) { return $state; }
         $mismatch = $state['content'] === $content ? '' : 'post_content';
         foreach ( $this->publication_state( $content ) as $key => $value ) { if ( '' === $mismatch && ( $state['meta'][ $key ]['value'] ?? null ) !== $value ) { $mismatch = $key; } }

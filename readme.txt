@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,11 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.7.0 =
+* Capture and publish WPBakery layouts with Bridge Core shortcodes and preserve Bridge title, sidebar and page presentation settings.
+* Map Bridge title-area text and highlight workflow and accordion controls on the native reference preview.
+* Show animated Bridge workflows in the static mapping preview and check shortcode dependencies before writing.
 
 = 1.6.0 =
 * Map and preview Otter headings, button labels and links, accordion titles, icon-list text and supported WordPress blocks nested in Otter layouts.

@@ -102,6 +102,7 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 			$version = substr( hash_file( 'sha256', $script ), 0, 16 );
 			wp_enqueue_script( 'nova-recipe-canvas', NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/recipe-canvas.js', [], $version, false );
 			$config = self::$canvas; unset( $config['taxonomy'] ); $config['parentOrigin'] = self::$parent_origin;
+			if ( function_exists( 'get_template' ) && 'bridge' === get_template() ) { $config['qodeBridge'] = true; }
 			wp_add_inline_script( 'nova-recipe-canvas', 'window.NovaRecipeCanvas=' . wp_json_encode( $config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ) . ';', 'before' );
 			require_once __DIR__ . '/class-nova-bridge-suite-preview-bootstrap.php';
 			Nova_Bridge_Suite_Preview_Bootstrap::start( $config, add_query_arg( [ 'ver' => $version ], NOVA_BRIDGE_SUITE_API_MAPPING_CONTEXT_URL . 'assets/recipe-canvas.js' ), self::$canvas_nonce );
