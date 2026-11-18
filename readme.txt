@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.9.0
+Stable tag: 1.8.2
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -11,7 +11,7 @@ Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge
 
 == Changelog ==
 
-= 1.9.0 =
+= 1.8.2 =
 
 * Static Gutenberg Rich text paragraph fields can expand into native article blocks in place, including inside ACF layouts.
 
