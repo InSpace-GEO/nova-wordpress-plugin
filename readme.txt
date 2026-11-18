@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.5.18
+Stable tag: 1.5.19
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,12 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.5.19 =
+* Separate the posting author from the administrator-authorized execution account.
+* Allow standard Author accounts as the byline on new posts and pages.
+* Retain author and execution identities through delivery retries and recovery.
+* Save Posting author once as an administrator to enable separate execution on an existing connection.
 
 = 1.5.18 =
 * Resolve exact native URLs on large sites using targeted slug and ID lookups.
