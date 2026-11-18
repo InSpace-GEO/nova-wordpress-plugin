@@ -115,10 +115,10 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 	public static function mark_custom_html( string $content ): string {
 		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }
 		$has_html = str_contains( $content, '<!-- wp:html' );
-		$has_otter = str_contains( $content, '<!-- wp:themeisle-blocks/' );
-		if ( ( ! $has_html && ! $has_otter ) || self::has_nested_shortcodes( $content ) ) { return $content; }
+		$has_provider_blocks = str_contains( $content, '<!-- wp:themeisle-blocks/' ) || str_contains( $content, '<!-- wp:acf/' );
+		if ( ( ! $has_html && ! $has_provider_blocks ) || self::has_nested_shortcodes( $content ) ) { return $content; }
 		$blocks = parse_blocks( $content );
-		if ( $has_otter ) {
+		if ( $has_provider_blocks ) {
 			require_once dirname( __DIR__ ) . '/adapters/gutenberg-otter.php';
 			$blocks = Nova_Mapping_Gutenberg_Otter::preview( $blocks );
 		}

@@ -139,18 +139,18 @@ final class Nova_Mapping_Gutenberg_Otter {
     }
 
     /** Apply the same source markers the mapping canvas expects, only on its preview copy. */
-    public static function preview( array $blocks, string $parent = '/document', bool $inside_otter = false ): array {
+    public static function preview( array $blocks, string $parent = '/document', bool $mark_core_children = false ): array {
         foreach ( $blocks as $index => &$block ) {
             $path = $parent . '/' . $index;
             $name = (string) $block['blockName'];
             $is_otter = self::is_block( $name );
-            if ( $block['innerBlocks'] ) { $block['innerBlocks'] = self::preview( $block['innerBlocks'], $path . '/innerBlocks', $inside_otter || $is_otter ); }
+            if ( $block['innerBlocks'] ) { $block['innerBlocks'] = self::preview( $block['innerBlocks'], $path . '/innerBlocks', $mark_core_children || $is_otter || str_starts_with( $name, 'acf/' ) ); }
             $markers = [];
             if ( $is_otter ) {
                 foreach ( self::controls( $block ) as $target => $control ) {
                     $markers[$control['element']['start']][] = self::marker( $path, $block, $target );
                 }
-            } elseif ( $inside_otter && ( $target = self::core_target( $name ) ) ) {
+            } elseif ( $mark_core_children && ( $target = self::core_target( $name ) ) ) {
                 $markers[0][] = self::marker( $path, $block, $target );
             }
             krsort( $markers );
