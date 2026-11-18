@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.7.0
+Stable tag: 1.7.1
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.7.1 =
+* Capture, preview and write native Gutenberg content nested inside ACF layout blocks. Recapture an existing reference to map its newly available fields.
 
 = 1.7.0 =
 * Capture and publish WPBakery layouts with Bridge Core shortcodes and preserve Bridge title, sidebar and page presentation settings.
