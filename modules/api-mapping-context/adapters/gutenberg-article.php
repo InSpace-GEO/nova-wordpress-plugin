@@ -6,6 +6,7 @@ final class Nova_Mapping_Gutenberg_Article {
     private const LIMIT = 1000;
     private $rules;
     private $count = 0;
+    private $static_body = false;
     private $warnings = [];
 
     public static function defaults(): array {
@@ -103,6 +104,24 @@ final class Nova_Mapping_Gutenberg_Article {
         return [ 'blueprint' => $blueprint, 'warnings' => array_values( array_unique( $renderer->warnings ) ) ];
     }
 
+    /** A single replacement group keeps surrounding binding, media and omission paths stable. */
+    public static function paragraph_body( array $paragraph, string $html ): array {
+        $renderer = new self();
+        $renderer->rules = self::defaults()['rules'];
+        $renderer->static_body = true;
+        $children = $renderer->convert( $html, null );
+        $attrs = array_intersect_key( $paragraph['attrs'], array_flip( [ 'anchor', 'className', 'style', 'backgroundColor', 'textColor', 'fontSize', 'fontFamily', 'gradient', 'lock' ] ) );
+        $attrs['layout'] = [ 'type' => 'default' ];
+        $opening = '<div class="wp-block-group">';
+        if ( preg_match( '/^\s*<p\b([^>]*)>/i', $paragraph['innerHTML'], $match ) ) {
+            $tag = new WP_HTML_Tag_Processor( '<div' . $match[1] . '>' );
+            $tag->next_tag();
+            $tag->add_class( 'wp-block-group' );
+            $opening = $tag->get_updated_html();
+        }
+        return self::block( 'core/group', $attrs, $opening, $children, '</div>' );
+    }
+
     private static function block( string $name, array $attrs, string $opening, array $children = [], string $closing = '' ): array {
         return [ 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children, 'innerHTML' => $opening . $closing,
             'innerContent' => array_merge( [ $opening ], array_fill( 0, count( $children ), null ), $closing === '' ? [] : [ $closing ] ) ];
@@ -192,6 +211,14 @@ final class Nova_Mapping_Gutenberg_Article {
 
     private function element( DOMElement $node, int $depth ): array {
         $tag = strtolower( $node->tagName );
+        if ( $this->static_body && in_array( $tag, [ 'section', 'article', 'div' ], true ) && ! $this->has_attributes( $node, [ 'class', 'id' ] ) ) {
+            [ $attrs, $class ] = $this->classes( 'paragraph', $node->getAttribute( 'class' ), 'wp-block-group' );
+            $attrs['layout'] = [ 'type' => 'default' ];
+            if ( 'div' !== $tag ) { $attrs['tagName'] = $tag; }
+            $id = $node->getAttribute( 'id' );
+            if ( '' !== $id ) { $attrs['anchor'] = $id; }
+            return $this->counted( self::block( 'core/group', $attrs, '<' . $tag . $class . ( '' === $id ? '' : ' id="' . esc_attr( $id ) . '"' ) . '>', $this->children( $node, $depth + 1 ), '</' . $tag . '>' ) );
+        }
         if ( 'p' === $tag && ! $this->has_attributes( $node, [ 'class' ] ) && ! $this->has_block_children( $node ) ) { return $this->paragraph( $this->inner( $node ), $node->getAttribute( 'class' ) ); }
         if ( preg_match( '/^h([1-6])$/D', $tag, $match ) && ! $this->has_attributes( $node, [ 'class', 'id' ] ) && ! $this->has_block_children( $node ) ) {
             $level = $this->rules['heading']['level'] === 'preserve' ? (int) $match[1] : $this->rules['heading']['level'];

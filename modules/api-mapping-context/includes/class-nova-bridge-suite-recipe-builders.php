@@ -643,7 +643,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 $result['fields'][] = [ 'target' => $target, 'label' => $label . ' · ' . ucwords( str_replace( '_', ' ', $kind ) ), 'format' => $format, 'kind' => $kind, 'value' => $value,
                     'context' => $node_context, 'writable' => $writable, 'protected' => ! $writable, 'reason' => $writable ? '' : ( $connected ? 'This Beaver field has an active field connection. Edit or map its source instead.' : 'This native value belongs to a protected, dynamic or interactive region.' ) ] + $this->provenance( $node, $path, $target );
                 if ( null !== $semantic_value ) { $result['fields'][count( $result['fields'] ) - 1]['sample'] = $semantic_value; }
-                if ( $mark_core_children && '/innerHTML' === substr( $target, strlen( $path ) ) && Nova_Mapping_Gutenberg_Otter::core_target( (string) $node['blockName'] ) ) {
+                if ( ( $mark_core_children || ( 'gutenberg' === $this->builder && Nova_Mapping_Gutenberg_Otter::body_preview_target( $node ) ) ) && '/innerHTML' === substr( $target, strlen( $path ) ) && Nova_Mapping_Gutenberg_Otter::core_target( (string) $node['blockName'] ) ) {
                     $result['fields'][count( $result['fields'] ) - 1]['locator'] = Nova_Mapping_Gutenberg_Otter::locator( $path, $node, '/innerHTML' );
                     // Some ACF renderers render InnerBlocks directly, bypassing the_content markers.
                     $key = 'image_url' === $kind ? 'media' : 'text';
@@ -846,7 +846,16 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 $current_text = html_entity_decode( strip_tags( $button[1] ?? '' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
                 $value = $current_text === $value ? $original : preg_replace_callback( '/(<a\b[^>]*>)[\s\S]*?(<\/a>)/i', static function ( $match ) use ( $value ) { return $match[1] . esc_html( (string) $value ) . $match[2]; }, $original, 1 );
             } elseif ( 'core/html' !== $parent['blockName'] ) {
-                $value = self::inline_value( (string) $value, 'core/heading' === $parent['blockName'] ); if ( is_wp_error( $value ) ) { return $value; }
+                $inline = self::inline_value( (string) $value, 'core/heading' === $parent['blockName'] );
+                if ( is_wp_error( $inline ) ) {
+                    $rich_body = ! empty( $binding['paragraph_body'] ) || preg_match( '/^nova_role_rich_text_[a-f0-9]{16}$/D', $binding['id'] ?? '' );
+                    if ( ! $rich_body || 'core/paragraph' !== $parent['blockName'] || 'html' !== $binding['format'] ) { return $inline; }
+                    require_once dirname( __DIR__ ) . '/adapters/gutenberg-article.php';
+                    $body = Nova_Mapping_Gutenberg_Article::paragraph_body( $parent, (string) $value );
+                    Nova_Bridge_Suite_Recipe_Engine::put( $native, substr( $target, 0, -10 ), $body );
+                    return $native;
+                }
+                $value = $inline;
                 $value = self::inside_wrapper( $original, $value, 'text' === $binding['format'] );
             }
         } elseif ( 'gutenberg' === $this->builder && '/innerContent/0' === substr( $target, -15 ) ) {
