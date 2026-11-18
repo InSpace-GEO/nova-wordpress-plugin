@@ -89,6 +89,7 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		if ( self::$canvas ) {
 			if ( 'post' === $type ) {
 				add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 );
+				add_filter( 'the_content', [ __CLASS__, 'mark_nested_shortcodes' ], 8 );
 				add_filter( 'fl_builder_render_module_html_content', [ __CLASS__, 'mark_beaver_html' ], PHP_INT_MAX, 4 );
 				add_filter( 'the_content', [ __CLASS__, 'mark_shortcodes' ], 9 );
 				require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
@@ -111,9 +112,31 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		wp_add_inline_script( 'nova-mapping-preview', 'window.NovaMappingPreview=' . wp_json_encode( [ 'referenceId' => $id, 'referenceType' => $type, 'parentOrigin' => self::$parent_origin ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ) . ';', 'before' );
 	}
 	public static function mark_custom_html( string $content ): string {
-		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] || ! str_contains( $content, '<!-- wp:html' ) ) { return $content; }
-		require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
-		return serialize_blocks( Nova_Mapping_Gutenberg_HTML::preview_blocks( parse_blocks( $content ) ) );
+		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }
+		$has_html = str_contains( $content, '<!-- wp:html' );
+		$has_otter = str_contains( $content, '<!-- wp:themeisle-blocks/' );
+		if ( ( ! $has_html && ! $has_otter ) || self::has_nested_shortcodes( $content ) ) { return $content; }
+		$blocks = parse_blocks( $content );
+		if ( $has_otter ) {
+			require_once dirname( __DIR__ ) . '/adapters/gutenberg-otter.php';
+			$blocks = Nova_Mapping_Gutenberg_Otter::preview( $blocks );
+		}
+		if ( $has_html ) {
+			require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
+			$blocks = Nova_Mapping_Gutenberg_HTML::preview_blocks( $blocks );
+		}
+		return serialize_blocks( $blocks );
+	}
+	public static function mark_nested_shortcodes( string $content ): string {
+		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] || ! self::has_nested_shortcodes( $content ) ) { return $content; }
+		// Core strips block delimiters before the ordinary shortcode preview filter runs.
+		require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
+		return Nova_Bridge_Suite_Shortcode_Preview::mark_content( $content );
+	}
+	private static function has_nested_shortcodes( string $content ): bool {
+		if ( ! str_contains( $content, '[vc_' ) ) { return false; }
+		require_once dirname( __DIR__ ) . '/adapters/wpbakery-document.php';
+		return nova_mapping_wpb_has_nested_block_comments( $content );
 	}
 	public static function mark_beaver_html( string $content, string $type, $settings, $module ): string {
 		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }
@@ -121,7 +144,7 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		return Nova_Mapping_Beaver_HTML::preview( $content, $type, $settings, $module );
 	}
 	public static function mark_shortcodes( string $content ): string {
-		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }
+		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] || str_contains( $content, ' nova_preview_node=' ) ) { return $content; }
 		require_once __DIR__ . '/class-nova-bridge-suite-shortcode-preview.php';
 		return Nova_Bridge_Suite_Shortcode_Preview::mark_content( $content );
 	}

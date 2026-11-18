@@ -162,7 +162,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 $control = [ Nova_Bridge_Suite_Recipe_Native_Media::TITLE => 'title', Nova_Bridge_Suite_Recipe_Native_Media::EXCERPT => 'excerpt', Nova_Bridge_Suite_Recipe_Native_Media::FEATURED => 'featured_image' ][ $field['target'] ];
                 $locator = $dynamic_locators[ $field['target'] ] ?? [ 'strategy' => 'core', 'control_path' => [ $control ], 'precision' => 'title' === $control ? 'field' : 'region' ];
             }
-            if ( empty( $locator['node_id'] ) && 'core' !== $locator['strategy'] ) { $locator['strategy'] = 'unbound'; }
+            if ( empty( $locator['node_id'] ) && ! in_array( $locator['strategy'], [ 'core', 'custom_html' ], true ) ) { $locator['strategy'] = 'unbound'; }
             if ( 'gutenberg' === $builder && ( str_contains( $field['target'], '/nova_html_slots/' )
                 || ( 'unbound' === $locator['strategy'] && str_ends_with( $field['target'], '/innerHTML' ) ) ) ) {
                 require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';

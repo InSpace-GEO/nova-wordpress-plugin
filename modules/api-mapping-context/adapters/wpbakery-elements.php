@@ -45,7 +45,18 @@ final class Nova_Mapping_WPBakery_Elements {
     public static function fields( array $node ): array {
         $tag = (string) ( $node['tag'] ?? '' ); $attributes = is_array( $node['attributes'] ?? null ) ? $node['attributes'] : [];
         $definition = self::definition( $tag );
-        return null === $definition ? self::fallback( $tag, $node, $attributes ) : self::described( $tag, $node, $attributes, $definition );
+        $fields = null === $definition ? self::fallback( $tag, $node, $attributes ) : self::described( $tag, $node, $attributes, $definition );
+        if ( 'us_btn' === $tag ) {
+            // The theme's own picker can register these controls with non-WPBakery parameter types.
+            if ( is_string( $attributes['label'] ?? null ) && ! in_array( '/attributes/label', array_column( $fields, 'suffix' ), true ) ) {
+                $fields[] = [ 'suffix' => '/attributes/label', 'format' => 'text', 'kind' => 'button_text', 'label' => 'Label' ];
+            }
+            if ( is_string( $attributes['link'] ?? null ) && null !== nova_mapping_wpb_us_link( $attributes['link'] ) ) {
+                $fields = array_values( array_filter( $fields, static fn( $field ) => '/attributes/link' !== $field['suffix'] ) );
+                $fields[] = [ 'suffix' => '/attributes/link', 'format' => 'url', 'kind' => 'link_url', 'label' => 'Link', 'packed_link' => true ];
+            }
+        }
+        return $fields;
     }
 
     private static function described( string $tag, array $node, array $attributes, array $definition ): array {
@@ -135,7 +146,7 @@ final class Nova_Mapping_WPBakery_Elements {
     }
 
     private static function kind( string $tag, string $name ): string {
-        if ( preg_match( '/button|btn|link_text|cta/', $name ) || preg_match( '/(?:^|_)(?:btn|button|cta)(?:_|$)/', $tag ) && in_array( $name, [ 'text', 'title' ], true ) ) { return 'button_text'; }
+        if ( preg_match( '/button|btn|link_text|cta/', $name ) || preg_match( '/(?:^|_)(?:btn|button|cta)(?:_|$)/', $tag ) && ( in_array( $name, [ 'text', 'title' ], true ) || ( 'us_btn' === $tag && 'label' === $name ) ) ) { return 'button_text'; }
         if ( preg_match( '/heading|title/', $name ) || preg_match( '/heading|title/', $tag ) && 'text' === $name ) { return 'heading'; }
         if ( in_array( $name, [ 'alt', 'alt_text', 'screen_reader_text' ], true ) ) { return 'image_alt'; }
         return 'text';
