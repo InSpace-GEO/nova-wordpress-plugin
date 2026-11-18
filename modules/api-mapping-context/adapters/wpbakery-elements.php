@@ -82,7 +82,10 @@ final class Nova_Mapping_WPBakery_Elements {
             if ( 'vc_link' === $type ) { $fields[] = [ 'suffix' => '/attributes/' . $name, 'format' => 'url', 'kind' => 'link_url', 'label' => $label, 'packed_link' => true ]; continue; }
             if ( 'href' === $type ) { $fields[] = [ 'suffix' => '/attributes/' . $name, 'format' => 'url', 'kind' => 'link_url', 'label' => $label ]; continue; }
             if ( 'textfield' === $type && preg_match( self::URL_NAME, $name ) && ( '' === $value || preg_match( '~^(?:https?://|/|#|mailto:|tel:)~i', $value ) ) ) {
-                $fields[] = [ 'suffix' => '/attributes/' . $name, 'format' => 'url', 'kind' => 'link_url', 'label' => $label ]; continue;
+                $field = [ 'suffix' => '/attributes/' . $name, 'format' => 'url', 'kind' => 'link_url', 'label' => $label ];
+                if ( 'qode_button_v2' === $tag && 'link' === $name ) { $field['sample'] = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' ); }
+                $fields[] = $field;
+                continue;
             }
             if ( in_array( $type, [ 'textfield', 'textarea' ], true ) ) {
                 $editorial = preg_match( self::EDITORIAL_NAME, $name ) || ( ! empty( $param['admin_label'] ) && ! preg_match( self::PRESENTATION_NAME, $name ) );
@@ -146,6 +149,8 @@ final class Nova_Mapping_WPBakery_Elements {
     }
 
     private static function kind( string $tag, string $name ): string {
+        if ( 'qode_accordion_tab' === $tag && 'title' === $name ) { return 'question'; }
+        if ( 'qode_workflow_item' === $tag && 'subtitle' === $name ) { return 'text'; }
         if ( preg_match( '/button|btn|link_text|cta/', $name ) || preg_match( '/(?:^|_)(?:btn|button|cta)(?:_|$)/', $tag ) && ( in_array( $name, [ 'text', 'title' ], true ) || ( 'us_btn' === $tag && 'label' === $name ) ) ) { return 'button_text'; }
         if ( preg_match( '/heading|title/', $name ) || preg_match( '/heading|title/', $tag ) && 'text' === $name ) { return 'heading'; }
         if ( in_array( $name, [ 'alt', 'alt_text', 'screen_reader_text' ], true ) ) { return 'image_alt'; }

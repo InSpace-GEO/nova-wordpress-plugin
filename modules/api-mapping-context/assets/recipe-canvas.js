@@ -269,6 +269,13 @@
 		if ( locator.strategy === 'custom_html' ) { return htmlTargets && htmlTargets.get( locator.marker ) || null; }
 		if ( locator.strategy === 'value_match' ) { return valueMatch( document, locator ); }
 		var strategy = locator.strategy, id = String( locator.node_id || '' ), control = controlPath( locator ), owner, selector;
+		if ( strategy === 'qode_title' ) {
+			if ( ! config.qodeBridge ) { return null; }
+			owner = unique( document, '.content .title_outer .title_subtitle_holder' );
+			selector = { subtitle: '.subtitle', above_title: '.text_above_title' }[ locator.control ];
+			var titlePart = owner && selector ? unique( owner, selector ) : null;
+			return titlePart ? { node: titlePart, owner: titlePart, precision: 'field' } : null;
+		}
 		if ( strategy === 'salient_header' ) {
             owner = unique( document, '#page-header-bg' ) || unique( document, '#page-header-wrap' );
             if ( ! owner || owner.closest( 'nav,footer,[role="navigation"],[role="contentinfo"]' ) ) { return null; }
@@ -333,6 +340,10 @@
 			var markedNodes = document.querySelectorAll( '[data-nova-preview-node~="' + locator.marker + '"]' ); if ( markedNodes.length !== 1 ) { return null; }
 			owner = markedNodes[0];
 			var part = { image_url: 'img', image_alt: 'img', heading: 'h1,h2,h3,h4,h5,h6', button_text: 'a,button', link_url: 'a' }[ locator.kind ];
+			if ( locator.element_type === 'qode_workflow_item' ) {
+				part = { 'attributes.title': '.qode-workflow-text > :is(h1,h2,h3,h4,h5,h6):not(.qode-workflow-subtitle)', 'attributes.subtitle': '.qode-workflow-subtitle', 'attributes.text': '.qode-workflow-text > p.text', 'attributes.image': '.qode-workflow-image img' }[ control ] || part;
+			}
+			if ( locator.element_type === 'qode_accordion_tab' && control === 'attributes.title' ) { part = '.qode-tab-title-inner'; }
 			if ( part ) { var parts = owner.matches( part ) ? [ owner ] : Array.from( owner.querySelectorAll( part ) ).filter( function ( candidate ) { return ! candidate.closest( '[data-nova-preview-node]' ) || candidate.closest( '[data-nova-preview-node]' ) === owner; } ); if ( parts.length === 1 ) { return { node: parts[0], owner: owner, precision: 'field' }; } }
 			return { node: owner, owner: owner, precision: 'widget' };
 		} else if ( strategy === 'core' ) {
@@ -342,6 +353,9 @@
 			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); }
 			// Theme-builder templates print the post body through their own post-content module (Divi, Elementor Pro, Beaver Themer).
 			if ( ! owner && control === 'content' ) { owner = unique( document, '.et_pb_post_content' ) || unique( document, '.elementor-widget-theme-post-content' ) || unique( document, '.fl-module-fl-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
+			if ( ! owner && config.qodeBridge && control === 'title' && config.referenceType === 'post' ) {
+				owner = unique( document, '#post-' + config.referenceId + ' .post_text_inner .entry_title' );
+			}
 			// Themes and builders print the title in their own markup; accept exactly one visible H1 with the same text.
 			// WordPress prints the stored title with entities decoded and quotes and dashes curled.
 			if ( ! owner && control === 'title' && item.current_value && item.current_value.trim() ) {
@@ -420,6 +434,11 @@
 		document.addEventListener( 'auxclick', function ( event ) { event.preventDefault(); event.stopImmediatePropagation(); }, true );
 		document.addEventListener( 'keydown', function ( event ) { if ( event.target && event.target.closest && event.target.closest( 'form,input,select,textarea,[contenteditable]' ) ) { event.preventDefault(); event.stopImmediatePropagation(); } }, true );
 		function init() {
+			if ( config.qodeBridge ) {
+				var qodeStyle = document.createElement( 'style' );
+				qodeStyle.textContent = '.qode-page-loading-effect-holder,body > .ajax_loader,.full_screen_preloader{display:none!important}.content .title_outer.animate_title_area{opacity:1!important;height:auto!important}.content .animate_title_text .title h1{opacity:1!important;transform:none!important}.content .wpb_animate_when_almost_visible[data-nova-preview-node]{opacity:1!important;animation:none!important}';
+				document.head.appendChild( qodeStyle );
+			}
 			ready = true; var salientStyle = document.createElement( 'style' ); salientStyle.textContent = '[data-nova-static-slider] .nectar-slider-loading{display:none!important}[data-nova-static-slider],[data-nova-static-slider] .swiper-container,[data-nova-static-slider] .swiper-wrapper{position:relative!important;width:100%!important;transform:none!important;opacity:1!important;visibility:visible!important}[data-nova-static-slider] .swiper-wrapper{height:100%!important}[data-nova-static-slider] .swiper-wrapper>.swiper-slide:not([data-nova-static-slide]){display:none!important}[data-nova-static-slide]{position:relative!important;width:100%!important;height:100%!important;opacity:1!important;visibility:visible!important;transform:none!important}[data-nova-static-slide] .content,[data-nova-static-slide] .content>*{opacity:1!important;visibility:visible!important;transform:none!important}'; document.head.appendChild( salientStyle );
             var style = document.createElement( 'style' ); style.textContent = '::highlight(nova-preview-selection){background:#ead4ff;color:#28103b}.nrc-omitted{opacity:.35!important;outline:2px dashed #b42318!important;outline-offset:2px}' + consent.split( ',' ).map( function ( selector ) { return 'html.nrc-hide-consent ' + selector; } ).join( ',' ) + '{display:none!important;visibility:hidden!important;pointer-events:none!important}html.nrc-consent-present,html.nrc-consent-present body{overflow:auto!important}.nrc-target{cursor:crosshair!important}.nrc-target:hover{outline:2px dashed #8511D9!important;outline-offset:3px}.nrc-assigned{outline:2px solid #2E9E50!important;outline-offset:3px}.nrc-protected{outline-style:dotted!important}.nrc-selected{outline:3px solid #8511D9!important;outline-offset:4px}.nrc-map-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:#f0ebf7;border:1px solid #d9c4ee;border-radius:8px;color:#242424;text-align:center;cursor:crosshair}.nrc-map-placeholder strong{font-size:20px}.nrc-map-placeholder p{margin:8px 0;font-size:14px}'; document.head.appendChild( style ); hideConsent(); prepareMedia( document, config, fields );
 			send( 'ready', { limitations: [ 'Site scripts, forms, embedded frames and network requests are disabled in this canvas. It shows the rendered initial state; dynamic components can differ from the live page.' ], viewport: { width: win.innerWidth, height: win.innerHeight } } );

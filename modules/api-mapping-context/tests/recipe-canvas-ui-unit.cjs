@@ -46,6 +46,25 @@ function dom() {
 }
 function field(id,target='/document/0/settings/title',locator={}) { return {field_id:id,target,label:'Heading',writable:true,assigned:false,locator:{strategy:'elementor',reference_id:12,node_id:'heading',control_path:'title',element_type:'heading',...locator}}; }
 const fixture=dom(), record=canvas.normalizeItems([field('title')],config,false)[0];
+const bridgeConfig = {...config, qodeBridge:true};
+const bridgeContent = fixture.document.body.appendChild(new Node('div', {class:'content'}));
+const bridgeTitleOuter = bridgeContent.appendChild(new Node('div', {class:'title_outer'}));
+const bridgeTitleArea = bridgeTitleOuter.appendChild(new Node('div', {class:'title_subtitle_holder'}));
+const bridgeSubtitle = bridgeTitleArea.appendChild(new Node('span', {class:'subtitle'}));
+const bridgeTitleField = field('bridgeSubtitle', '/meta/qode_page_subtitle', {strategy:'qode_title', control:'subtitle'});
+check(canvas.locate(fixture.document, bridgeTitleField, bridgeConfig).node === bridgeSubtitle, 'Bridge title metadata resolves to its rendered subtitle');
+check(canvas.locate(fixture.document, bridgeTitleField, config) === null, 'Bridge title locator is scoped to the Bridge preview');
+const workflowMarker = '1'.repeat(32);
+const workflowOwner = bridgeContent.appendChild(new Node('div', {'data-nova-preview-node':workflowMarker}));
+const workflowTitle = workflowOwner.appendChild(new Node('h4'));
+const workflowSubtitle = workflowOwner.appendChild(new Node('h6', {class:'qode-workflow-subtitle'}));
+workflowOwner.matches = () => false;
+workflowOwner.selectors.set('.qode-workflow-text > :is(h1,h2,h3,h4,h5,h6):not(.qode-workflow-subtitle)', [workflowTitle]);
+workflowOwner.selectors.set('.qode-workflow-subtitle', [workflowSubtitle]);
+fixture.document.selectors.set('[data-nova-preview-node~="' + workflowMarker + '"]', [workflowOwner]);
+const workflowField = (name) => field(name, '/document/0/attributes/' + name, {strategy:'shortcode', marker:workflowMarker, element_type:'qode_workflow_item', control_path:['attributes',name]});
+check(canvas.locate(fixture.document, workflowField('title'), bridgeConfig).node === workflowTitle, 'Bridge workflow title targets its heading even with a second heading in the item');
+check(canvas.locate(fixture.document, workflowField('subtitle'), bridgeConfig).node === workflowSubtitle, 'Bridge workflow title and subtitle have separate preview targets');
 const csPage=fixture.document.body.appendChild(new Node('main',{id:'cs-content'}));
 const csHeadline=csPage.appendChild(new Node('div',{class:'e12-e4'}));
 const csTitle=csHeadline.appendChild(new Node('h2',{class:'x-text-content-text-primary'}));

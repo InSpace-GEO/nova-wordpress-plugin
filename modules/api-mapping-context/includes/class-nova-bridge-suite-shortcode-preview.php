@@ -52,6 +52,10 @@ final class Nova_Bridge_Suite_Shortcode_Preview {
         do { if ( ! $html->next_tag() ) { return $output; } } while ( in_array( $html->get_tag(), [ 'STYLE', 'SCRIPT', 'LINK', 'META', 'NOSCRIPT', 'TEMPLATE' ], true ) );
         $existing = $html->get_attribute( 'data-nova-preview-node' );
         $html->set_attribute( 'data-nova-preview-node', trim( ( is_string( $existing ) ? $existing . ' ' : '' ) . $attributes[ self::ATTRIBUTE ] ) );
+        // Bridge normally adds these during scroll animations. Use the visible state in the static canvas.
+        if ( ( 'qode_workflow' === $tag && $html->has_class( 'qode-workflow-animate' ) ) || ( 'qode_workflow_item' === $tag && $html->has_class( 'qode-workflow-item' ) ) ) {
+            $html->add_class( 'qode-appeared' );
+        }
         return $html->get_updated_html();
     }
 }
