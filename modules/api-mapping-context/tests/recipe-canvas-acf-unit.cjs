@@ -67,3 +67,7 @@ faq.hidden = true;
 check(canvas.locate(document, field({text:'A collapsed answer.'}), config) === null, 'Responsive-hidden FAQ content is never selected');
 delete document.defaultView;
 console.log(`PASS ${checks} ACF value-match canvas checks`);
+
+const fallback = field({strategy: 'custom_html', marker: 'a'.repeat(32), fallback: {text: 'Example category intro.'}});
+check(canvas.locate(document, fallback, config, new Map()).node === text.children[1], 'A provider-rendered inner block can be selected after its preview marker was stripped');
+check(canvas.locate(document, fallback, config, new Map([[fallback.locator.marker, null]])) === null, 'Duplicate markers never resolve through a fallback');
