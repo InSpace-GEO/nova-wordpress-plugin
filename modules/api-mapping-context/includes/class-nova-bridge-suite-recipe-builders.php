@@ -7,7 +7,7 @@ require_once __DIR__ . '/class-nova-bridge-suite-beaver-publishing.php';
 require_once __DIR__ . '/class-nova-bridge-suite-beaver-shared.php';
 
 final class Nova_Bridge_Suite_Recipe_Builders {
-    const BUILDERS = [ 'elementor', 'gutenberg', 'flatsome', 'enfold', 'cornerstone', 'betheme', 'wpbakery', 'avada', 'divi4', 'divi5', 'beaver', 'breakdance' ];
+    const BUILDERS = [ 'bricks', 'elementor', 'gutenberg', 'flatsome', 'enfold', 'cornerstone', 'betheme', 'wpbakery', 'avada', 'divi4', 'divi5', 'beaver', 'breakdance' ];
     private static $adapters = [];
 
     public static function register(): void {
@@ -21,7 +21,10 @@ final class Nova_Bridge_Suite_Recipe_Builders {
         if ( ! in_array( $builder, self::BUILDERS, true ) ) { return self::error( 'builder', 'This native recipe adapter is unavailable.' ); }
         if ( 'elementor' === $builder && ! class_exists( 'Nova_Bridge_Suite_Recipe_Elementor' ) ) { return self::error( 'builder', 'The Elementor recipe adapter is unavailable.' ); }
         if ( ! isset( self::$adapters[ $builder ] ) ) {
-            if ( 'betheme' === $builder ) {
+            if ( 'bricks' === $builder ) {
+                require_once __DIR__ . '/class-nova-bridge-suite-recipe-bricks.php';
+                self::$adapters[$builder] = new Nova_Bridge_Suite_Recipe_Bricks();
+            } elseif ( 'betheme' === $builder ) {
                 require_once __DIR__ . '/class-nova-bridge-suite-recipe-betheme.php';
                 self::$adapters[ $builder ] = new Nova_Bridge_Suite_Recipe_Betheme();
             } elseif ( 'flatsome' === $builder ) {
@@ -63,6 +66,7 @@ final class Nova_Bridge_Suite_Recipe_Builders {
             // Both editors keep their old document after switching back to WordPress or another
             // builder. Their native renderers use these per-post flags, not the retained tree.
             // Keep native_carriers() conservative for callers protecting stored documents.
+            if ( 'bricks' === $builder ) { return 'bricks' === get_post_meta( $post_id, '_bricks_editor_mode', true ); }
             if ( 'elementor' === $builder ) { return (bool) get_post_meta( $post_id, '_elementor_edit_mode', true ); }
             if ( 'beaver' === $builder ) { return (bool) get_post_meta( $post_id, '_fl_builder_enabled', true ); }
             return true;
@@ -82,6 +86,11 @@ final class Nova_Bridge_Suite_Recipe_Builders {
     public static function native_carriers( $post ): array {
         $post_id = (int) $post->ID;
         $content = (string) $post->post_content; $builders = []; $elementor = get_post_meta( $post_id, '_elementor_data', true );
+        if ( get_post_meta( $post_id, '_bricks_page_content_2', true ) ) {
+            $builders[] = 'bricks';
+            // Bricks can mirror its active document to WordPress blocks for search.
+            if ( 'bricks' === get_post_meta( $post_id, '_bricks_editor_mode', true ) ) { $content = ''; }
+        }
         if ( ! empty( get_post_meta( $post_id, 'mfn-page-items', true ) ) ) { $builders[] = 'betheme'; }
         if ( 'builder' === get_post_meta( $post_id, '_elementor_edit_mode', true ) || ! empty( $elementor ) && ! in_array( $elementor, [ '[]', [] ], true ) ) { $builders[] = 'elementor'; }
         // Cornerstone stores the editable element tree separately from the HTML or shortcodes in post_content.
@@ -115,6 +124,7 @@ final class Nova_Bridge_Suite_Recipe_Builders {
 
     /** Metadata that makes a builder render an item from its own document instead of the post content. */
     private const CARRIER_META = [
+        'bricks' => [ '_bricks_editor_mode', '_bricks_page_content_2' ],
         'betheme' => [ 'mfn-page-items', 'mfn-builder-preview', 'mfn-page-object', 'mfn-page-local-style', 'mfn-builder-preview-local-style', 'mfn-page-items-seo' ],
         'elementor' => [ '_elementor_edit_mode', '_elementor_data' ],
         'cornerstone' => [ '_cornerstone_data' ],
@@ -469,7 +479,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         return $value;
     }
 
-    private static function no_secrets( $value, int $depth = 0 ): bool {
+    public static function no_secrets( $value, int $depth = 0 ): bool {
         if ( $depth > 64 || is_object( $value ) ) { return false; }
         if ( is_array( $value ) ) {
             foreach ( $value as $key => $child ) {
@@ -635,6 +645,11 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 if ( null !== $semantic_value ) { $result['fields'][count( $result['fields'] ) - 1]['sample'] = $semantic_value; }
                 if ( $mark_core_children && '/innerHTML' === substr( $target, strlen( $path ) ) && Nova_Mapping_Gutenberg_Otter::core_target( (string) $node['blockName'] ) ) {
                     $result['fields'][count( $result['fields'] ) - 1]['locator'] = Nova_Mapping_Gutenberg_Otter::locator( $path, $node, '/innerHTML' );
+                    // Some ACF renderers render InnerBlocks directly, bypassing the_content markers.
+                    $key = 'image_url' === $kind ? 'media' : 'text';
+                    $result['fields'][count( $result['fields'] ) - 1]['locator']['fallback'] = [
+                        $key => 'media' === $key ? $value : html_entity_decode( strip_tags( (string) $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
+                    ];
                 }
             };
             if ( 'wpbakery' === $this->builder ) {

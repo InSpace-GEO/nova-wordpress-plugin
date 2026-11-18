@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.7.1
+Stable tag: 1.8.0
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.8.0 =
+* Capture and publish fixed Bricks layouts with native text, images, button links and Bricksable multi-heading fields.
+* The reference preview can locate nested Gutenberg content when an ACF renderer omits preview markers.
 
 = 1.7.1 =
 * Capture, preview and write native Gutenberg content nested inside ACF layout blocks. Recapture an existing reference to map its newly available fields.

@@ -44,7 +44,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
         if ( is_wp_error( $detected ) ) { return $detected; }
         $detected = array_values( array_unique( (array) $detected ) );
         if ( count( $detected ) > 1 ) {
-            $names = [ 'core' => 'WordPress content fields', 'gutenberg' => 'WordPress blocks', 'elementor' => 'Elementor', 'beaver' => 'Beaver Builder', 'divi4' => 'Divi 4', 'divi5' => 'Divi 5', 'wpbakery' => 'WPBakery', 'avada' => 'Avada', 'flatsome' => 'Flatsome', 'enfold' => 'Enfold', 'cornerstone' => 'Cornerstone', 'breakdance' => 'Breakdance' ];
+            $names = [ 'bricks' => 'Bricks', 'core' => 'WordPress content fields', 'gutenberg' => 'WordPress blocks', 'elementor' => 'Elementor', 'beaver' => 'Beaver Builder', 'divi4' => 'Divi 4', 'divi5' => 'Divi 5', 'wpbakery' => 'WPBakery', 'avada' => 'Avada', 'flatsome' => 'Flatsome', 'enfold' => 'Enfold', 'cornerstone' => 'Cornerstone', 'breakdance' => 'Breakdance' ];
             $labels = array_map( static function ( $builder ) use ( $names ) { return $names[ $builder ] ?? $builder; }, $detected );
             return new WP_Error( 'nova_recipe_builder_ambiguous', 'This example has active content from more than one builder (' . implode( ', ', $labels ) . '). Under Advanced: builder detection, choose the builder used for this page, then select Use this existing page again.', [ 'status' => 422, 'detected_builders' => $detected ] );
         }

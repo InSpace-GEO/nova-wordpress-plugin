@@ -88,7 +88,13 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		header( 'Referrer-Policy: no-referrer' );
 		if ( self::$canvas ) {
 			if ( 'post' === $type ) {
-				add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 );
+				add_filter( 'bricks/element/render_attributes', static function ( $attributes, $key, $element ) {
+                    if ( '_root' === $key && get_the_ID() === self::$canvas['referenceId'] && isset( $element->id ) ) {
+                        $attributes['_root']['data-nova-bricks-id'] = $element->id;
+                    }
+                    return $attributes;
+                }, 99, 3 );
+                add_filter( 'the_content', [ __CLASS__, 'mark_custom_html' ], 8 );
 				add_filter( 'the_content', [ __CLASS__, 'mark_nested_shortcodes' ], 8 );
 				add_filter( 'fl_builder_render_module_html_content', [ __CLASS__, 'mark_beaver_html' ], PHP_INT_MAX, 4 );
 				add_filter( 'the_content', [ __CLASS__, 'mark_shortcodes' ], 9 );
