@@ -43,3 +43,17 @@ foreach ( $design['fields'] as $field ) {
 }
 check( serialize_blocks( Nova_Mapping_Gutenberg_HTML::source_blocks( $bp['document'] ) ) === $example, 'No marker enters the captured native document.' );
 echo "Custom HTML preview source, identity and writer isolation checks passed.\n";
+
+$schema = '<script type="application/ld+json">{"name":"Keep this"}</script>';
+$mixed = '<p class="lead">Lead</p>' . $schema . '<!-- wp:heading --><h2>FAQ</h2><!-- /wp:heading -->' . "\n" . '<p>Tail</p>';
+$native = parse_blocks( $mixed );
+$capture = [ 'document' => Nova_Mapping_Gutenberg_HTML::capture( $native ) ];
+$indexed = array_column( $adapter->fields( $capture ), null, 'value' );
+foreach ( [ 'Lead', 'Tail' ] as $text ) {
+    $field = $indexed[$text];
+    $locator = Nova_Mapping_Gutenberg_HTML::preview_locator( $capture, $field );
+    check( substr_count( $callback( $mixed ), $locator['marker'] ) === 1, 'Freeform field has a unique preview target.' );
+}
+$edited = $adapter->bind( $capture, $indexed['Lead'], 'New lead' );
+check( ok( $adapter->finalize( $edited, 'mixed' ) )['native_document'] === str_replace( '>Lead<', '>New lead<', $mixed ), 'Only the mapped text changes, including across freeform, schema and native blocks.' );
+check( ! in_array( 'Lead', array_column( $adapter->fields( [ 'document' => $native ] ), 'value' ), true ), 'Existing recipes gain fields only on recapture.' );

@@ -120,19 +120,16 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 	}
 	public static function mark_custom_html( string $content ): string {
 		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }
-		$has_html = str_contains( $content, '<!-- wp:html' );
+		// Freeform HTML can sit beside any named block, including just a heading.
+		if ( ! has_blocks( $content ) || self::has_nested_shortcodes( $content ) ) { return $content; }
 		$has_markers = str_contains( $content, '<!-- wp:paragraph' ) || str_contains( $content, '<!-- wp:image' ) || str_contains( $content, '<!-- wp:themeisle-blocks/' ) || str_contains( $content, '<!-- wp:acf/' );
-		if ( ( ! $has_html && ! $has_markers ) || self::has_nested_shortcodes( $content ) ) { return $content; }
 		$blocks = parse_blocks( $content );
 		if ( $has_markers ) {
 			require_once dirname( __DIR__ ) . '/adapters/gutenberg-otter.php';
 			$blocks = Nova_Mapping_Gutenberg_Otter::preview( $blocks );
 		}
-		if ( $has_html ) {
-			require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
-			$blocks = Nova_Mapping_Gutenberg_HTML::preview_blocks( $blocks );
-		}
-		return serialize_blocks( $blocks );
+		require_once dirname( __DIR__ ) . '/adapters/gutenberg-html.php';
+		return serialize_blocks( Nova_Mapping_Gutenberg_HTML::preview_blocks( $blocks ) );
 	}
 	public static function mark_nested_shortcodes( string $content ): string {
 		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] || ! self::has_nested_shortcodes( $content ) ) { return $content; }
