@@ -75,7 +75,7 @@ final class Nova_Mapping_Gutenberg_ACF {
         return true;
     }
 
-    private static function walk( array $schema, array $data, string $prefix, string $path, string $label, bool $protected, array &$fields, int $depth = 0 ): void {
+    private static function walk( array $schema, array $data, string $prefix, string $path, string $label, bool $protected, array &$fields, int $depth = 0, array $scopes = [], string $row_path = '' ): void {
         if ( $depth > 16 ) { return; }
         foreach ( $schema as $field ) {
             $name = $field['name'] ?? ''; $key = $field['key'] ?? ''; $type = $field['type'] ?? '';
@@ -85,28 +85,68 @@ final class Nova_Mapping_Gutenberg_ACF {
             $title = $label . ' › ' . ( $field['label'] ?? $name );
             $locked = $protected || ! empty( $field['readonly'] ) || ! empty( $field['disabled'] );
             if ( 'group' === $type ) {
-                self::walk( $field['sub_fields'] ?? [], $data, $flat . '_', $path, $title, $locked, $fields, $depth + 1 );
+                self::walk( $field['sub_fields'] ?? [], $data, $flat . '_', $path, $title, $locked, $fields, $depth + 1, $scopes, $row_path );
             } elseif ( in_array( $type, [ 'repeater', 'flexible_content' ], true ) ) {
                 $rows = $data[$flat];
                 $count = 'flexible_content' === $type && is_array( $rows ) ? count( $rows ) : ( filter_var( $rows, FILTER_VALIDATE_INT ) !== false ? (int) $rows : -1 );
                 if ( $count < 0 || $count > 500 ) { continue; }
+                $minimum = max( (int) ( $field['min'] ?? 0 ), empty( $field['required'] ) ? 0 : 1 );
                 for ( $index = 0; $index < $count; ++$index ) {
-                    $children = $field['sub_fields'] ?? []; $row_label = 'Row ' . ( $index + 1 );
+                    $children = $field['sub_fields'] ?? []; $row_label = 'Row ' . ( $index + 1 ); $layout_allows = true;
                     if ( 'flexible_content' === $type ) {
                         $children = [];
                         foreach ( $field['layouts'] ?? [] as $layout ) {
-                            if ( ( $layout['name'] ?? null ) === ( $rows[$index] ?? null ) ) { $children = $layout['sub_fields'] ?? []; $row_label = $layout['label'] ?? $layout['name']; break; }
+                            if ( ( $layout['name'] ?? null ) === ( $rows[$index] ?? null ) ) {
+                                $children = $layout['sub_fields'] ?? []; $row_label = $layout['label'] ?? $layout['name'];
+                                $layout_allows = count( array_keys( $rows, $layout['name'], true ) ) > (int) ( $layout['min'] ?? 0 );
+                                break;
+                            }
                         }
                     }
-                    self::walk( $children, $data, $flat . '_' . $index . '_', $path, $title . ' › ' . $row_label, $locked, $fields, $depth + 1 );
+                    $scope_path = $row_path;
+                    $row_scopes = $scopes;
+                    if ( '/meta' !== $path ) {
+                        $parent = $row_path ?: substr( $path, 0, -strlen( '/attrs/data' ) ) . '/acf_rows';
+                        $scope_path = $parent . '/' . $flat . '/' . $index;
+                        if ( ! $locked && $layout_allows && $count > $minimum && strlen( $scope_path ) <= 1200 ) {
+                            $row_scopes[] = [ 'target' => $scope_path, 'label' => $title . ' › ' . $row_label . ( 'flexible_content' === $type ? ' (row ' . ( $index + 1 ) . ')' : '' ) ];
+                        }
+                    }
+                    self::walk( $children, $data, $flat . '_' . $index . '_', $path, $title . ' › ' . $row_label, $locked, $fields, $depth + 1, $row_scopes, $scope_path );
                 }
             } elseif ( in_array( $type, [ 'text', 'textarea', 'wysiwyg', 'url', 'email' ], true ) && is_string( $data[$flat] ) ) {
                 $sensitive = preg_match( '/<script\b|\[(?:gravityform|wpforms|contact-form|fluentform)|\$variable\(/i', $data[$flat] );
                 $writable = ! $locked && ! $sensitive;
                 $fields[] = [ 'target' => $path . '/' . $flat, 'label' => $title, 'format' => 'wysiwyg' === $type ? 'html' : ( 'url' === $type ? 'url' : 'text' ),
                     'kind' => $type, 'value' => $data[$flat], 'writable' => $writable, 'protected' => ! $writable, 'acf_key' => $key,
-                    'reason' => $writable ? '' : 'This ACF value belongs to a protected or interactive field.' ];
+                    'reason' => $writable ? '' : 'This ACF value belongs to a protected or interactive field.' ] + ( $scopes ? [ 'section_scopes' => $scopes ] : [] );
             }
         }
+    }
+
+    /** Reindex both values and ACF's paired field-key references after the writer has bound the original rows. */
+    public static function omit_row( array $native, string $target ): array {
+        [ $path, $row ] = explode( '/acf_rows/', $target, 2 );
+        $block = Nova_Bridge_Suite_Recipe_Engine::get( $native, $path );
+        $allowed = false;
+        foreach ( self::fields( $block ?? [], $path, ! empty( $block['attrs']['lock']['remove'] ) ) as $field ) {
+            if ( $field['writable'] && in_array( $target, array_column( $field['section_scopes'] ?? [], 'target' ), true ) ) { $allowed = true; break; }
+        }
+        if ( ! $allowed ) { throw new InvalidArgumentException( 'The selected ACF row is unavailable or its minimum row count must be preserved.' ); }
+        $parts = explode( '/', $row ); $index = (int) array_pop( $parts ); $collection = array_pop( $parts );
+        $data = $block['attrs']['data']; $rows = $data[$collection];
+        if ( is_array( $rows ) ) { array_splice( $rows, $index, 1 ); $data[$collection] = $rows; }
+        else { $data[$collection] = is_string( $rows ) ? (string) ( (int) $rows - 1 ) : $rows - 1; }
+        $result = [];
+        foreach ( $data as $name => $value ) {
+            if ( preg_match( '/^(_?)' . preg_quote( $collection, '/' ) . '_(\d+)(_.+)$/D', $name, $match ) ) {
+                $position = (int) $match[2];
+                if ( $position === $index ) { continue; }
+                if ( $position > $index ) { $name = $match[1] . $collection . '_' . ( $position - 1 ) . $match[3]; }
+            }
+            $result[$name] = $value;
+        }
+        Nova_Bridge_Suite_Recipe_Engine::put( $native, $path . '/attrs/data', $result );
+        return $native;
     }
 }

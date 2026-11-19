@@ -40,6 +40,20 @@ $data['orphan'] = 'Never infer a writable field'; $data['_orphan'] = 'field_body
 $native = [ 'document' => [ [ 'blockName' => 'acf/content-sections', 'attrs' => [ 'name' => 'acf/content-sections', 'data' => $data, 'mode' => 'edit' ], 'innerBlocks' => [], 'innerHTML' => '', 'innerContent' => [] ] ], 'meta' => [], 'template' => '' ];
 $adapter = Nova_Bridge_Suite_Recipe_Builders::adapter( 'gutenberg' );
 $fields = array_column( $adapter->fields( $native ), null, 'target' ); $prefix = '/document/0/attrs/data/';
+$scopes = $fields[$prefix . 'sections_0_rows_0_body']['section_scopes'];
+recipe_assert( count( $scopes ) === 2, 'Nested ACF fields offer their flexible section and their individual repeater row.' );
+$row_recipe = [ 'format' => Nova_Bridge_Suite_Recipe_Engine::FORMAT, 'mode' => 'static', 'builder' => 'gutenberg', 'blueprint' => $native,
+    'bindings' => [ [ 'target' => $prefix . 'sections_0_rows_1_title', 'source' => '/title', 'format' => 'text', 'required' => true ] ],
+    'regions' => [], 'omissions' => [ [ 'target' => $scopes[1]['target'] ] ] ];
+$row_result = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $row_recipe, [ 'title' => 'Surviving row' ], 'acf-row' ), 'Compile mapped sibling before reindexing' );
+$rows = parse_blocks( $row_result['writer_payload']['native_document'] )[0]['attrs']['data'];
+recipe_assert( $rows['sections_0_rows'] === 1 && $rows['sections_0_rows_0_title'] === 'Surviving row' && $rows['_sections_0_rows_0_title'] === 'field_title' && ! isset( $rows['sections_0_rows_1_title'] ), 'Retain sibling content and reindex its hidden ACF field references.' );
+$row_recipe['omissions'][0]['target'] = $scopes[0]['target'];
+recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::validate( $row_recipe ) ), 'A removed section cannot contain an active mapping.' );
+$row_recipe['bindings'] = [];
+$GLOBALS['block_schema'][0]['min'] = 1;
+recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::validate( $row_recipe ) ), 'Revalidate row minima against the installed schema.' );
+unset( $GLOBALS['block_schema'][0]['min'] );
 recipe_assert( count( $fields ) === 8, 'Only registered scalar leaves in both rows are exposed' );
 recipe_assert( $fields[$prefix . 'sections_0_rows_0_body']['format'] === 'html', 'Rich text retains its native format' );
 recipe_assert( ! $fields[$prefix . 'sections_0_rows_0_locked']['writable'], 'Read-only child stays protected' );

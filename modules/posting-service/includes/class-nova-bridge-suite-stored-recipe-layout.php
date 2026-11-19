@@ -108,14 +108,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
         if ( ! empty( $draft['omissions'] ) ) {
             // Older layouts have no key, which keeps their sealed digest unchanged.
             $targets = Nova_Bridge_Suite_Recipe_Engine::omission_targets( array_map( static function ( $target ) { return [ 'target' => $target ]; }, (array) $draft['omissions'] ) );
-            $elements = []; foreach ( $inventory as $entry ) { if ( is_string( $entry['node_target'] ?? null ) ) { $elements[ $entry['node_target'] ] = true; } }
-            foreach ( $targets as $target ) {
-                if ( ! isset( $elements[$target] ) ) { self::fail( 'A removed element is no longer part of the saved layout.' ); }
-                foreach ( array_keys( $bindings ) as $bound ) {
-                    $owner = $inventory[$bound]['node_target'] ?? $bound;
-                    if ( $bound === $target || str_starts_with( $bound, $target . '/' ) || $owner === $target || str_starts_with( $owner, $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); }
-                }
-            }
+            Nova_Bridge_Suite_Recipe_Engine::check_omission_fields( $inventory, $targets, array_keys( $bindings ) );
             self::checked( $adapter->validate_blueprint( Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $targets, $adapter ) ) );
             $layout['omissions'] = $targets;
         }

@@ -173,7 +173,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 $locator = Nova_Mapping_Beaver_HTML::locator( $design['blueprint'], $field ) ?? $locator;
             }
             $field['locator'] = $locator; $fields[] = $field;
-            $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator', 'current_value', 'node_target' ] ) );
+            $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator', 'current_value', 'node_target', 'section_scopes' ] ) );
         }
         foreach ( $design['containers'] ?? [] as $container ) {
             $container['container_id'] = 'container_' . substr( hash( 'sha256', $builder . ':' . $container['target'] ), 0, 20 );

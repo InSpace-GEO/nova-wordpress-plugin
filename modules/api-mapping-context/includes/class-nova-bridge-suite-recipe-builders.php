@@ -919,6 +919,12 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         return $native;
     }
 
+    public function omit_acf_row( array $native, string $target ) {
+        if ( 'gutenberg' !== $this->builder ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'omission', 'Unsupported ACF block layout.' ); }
+        try { return Nova_Mapping_Gutenberg_ACF::omit_row( $native, $target ); }
+        catch ( InvalidArgumentException $error ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'omission', $error->getMessage() ); }
+    }
+
     /** Remove one complete native element while keeping the surrounding native source intact. */
     public function remove_node( array $native, string $parent, int $index ) {
         $list = Nova_Bridge_Suite_Recipe_Engine::get( $native, $parent, $found );
