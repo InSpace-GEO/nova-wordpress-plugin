@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.9.2
+Stable tag: 1.9.3
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.9.3 =
+
+* In a static Gutenberg layout, select a field inside an ACF block and choose an enclosing repeater row or flexible-content section to remove from new pages. Preview the affected fields before applying the removal.
 
 = 1.9.2 =
 
