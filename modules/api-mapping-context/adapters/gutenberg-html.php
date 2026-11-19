@@ -48,7 +48,12 @@ final class Nova_Mapping_Gutenberg_HTML {
 
     public static function fields( array $block, string $path, bool $protected ): array {
         $fields = [];
-        foreach ( self::plan( $block['innerHTML'], null === $block['blockName'] )['fields'] as $key => $field ) {
+        $plan = self::plan( $block['innerHTML'], null === $block['blockName'] );
+        foreach ( $plan['fields'] as $key => $field ) {
+            if ( null === $block['blockName'] ) {
+                $owner = $plan['owners'][$key] ?? null;
+                $field['node_target'] = null === $owner ? null : $path . '/html_elements' . $owner;
+            }
             if ( ! array_key_exists( $key, $block[self::SLOTS] ) ) { continue; }
             $fields[] = $field + [
                 'target' => $path . '/' . self::SLOTS . '/' . $key,
@@ -165,7 +170,51 @@ final class Nova_Mapping_Gutenberg_HTML {
             throw new InvalidArgumentException( 'WordPress could not fully parse a Custom HTML block. Review its markup before using this layout.' );
         }
         if ( count( $cache ) >= 64 ) { $cache = []; }
-        return $cache[$hash] = [ 'fields' => $fields, 'spans' => $spans ];
+        $elements = $freeform ? self::elements( $html, $spans ) : [];
+        return $cache[$hash] = [ 'fields' => $fields, 'spans' => $spans ] + $elements;
+    }
+
+    /** Locate the enclosing explicit HTML element for each mapped token. Ambiguous fragments
+     * keep their value bindings but offer no element removal. Source offsets refer to the
+     * original bytes throughout compilation, even after other fields have been assigned. */
+    private static function elements( string $html, array $spans ): array {
+        require_once __DIR__ . '/gutenberg-html-tag-cursor.php';
+        $cursor = new Nova_Mapping_Otter_HTML_Tags( $html );
+        $stack = []; $owners = []; $ranges = [];
+        while ( $cursor->next_token() ) {
+            $tag = $cursor->get_tag();
+            [ $start, $length ] = $cursor->span();
+            $parent = $stack ? end( $stack ) : null;
+            if ( $cursor->is_tag_closer() ) {
+                if ( ! $parent || $parent['tag'] !== $tag ) { return []; }
+                array_pop( $stack );
+                $ranges[$parent['path']] = [ $parent['start'], $start + $length - $parent['start'] ];
+                continue;
+            }
+            $path = $parent['path'] ?? '';
+            if ( null !== $tag ) {
+                if ( count( $stack ) >= 28 ) { return []; }
+                $path .= '/' . $start;
+                if ( WP_HTML_Processor::is_void( $tag ) || in_array( $tag, [ 'SCRIPT', 'STYLE', 'TEXTAREA', 'TITLE', 'IFRAME', 'XMP', 'NOEMBED', 'NOFRAMES' ], true ) ) {
+                    $ranges[$path] = [ $start, $length ];
+                } else {
+                    $stack[] = [ 'tag' => $tag, 'path' => $path, 'start' => $start ];
+                }
+            }
+            if ( ! isset( $spans[$start] ) || '' === $path ) { continue; }
+            $span = $spans[$start];
+            foreach ( $span['attributes'] ?? [ $span['key'] ] as $key ) { $owners[$key] = $path; }
+        }
+        return $stack || $cursor->paused_at_incomplete_token() ? [] : [ 'owners' => $owners, 'ranges' => $ranges ];
+    }
+
+    public static function omit( array $block, string $owner ): array {
+        $plan = self::plan( $block['innerHTML'], true );
+        if ( ! isset( $block[self::SLOTS] ) || ! self::is_freeform( $block ) || ! in_array( $owner, $plan['owners'] ?? [], true ) ) {
+            throw new InvalidArgumentException( 'Choose a listed element inside the HTML fragment.' );
+        }
+        $block['nova_html_omissions'][] = $owner;
+        return $block;
     }
 
     private static function label( string $kind, string $value ): string {
@@ -199,7 +248,20 @@ final class Nova_Mapping_Gutenberg_HTML {
             if ( ! isset( $block[self::SLOTS] ) || ! self::supports( $block ) ) { continue; }
             $source = $block['innerHTML']; $values = $block[self::SLOTS];
             $plan = self::plan( $source, null === $block['blockName'] ); $out = ''; $end = 0;
-            foreach ( $plan['spans'] as $start => $span ) {
+            $spans = $plan['spans'];
+            foreach ( $block['nova_html_omissions'] ?? [] as $owner ) {
+                if ( ! isset( $plan['ranges'][$owner] ) ) { throw new InvalidArgumentException( 'Cannot locate the removed HTML element.' ); }
+                [ $start, $length ] = $plan['ranges'][$owner];
+                $spans[$start] = [ 'kind' => 'omit', 'length' => $length ];
+            }
+            ksort( $spans, SORT_NUMERIC );
+            foreach ( $spans as $start => $span ) {
+                if ( $start < $end ) { continue; }
+                if ( 'omit' === $span['kind'] ) {
+                    $out .= substr( $source, $end, $start - $end );
+                    $end = $start + $span['length'];
+                    continue;
+                }
                 $original = substr( $source, $start, $span['length'] );
                 $out .= substr( $source, $end, $start - $end ) . self::render_span( $original, $span, $values, $plan['fields'] );
                 $end = $start + $span['length'];

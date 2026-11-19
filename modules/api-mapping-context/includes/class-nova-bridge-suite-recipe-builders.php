@@ -909,11 +909,25 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
         return false;
     }
 
+    public function omit_html_element( array $native, string $target ) {
+        [ $path, $owner ] = explode( '/html_elements', $target, 2 );
+        $block = Nova_Bridge_Suite_Recipe_Engine::get( $native, $path );
+        if ( 'gutenberg' !== $this->builder || ! is_array( $block ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'omission', 'Unknown HTML element.' ); }
+        try { $block = Nova_Mapping_Gutenberg_HTML::omit( $block, $owner ); }
+        catch ( InvalidArgumentException $error ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'omission', $error->getMessage() ); }
+        Nova_Bridge_Suite_Recipe_Engine::put( $native, $path, $block );
+        return $native;
+    }
+
     /** Remove one complete native element while keeping the surrounding native source intact. */
     public function remove_node( array $native, string $parent, int $index ) {
         $list = Nova_Bridge_Suite_Recipe_Engine::get( $native, $parent, $found );
         if ( ! $found || ! Nova_Bridge_Suite_Recipe_Engine::list_array( $list ) || ! isset( $list[ $index ] ) ) { return Nova_Bridge_Suite_Recipe_Builders::error( 'omission', 'The removed element is no longer part of this layout.' ); }
-        $removed = $list[ $index ]; array_splice( $list, $index, 1 );
+        $removed = $list[ $index ];
+        if ( 'gutenberg' === $this->builder && isset( $removed[Nova_Mapping_Gutenberg_HTML::SLOTS] ) && null === $removed['blockName'] ) {
+            return Nova_Bridge_Suite_Recipe_Builders::error( 'omission', 'This saved removal targets the whole HTML fragment. Select the individual element again.' );
+        }
+        array_splice( $list, $index, 1 );
         if ( in_array( $this->builder, [ 'wpbakery', 'avada', 'divi4' ], true ) ) {
             // Text between shortcodes belongs to the following element; never lose it with the removed one.
             // Whitespace that only separated the removed shortcode goes with it.
