@@ -29,7 +29,8 @@ final class Nova_Mapping_Beaver_HTML {
 
     public static function fields( array $node, string $path, bool $protected ): array {
         if ( ! isset( $node[Nova_Mapping_Gutenberg_HTML::SLOTS] ) ) { return []; }
-        return Nova_Mapping_Gutenberg_HTML::fields( self::block( $node ), $path, $protected );
+        // Beaver preview markers and omissions address the native module.
+        return Nova_Mapping_Gutenberg_HTML::fields( self::block( $node ), $path, $protected, false );
     }
 
     /** Remove authoring-only values before comparing an example with its saved source. */

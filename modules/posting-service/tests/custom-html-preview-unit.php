@@ -69,3 +69,14 @@ $result = ok( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, [], 'omit-eleme
 check( $result['native_document'] === '<h1>Keep heading</h1><ul><li>One</li></ul><!-- wp:heading --><h2>FAQ</h2><!-- /wp:heading -->', 'Multiple removals preserve the exact surrounding markup.' );
 $recipe['omissions'] = [ [ 'target' => '/document/0' ] ];
 check( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::validate( $recipe ) ), 'Older fragment-wide removal requires reselection.' );
+
+$html = '<style>.hero{color:teal}</style><section><h2>Course</h2><p>Overview</p></section>' . $schema;
+$named = '<!-- wp:html -->' . $html . '<!-- /wp:html -->';
+$recipe['blueprint'] = [ 'document' => Nova_Mapping_Gutenberg_HTML::capture( parse_blocks( $named ) ) ];
+$fields = array_column( $adapter->fields( $recipe['blueprint'] ), null, 'value' );
+check( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::validate( $recipe ) ), 'A stale whole-block omission on captured Custom HTML requires reselection.' );
+unset( $recipe['omissions'] );
+$control = ok( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, [], 'keep-custom-html' ) );
+$recipe['omissions'] = [ [ 'target' => $fields['Overview']['node_target'] ] ];
+$compiled = ok( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, [], 'omit-custom-html' ) );
+check( str_contains( $control['native_document'], '<p>Overview</p>' ) && $compiled['native_document'] === str_replace( '<p>Overview</p>', '', $control['native_document'] ), 'Removing one Custom HTML element preserves siblings, styling, block delimiters and normal schema output.' );

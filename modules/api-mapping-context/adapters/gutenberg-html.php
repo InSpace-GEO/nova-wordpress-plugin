@@ -46,11 +46,11 @@ final class Nova_Mapping_Gutenberg_HTML {
         return $current;
     }
 
-    public static function fields( array $block, string $path, bool $protected ): array {
+    public static function fields( array $block, string $path, bool $protected, bool $element_omissions = true ): array {
         $fields = [];
         $plan = self::plan( $block['innerHTML'], null === $block['blockName'] );
         foreach ( $plan['fields'] as $key => $field ) {
-            if ( null === $block['blockName'] ) {
+            if ( $element_omissions ) {
                 $owner = $plan['owners'][$key] ?? null;
                 $field['node_target'] = null === $owner ? null : $path . '/html_elements' . $owner;
             }
@@ -170,7 +170,7 @@ final class Nova_Mapping_Gutenberg_HTML {
             throw new InvalidArgumentException( 'WordPress could not fully parse a Custom HTML block. Review its markup before using this layout.' );
         }
         if ( count( $cache ) >= 64 ) { $cache = []; }
-        $elements = $freeform ? self::elements( $html, $spans ) : [];
+        $elements = self::elements( $html, $spans );
         return $cache[$hash] = [ 'fields' => $fields, 'spans' => $spans ] + $elements;
     }
 
@@ -203,14 +203,18 @@ final class Nova_Mapping_Gutenberg_HTML {
             }
             if ( ! isset( $spans[$start] ) || '' === $path ) { continue; }
             $span = $spans[$start];
+            if ( 'schema' === $span['kind'] ) { continue; }
             foreach ( $span['attributes'] ?? [ $span['key'] ] as $key ) { $owners[$key] = $path; }
         }
         return $stack || $cursor->paused_at_incomplete_token() ? [] : [ 'owners' => $owners, 'ranges' => $ranges ];
     }
 
     public static function omit( array $block, string $owner ): array {
-        $plan = self::plan( $block['innerHTML'], true );
-        if ( ! isset( $block[self::SLOTS] ) || ! self::is_freeform( $block ) || ! in_array( $owner, $plan['owners'] ?? [], true ) ) {
+        if ( ! isset( $block[self::SLOTS] ) || ! self::supports( $block ) ) {
+            throw new InvalidArgumentException( 'Choose a listed element inside the HTML fragment.' );
+        }
+        $plan = self::plan( $block['innerHTML'], null === $block['blockName'] );
+        if ( ! in_array( $owner, $plan['owners'] ?? [], true ) ) {
             throw new InvalidArgumentException( 'Choose a listed element inside the HTML fragment.' );
         }
         $block['nova_html_omissions'][] = $owner;
