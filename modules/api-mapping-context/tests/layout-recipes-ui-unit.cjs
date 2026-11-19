@@ -791,5 +791,21 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert(t.host.textContent.includes('New categories and tags leave this field empty.'));
   assert.equal(t.controller.state.recipe.bindings.length,0);
  });
+ await test('fixed taxonomy picker persists separate default and regional choices', async () => {
+  const t = await visualMounted({ request: async (route, payload, design) => {
+   if (route === '/design') return {...design, term_taxonomies: {category: 'Categories'}};
+   if (route === '/term-search') return [{label:'News',slug:'news'}, {label:'Regional',slug:'regional'}];
+  }});
+  t.controller.next(); await t.controller.capture(42);
+  const click = label => t.host.all().find(el => el.tag === 'button' && el.ownText === label).events.click();
+  await click('Find terms'); click('News (news)');
+  controlFor(t,'Destination locale').value='de-AT'; click('Show locale');
+  assert(t.host.textContent.includes('Inherited from default'));
+  await click('Find terms'); click('Regional (regional)');
+  assert.deepEqual(t.controller.state.recipe.fixed_terms, [
+   {taxonomy:'category',locale:'*',slug:'news'}, {taxonomy:'category',locale:'de-at',slug:'regional'}
+  ]);
+  click('Remove regional'); assert(t.host.textContent.includes('Inherited from default'));
+ });
  console.log('PASS '+checks+' layout recipe UI workflows.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

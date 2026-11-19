@@ -425,6 +425,16 @@
 			if ( ! validMessage( event, win.parent, config ) ) { return; }
 			var data = event.data;
 			if ( data.type === 'bind' ) { fields = normalizeItems( data.fields, config, false ); containers = normalizeItems( data.containers || [], config, true ); lastStatuses = ''; if ( ready ) { hideConsent(); bind(); } }
+			else if ( data.type === 'highlight-term' && typeof data.url === 'string' ) {
+				highlight( '', false );
+				var post = document.getElementById( 'post-' + config.referenceId ) || document.querySelector( 'main article,main' );
+				var links = post ? Array.from( post.querySelectorAll( 'a[href]' ) ).filter( function ( link ) {
+					return link.href === data.url && ! link.closest( 'nav,aside,[role="navigation"]' ) && visible( link, win );
+				} ) : [];
+				links.forEach( function ( link ) { mark( link, 'nrc-selected', true ); } );
+				if ( links.length ) { links[0].scrollIntoView( { block: 'center' } ); }
+				send( 'term-highlight', { found: links.length > 0 } );
+			}
 			else if ( data.type === 'select' && typeof data.field_id === 'string' ) { highlight( data.field_id, data.scroll !== false ); }
 		} );
 		document.addEventListener( 'click', function ( event ) {

@@ -117,6 +117,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             Nova_Mapping_Gutenberg_Article::validate( $draft['article'], $blueprint, array_map( static function ( $binding ) use ( $draft ) { $binding['required'] = ! empty( $draft['fields'][$binding['target'] ?? '']['required'] ); return $binding; }, array_values( $bindings ) ), [] );
             $layout['article'] = $draft['article'];
         }
+        if ( ! empty( $draft['fixed_terms'] ) ) { Nova_WordPress_Fixed_Terms::validate( $draft['fixed_terms'] ); $layout['fixed_terms'] = $draft['fixed_terms']; }
         $layout['digest'] = Nova_Bridge_Suite_Recipe_Engine::digest( $layout );
         $bounded = $draft; $bounded['stored_layout'] = $layout;
         $limit = 'beaver' === $builder ? 1048576 : 524288;
@@ -193,6 +194,7 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
                 $draft['seo_fields'][$path] = $entry;
             }
             if ( isset( $recipe['article'] ) ) { $draft['article'] = $recipe['article']; }
+            if ( ! empty( $recipe['fixed_terms'] ) ) { $draft['fixed_terms'] = $recipe['fixed_terms']; }
             $draft['stored_layout'] = self::seal( $draft, $builder, $resource, $recipe['blueprint'], [ 'title' => '', 'excerpt' => 'core' === $builder ? ( $recipe['blueprint']['document']['excerpt'] ?? '' ) : '' ], $record['locale_preservation'] ?? [] );
             return $draft;
         } );
