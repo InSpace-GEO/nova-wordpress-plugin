@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.9.1
+Stable tag: 1.9.2
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.9.2 =
+
+* Remove individual elements inside Gutenberg Custom HTML blocks. If a saved removal affected the whole block, clear it, select the intended element again, then save and sync the layout.
 
 = 1.9.1 =
 
