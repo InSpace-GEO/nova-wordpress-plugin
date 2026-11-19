@@ -157,20 +157,37 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         $targets = self::omission_targets( $recipe['omissions'] );
         if ( ! $targets ) { return; }
         if ( 'static' !== $recipe['mode'] || in_array( $recipe['builder'], [ 'core', 'acf' ], true ) || ! is_callable( [ $adapter, 'describe' ] ) ) { self::fail( 'Removing elements needs a fixed builder layout.' ); }
-        $description = self::checked( $adapter->describe( $recipe['blueprint'] ) ); $elements = []; $field_owners = [];
-        foreach ( $description['fields'] ?? [] as $field ) { if ( is_string( $field['node_target'] ?? null ) ) { $elements[ $field['node_target'] ] = true; $field_owners[ $field['target'] ] = $field['node_target']; } }
+        $description = self::checked( $adapter->describe( $recipe['blueprint'] ) );
+        self::check_omission_fields( $description['fields'] ?? [], $targets, array_column( $recipe['bindings'] ?? [], 'target' ) );
+        self::checked( $adapter->validate_blueprint( self::apply_omissions( $recipe['blueprint'], $targets, $adapter ) ) );
+    }
+
+    public static function check_omission_fields( array $fields, array $targets, array $bindings ): void {
+        $elements = []; $field_owners = [];
+        foreach ( $fields as $field ) {
+            $owners = array_column( $field['section_scopes'] ?? [], 'target' );
+            if ( ! empty( $field['writable'] ) ) { foreach ( $owners as $owner ) { $elements[$owner] = true; } }
+            if ( is_string( $field['node_target'] ?? null ) ) { $owners[] = $field['node_target']; $elements[$field['node_target']] = true; }
+            $field_owners[$field['target']] = $owners;
+        }
         foreach ( $targets as $target ) {
             if ( ! isset( $elements[ $target ] ) ) { self::fail( 'Only an element that shows a listed field can be removed.' ); }
             foreach ( $targets as $other ) { if ( $other !== $target && 0 === strpos( $other, $target . '/' ) ) { self::fail( 'An element inside another removed element is already removed.' ); } }
-            foreach ( $recipe['bindings'] ?? [] as $binding ) { $owner = $field_owners[ $binding['target'] ] ?? $binding['target']; if ( $binding['target'] === $target || 0 === strpos( $binding['target'], $target . '/' ) || $owner === $target || 0 === strpos( $owner, $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); } }
+            foreach ( $bindings as $binding ) {
+                foreach ( array_merge( [ $binding ], $field_owners[$binding] ?? [] ) as $owner ) {
+                    if ( $owner === $target || str_starts_with( $owner, $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); }
+                }
+            }
         }
-        // Prove that the builder accepts the document without these elements.
-        self::checked( $adapter->validate_blueprint( self::apply_omissions( $recipe['blueprint'], $targets, $adapter ) ) );
     }
     public static function apply_omissions( array $native, array $targets, $adapter ): array {
         // Remove later siblings first so earlier pointers keep their indexes.
         usort( $targets, static function ( $a, $b ) { $x = self::parts( $a ); $y = self::parts( $b ); for ( $i = 0, $n = min( count( $x ), count( $y ) ); $i < $n; $i++ ) { if ( $x[$i] === $y[$i] ) { continue; } return ctype_digit( $x[$i] ) && ctype_digit( $y[$i] ) ? (int) $y[$i] <=> (int) $x[$i] : strcmp( $y[$i], $x[$i] ); } return count( $y ) <=> count( $x ); } );
         foreach ( $targets as $target ) {
+            if ( str_contains( $target, '/acf_rows/' ) && method_exists( $adapter, 'omit_acf_row' ) ) {
+                $native = self::checked( $adapter->omit_acf_row( $native, $target ) );
+                continue;
+            }
             if ( str_contains( $target, '/html_elements/' ) && method_exists( $adapter, 'omit_html_element' ) ) {
                 $native = self::checked( $adapter->omit_html_element( $native, $target ) );
                 continue;

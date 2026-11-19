@@ -297,6 +297,22 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert.deepEqual(t.controller.state.recipe.bindings.map(binding=>binding.target),[second]);
   assert.equal(t.controller.state.recipe.omissions[0].target,'/document/0/elements/0');
  });
+ await test('previewing an enclosing ACF section keeps mappings until removal is applied',async()=>{
+  const scope={target:'/document/0/acf_rows/sections/0',label:'Sections › Comparison'};
+  const items=['First cell','Second cell','Quote'].map((label,i)=>({target:'/document/0/attrs/data/value_'+i,label,format:'text',writable:true,
+   section_scopes:i<2?[scope]:[{target:'/document/0/acf_rows/sections/1',label:'Sections › Quote'}]}));
+  const t=await visualMounted({request:async(path,payload,current)=>{if(path==='/design'){current.fields=items;current.preview_fields=clone(items);return current;}}});
+  t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
+  for(const item of items){nativeControl(t.host,item.label).events.click();choosePurpose(t,'title');}
+  nativeControl(t.host,'First cell').events.click();
+  const picker=controlFor(t,'Enclosing section'),apply=t.host.all().find(el=>el.ownText==='Remove selected section from new pages');
+  assert.equal(apply.disabled,true);picker.value=scope.target;picker.events.change();
+  assert.equal(apply.disabled,false);assert.equal(t.controller.state.recipe.bindings.length,3);
+  apply.events.click();assert.deepEqual(t.controller.state.recipe.omissions,[scope]);
+  assert.deepEqual(t.controller.state.recipe.bindings.map(item=>item.target),[items[2].target]);
+  nativeControl(t.host,'Second cell').events.click();choosePurpose(t,'');
+  assert.equal(t.controller.state.recipe.omissions.length,0);
+ });
  await test('custom purposes require a name and writing guidance before saving',async()=>{
   const schemaField={target:'/document/0/nova_html_slots/s1',label:'Course name',kind:'schema_value',format:'text',writable:true};
   assert.deepEqual(ui.rolesFor(schemaField).map(role=>role.id),['custom']);
