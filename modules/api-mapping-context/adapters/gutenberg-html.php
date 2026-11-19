@@ -46,12 +46,14 @@ final class Nova_Mapping_Gutenberg_HTML {
         return $current;
     }
 
-    public static function fields( array $block, string $path, bool $protected ): array {
+    public static function fields( array $block, string $path, bool $protected, bool $element_omissions = true ): array {
         $fields = [];
         $plan = self::plan( $block['innerHTML'], null === $block['blockName'] );
         foreach ( $plan['fields'] as $key => $field ) {
-            $owner = $plan['owners'][$key] ?? null;
-            $field['node_target'] = null === $owner ? null : $path . '/html_elements' . $owner;
+            if ( $element_omissions ) {
+                $owner = $plan['owners'][$key] ?? null;
+                $field['node_target'] = null === $owner ? null : $path . '/html_elements' . $owner;
+            }
             if ( ! array_key_exists( $key, $block[self::SLOTS] ) ) { continue; }
             $fields[] = $field + [
                 'target' => $path . '/' . self::SLOTS . '/' . $key,
