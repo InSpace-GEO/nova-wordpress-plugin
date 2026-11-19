@@ -1,16 +1,31 @@
 <?php
-/** Field-level bindings for newly captured Gutenberg Custom HTML. The source is never reserialized as a DOM. */
+/** Field-level bindings for Custom HTML and freeform fragments in Gutenberg documents. The source is never reserialized as a DOM. */
 defined( 'ABSPATH' ) || exit;
 require_once __DIR__ . '/gutenberg-schema.php';
 
 final class Nova_Mapping_Gutenberg_HTML {
     public const SLOTS = 'nova_html_slots';
 
+    // WordPress stores markup between named blocks as a null-name block, including whitespace.
+    private static function is_freeform( array $block ): bool {
+        return array_key_exists( 'blockName', $block ) && null === $block['blockName']
+            && str_contains( $block['innerHTML'], '<' ) && ! preg_match( '/<!--\s*\/?wp:|\[\/?[a-zA-Z_][^\]]*\]/i', $block['innerHTML'] );
+    }
+
+    public static function supports( array $block ): bool {
+        return 'core/html' === ( $block['blockName'] ?? '' ) || self::is_freeform( $block );
+    }
+
     public static function capture( array $blocks ): array {
         foreach ( $blocks as &$block ) {
             if ( ! empty( $block['innerBlocks'] ) ) { $block['innerBlocks'] = self::capture( $block['innerBlocks'] ); }
-            if ( 'core/html' !== ( $block['blockName'] ?? '' ) ) { continue; }
-            $plan = self::plan( $block['innerHTML'] );
+            if ( ! self::supports( $block ) ) { continue; }
+            try { $plan = self::plan( $block['innerHTML'], null === $block['blockName'] ); }
+            catch ( InvalidArgumentException $error ) {
+                if ( null !== $block['blockName'] ) { throw $error; }
+                continue; // An opaque legacy fragment must not prevent capturing its native siblings.
+            }
+            if ( null === $block['blockName'] && ! $plan['fields'] ) { continue; }
             $block[self::SLOTS] = [];
             foreach ( $plan['fields'] as $key => $field ) {
                 // Null means no value has been mapped into this revision, even if a sample exists.
@@ -33,7 +48,7 @@ final class Nova_Mapping_Gutenberg_HTML {
 
     public static function fields( array $block, string $path, bool $protected ): array {
         $fields = [];
-        foreach ( self::plan( $block['innerHTML'] )['fields'] as $key => $field ) {
+        foreach ( self::plan( $block['innerHTML'], null === $block['blockName'] )['fields'] as $key => $field ) {
             if ( ! array_key_exists( $key, $block[self::SLOTS] ) ) { continue; }
             $fields[] = $field + [
                 'target' => $path . '/' . self::SLOTS . '/' . $key,
@@ -47,7 +62,7 @@ final class Nova_Mapping_Gutenberg_HTML {
     public static function preview_locator( array $blueprint, array $field ): ?array {
         if ( ! preg_match( '~^(/document/[0-9]+(?:/innerBlocks/[0-9]+)*)/(?:innerHTML|nova_html_slots/([a-zA-Z0-9_]+))$~D', $field['target'], $m ) ) { return null; }
         $block = Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $m[1] );
-        if ( 'core/html' !== ( $block['blockName'] ?? '' ) ) { return null; }
+        if ( ! is_array( $block ) || ! self::supports( $block ) ) { return null; }
         if ( 'schema_value' === $field['kind'] ) {
             return [ 'strategy' => 'unbound', 'reason' => 'Structured data has no visible element on the page.' ];
         }
@@ -63,10 +78,11 @@ final class Nova_Mapping_Gutenberg_HTML {
         foreach ( $blocks as $index => &$block ) {
             $path = $parent . '/' . $index;
             if ( ! empty( $block['innerBlocks'] ) ) { $block['innerBlocks'] = self::preview_blocks( $block['innerBlocks'], $path . '/innerBlocks' ); }
-            if ( 'core/html' !== ( $block['blockName'] ?? '' ) ) { continue; }
+            if ( ! self::supports( $block ) ) { continue; }
             $html = $block['innerHTML']; $out = ''; $end = 0;
-            try { $spans = self::plan( $html )['spans']; }
+            try { $spans = self::plan( $html, null === $block['blockName'] )['spans']; }
             catch ( InvalidArgumentException $ignored ) { continue; }
+            if ( null === $block['blockName'] && ! $spans ) { continue; }
             foreach ( $spans as $start => $span ) {
                 if ( 'schema' === $span['kind'] ) { continue; }
                 $raw = substr( $html, $start, $span['length'] );
@@ -89,9 +105,9 @@ final class Nova_Mapping_Gutenberg_HTML {
         return $blocks;
     }
 
-    private static function plan( string $html ): array {
+    private static function plan( string $html, bool $freeform ): array {
         static $cache = [];
-        $hash = hash( 'sha256', $html );
+        $hash = (int) $freeform . hash( 'sha256', $html );
         if ( isset( $cache[$hash] ) ) { return $cache[$hash]; }
         if ( ! class_exists( 'WP_HTML_Processor' ) ) { throw new InvalidArgumentException( 'Custom HTML requires the WordPress HTML API.' ); }
         require_once __DIR__ . '/gutenberg-html-cursor.php';
@@ -102,7 +118,7 @@ final class Nova_Mapping_Gutenberg_HTML {
             if ( $cursor->is_tag_closer() || 'html' !== $cursor->get_namespace() ) { continue; }
             $tag = $cursor->get_tag();
             $trail = $cursor->get_breadcrumbs();
-            if ( 'SCRIPT' === $tag && 'application/ld+json' === strtolower( trim( (string) $cursor->get_attribute( 'type' ) ) ) ) {
+            if ( ! $freeform && 'SCRIPT' === $tag && 'application/ld+json' === strtolower( trim( (string) $cursor->get_attribute( 'type' ) ) ) ) {
                 [ $start, $length ] = $cursor->source_span();
                 $doc = Nova_Mapping_Gutenberg_Schema::document( $cursor->get_modifiable_text() );
                 $prefix = 's' . $ordinal . '_';
@@ -180,9 +196,9 @@ final class Nova_Mapping_Gutenberg_HTML {
     public static function render_blocks( array $blocks ): array {
         foreach ( $blocks as &$block ) {
             if ( ! empty( $block['innerBlocks'] ) ) { $block['innerBlocks'] = self::render_blocks( $block['innerBlocks'] ); }
-            if ( ! isset( $block[self::SLOTS] ) || 'core/html' !== $block['blockName'] ) { continue; }
+            if ( ! isset( $block[self::SLOTS] ) || ! self::supports( $block ) ) { continue; }
             $source = $block['innerHTML']; $values = $block[self::SLOTS];
-            $plan = self::plan( $source ); $out = ''; $end = 0;
+            $plan = self::plan( $source, null === $block['blockName'] ); $out = ''; $end = 0;
             foreach ( $plan['spans'] as $start => $span ) {
                 $original = substr( $source, $start, $span['length'] );
                 $out .= substr( $source, $end, $start - $end ) . self::render_span( $original, $span, $values, $plan['fields'] );

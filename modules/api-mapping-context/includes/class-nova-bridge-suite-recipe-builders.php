@@ -707,7 +707,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                     foreach ( Nova_Mapping_Gutenberg_ACF::fields( $node, $path, $node_protected ) as $field ) {
                         $result['fields'][] = $field + [ 'context' => $node_context ];
                     }
-                } elseif ( 'core/html' === $name && isset( $node[Nova_Mapping_Gutenberg_HTML::SLOTS] ) ) {
+                } elseif ( isset( $node[Nova_Mapping_Gutenberg_HTML::SLOTS] ) && Nova_Mapping_Gutenberg_HTML::supports( $node ) ) {
                     foreach ( Nova_Mapping_Gutenberg_HTML::fields( $node, $path, $node_protected ) as $field ) {
                         $result['fields'][] = $field + [ 'context' => $node_context, 'reason' => $node_protected ? 'The owning block is locked.' : '' ]
                             + $this->provenance( $node, $path, $field['target'] );
