@@ -57,3 +57,15 @@ foreach ( [ 'Lead', 'Tail' ] as $text ) {
 $edited = $adapter->bind( $capture, $indexed['Lead'], 'New lead' );
 check( ok( $adapter->finalize( $edited, 'mixed' ) )['native_document'] === str_replace( '>Lead<', '>New lead<', $mixed ), 'Only the mapped text changes, including across freeform, schema and native blocks.' );
 check( ! in_array( 'Lead', array_column( $adapter->fields( [ 'document' => $native ] ), 'value' ), true ), 'Existing recipes gain fields only on recapture.' );
+
+$markup = '<h1>Keep heading</h1><p>Remove <a href="/go">nested link</a>.</p><img src="/hero.jpg" alt="Hero"><ul><li>One</li><li>Two</li></ul><!-- wp:heading --><h2>FAQ</h2><!-- /wp:heading -->';
+$bp = [ 'document' => Nova_Mapping_Gutenberg_HTML::capture( parse_blocks( $markup ) ) ];
+$fields = array_column( $adapter->fields( $bp ), null, 'value' );
+check( $fields['Hero']['node_target'] === $fields['/hero.jpg']['node_target'], 'Image URL and alt text remove the same image.' );
+check( str_starts_with( $fields['nested link']['node_target'], $fields['Remove']['node_target'] . '/' ), 'Nested link belongs to the enclosing paragraph.' );
+$recipe = [ 'format' => Nova_Bridge_Suite_Recipe_Engine::FORMAT, 'builder' => 'gutenberg', 'mode' => 'static', 'blueprint' => $bp, 'bindings' => [], 'regions' => [] ];
+foreach ( [ 'Remove', 'Hero', 'Two' ] as $value ) { $recipe['omissions'][] = [ 'target' => $fields[$value]['node_target'] ]; }
+$result = ok( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, [], 'omit-elements' ) );
+check( $result['native_document'] === '<h1>Keep heading</h1><ul><li>One</li></ul><!-- wp:heading --><h2>FAQ</h2><!-- /wp:heading -->', 'Multiple removals preserve the exact surrounding markup.' );
+$recipe['omissions'] = [ [ 'target' => '/document/0' ] ];
+check( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::validate( $recipe ) ), 'Older fragment-wide removal requires reselection.' );

@@ -171,6 +171,10 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         // Remove later siblings first so earlier pointers keep their indexes.
         usort( $targets, static function ( $a, $b ) { $x = self::parts( $a ); $y = self::parts( $b ); for ( $i = 0, $n = min( count( $x ), count( $y ) ); $i < $n; $i++ ) { if ( $x[$i] === $y[$i] ) { continue; } return ctype_digit( $x[$i] ) && ctype_digit( $y[$i] ) ? (int) $y[$i] <=> (int) $x[$i] : strcmp( $y[$i], $x[$i] ); } return count( $y ) <=> count( $x ); } );
         foreach ( $targets as $target ) {
+            if ( str_contains( $target, '/html_elements/' ) && method_exists( $adapter, 'omit_html_element' ) ) {
+                $native = self::checked( $adapter->omit_html_element( $native, $target ) );
+                continue;
+            }
             $parts = self::parts( $target ); $index = (int) array_pop( $parts );
             $parent = '/' . implode( '/', array_map( static function ( $part ) { return str_replace( [ '~', '/' ], [ '~0', '~1' ], (string) $part ); }, $parts ) );
             $list = self::get( $native, $parent, $found );

@@ -111,7 +111,10 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             $elements = []; foreach ( $inventory as $entry ) { if ( is_string( $entry['node_target'] ?? null ) ) { $elements[ $entry['node_target'] ] = true; } }
             foreach ( $targets as $target ) {
                 if ( ! isset( $elements[$target] ) ) { self::fail( 'A removed element is no longer part of the saved layout.' ); }
-                foreach ( array_keys( $bindings ) as $bound ) { if ( $bound === $target || 0 === strpos( $bound, $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); } }
+                foreach ( array_keys( $bindings ) as $bound ) {
+                    $owner = $inventory[$bound]['node_target'] ?? $bound;
+                    if ( $bound === $target || str_starts_with( $bound, $target . '/' ) || $owner === $target || str_starts_with( $owner, $target . '/' ) ) { self::fail( 'A removed element cannot also receive mapped content.' ); }
+                }
             }
             self::checked( $adapter->validate_blueprint( Nova_Bridge_Suite_Recipe_Engine::apply_omissions( $blueprint, $targets, $adapter ) ) );
             $layout['omissions'] = $targets;
