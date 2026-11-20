@@ -306,6 +306,9 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     }
     /** Expose registrations for selection without reading custom-field values from the example. */
     private static function field_choices( array $design, string $resource, string $mode, int $example ): array {
+        if ( 'taxonomy:product_cat' === $resource && $example && function_exists( 'get_edit_term_link' ) ) {
+            $design['term_editor_url'] = get_edit_term_link( $example, 'product_cat', 'product' );
+        }
         if ( in_array( $mode, [ 'static', 'article' ], true ) && 0 === strpos( $resource, 'post_type:' ) ) { $design['seo_field_choices'] = Nova_WordPress_Layout_SEO::catalog(); }
         if ( in_array( $mode, [ 'static', 'article' ], true ) && 0 === strpos( $resource, 'post_type:' ) && 'acf' !== ( $design['builder'] ?? '' ) ) {
             // Editable Elementor settings can become editorial fields without an intermediate save.
