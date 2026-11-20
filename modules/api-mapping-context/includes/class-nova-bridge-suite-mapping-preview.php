@@ -122,7 +122,7 @@ final class Nova_Bridge_Suite_Mapping_Preview {
 		if ( ! self::$canvas || (int) get_the_ID() !== self::$canvas['referenceId'] ) { return $content; }
 		// Freeform HTML can sit beside any named block, including just a heading.
 		if ( ! has_blocks( $content ) || self::has_nested_shortcodes( $content ) ) { return $content; }
-		$has_markers = str_contains( $content, '<!-- wp:paragraph' ) || str_contains( $content, '<!-- wp:image' ) || str_contains( $content, '<!-- wp:themeisle-blocks/' ) || str_contains( $content, '<!-- wp:acf/' );
+		$has_markers = str_contains( $content, '<!-- wp:paragraph' ) || str_contains( $content, '<!-- wp:image' ) || str_contains( $content, '<!-- wp:button' ) || str_contains( $content, '<!-- wp:themeisle-blocks/' ) || str_contains( $content, '<!-- wp:acf/' );
 		$blocks = parse_blocks( $content );
 		if ( $has_markers ) {
 			require_once dirname( __DIR__ ) . '/adapters/gutenberg-otter.php';
