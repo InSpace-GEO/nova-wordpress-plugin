@@ -57,7 +57,7 @@ function wp_unique_post_slug( $slug, $id, $status, $type, $parent ) {
         if ( empty( $GLOBALS['simulate_old_draft_check'] ) ) { foreach ( $GLOBALS['filters']['query'] ?? [] as $filter ) { $query = $filter( $query ); } }
         $ignore_drafts = strpos( $query, "post_status NOT IN ('draft','auto-draft')" ) !== false;
     }
-    foreach ( $GLOBALS['posts'] as $post ) { if ( $post->ID !== $id && $post->post_name === $slug && ! ( $ignore_drafts && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return $slug . '-2'; } }
+    foreach ( $GLOBALS['posts'] as $post ) { if ( $post->ID !== $id && $post->post_type === $type && $post->post_parent === $parent && $post->post_name === $slug && ! ( $ignore_drafts && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return $slug . '-2'; } }
     return $slug;
 }
 function add_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key][] = $fn; }
@@ -100,7 +100,7 @@ class Nova_Bridge_Suite_Mapped_Content_Target {
         $post = $matches[0]; if ( $resource !== 'post_type:' . $post->post_type || ! current_user_can( 'edit_post', $post->ID ) ) { return new WP_Error( 'nova_mapped_target_resource_mismatch', 'Wrong type or permission' ); }
         return [ 'reference_type' => 'post', 'reference_id' => $post->ID, 'resource_id' => $resource, 'requested_url' => $wanted['identity'] ];
     }
-    public static function creation( $resource, $url, $language ) { $normalized = self::normalize_url( $url ); if ( is_wp_error( $normalized ) ) { return $normalized; } if ( $language !== 'en-US' ) { return new WP_Error( 'language', 'Wrong language' ); } $slug = trim( parse_url( $url, PHP_URL_PATH ), '/' ); foreach ( $GLOBALS['posts'] as $post ) { if ( $post->post_name === $slug && ! ( ! empty( $GLOBALS['native_draft_slugs'] ) && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return new WP_Error( 'occupied', 'Already occupied' ); } } return [ 'slug' => $slug, 'parent' => 0, 'target_url' => $normalized['identity'], 'language' => $language, 'native_language' => [ 'provider' => 'core', 'code' => 'en-us' ] ]; }
+    public static function creation( $resource, $url, $language ) { $normalized = self::normalize_url( $url ); if ( is_wp_error( $normalized ) ) { return $normalized; } if ( $language !== 'en-US' ) { return new WP_Error( 'language', 'Wrong language' ); } $slug = trim( parse_url( $url, PHP_URL_PATH ), '/' ); foreach ( $GLOBALS['posts'] as $post ) { if ( rtrim( get_permalink( $post->ID ), '/' ) === $normalized['identity'] && ! ( ! empty( $GLOBALS['native_draft_slugs'] ) && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return new WP_Error( 'occupied', 'Already occupied' ); } } return [ 'slug' => $slug, 'parent' => 0, 'target_url' => $normalized['identity'], 'language' => $language, 'native_language' => [ 'provider' => 'core', 'code' => 'en-us' ] ]; }
     public static function with_creation_language( $target, $fn ) { return $fn(); }
     public static function verify_created_language( $resource, $kind, $id, $target ) { return true; }
     public static function native_url( $resource, $kind, $id ) { return get_permalink( $id ); }
@@ -182,6 +182,22 @@ foreach ( [ 'human_edit', 'owner_changed', 'wrong_type', 'ambiguous', 'private' 
     }
     check( is_wp_error( $plan ) && $inserts === 0 && $saves === 0, 'Changed, ambiguously owned, wrong-type or unsupported existing pages fail before replacement.' );
 }
+// Older installations keep the first test route under the original association key.
+reset_native();
+existing_page( 20, 'masterclass' ); existing_page( 21, 'lorem-ipsum-demo-service', 'draft', 20 );
+$demo_routes = [ '/masterclass/lorem-ipsum-demo-service/', '/lorem-ipsum-demo-service/' ];
+$route_ids = [];
+foreach ( [ 0, 1, 0, 1 ] as $step => $route ) {
+    [ $demo, $config ] = fixture( (string) ( 501 + $step ) );
+    $demo['url'] = $demo_routes[$route];
+    $operation = op( 41 + $step );
+    $plan = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $demo, $config, [ 'operation_id' => $operation ] ) );
+    $saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, $operation ) );
+    if ( isset( $route_ids[$route] ) ) { check( $saved['post_id'] === $route_ids[$route], 'Repeat sends reuse the draft at the requested full URL.' ); }
+    $route_ids[$route] = $saved['post_id'];
+    check( get_permalink( $saved['post_id'] ) === home_url( $demo['url'] ), 'Same-slug demos report the correct endpoint path.' );
+}
+check( $route_ids[0] === 21 && $route_ids[1] !== 21 && $inserts === 1, 'Both live demo routes retain independent native IDs.' );
 // A demo replacement must still be safe when its plan is applied.
 foreach ( [ 'restored', 'occupied' ] as $conflict ) {
     reset_native(); [ $demo, $config ] = fixture();
