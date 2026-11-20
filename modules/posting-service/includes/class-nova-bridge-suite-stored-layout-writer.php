@@ -85,6 +85,12 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             self::fail( 'ownership', 'This native path already has a reservation in the intended language.' );
         }
     }
+    private static function deleted_demo( array $association, string $url ): bool {
+        $id = (int) ( $association['post_id'] ?? 0 );
+        if ( $id <= 0 || ! Nova_Bridge_Suite_Publication_Policy::test_url( $url ) || ! Nova_Bridge_Suite_Publication_Policy::test_url( $association['target']['target_url'] ?? '' ) ) { return false; }
+        $post = get_post( $id );
+        return ! $post || 'trash' === $post->post_status;
+    }
     private static function target( array $content, array $configuration, string $type ): array {
         $association = self::association( $content ); $url = self::checked( self::target_url( $content['url'] ?? '', $content['language'] ) ); $resource = 'post_type:' . $type;
         if ( $association ) {
@@ -92,6 +98,9 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             // older or equal version of the same content item, is refused.
             $same_item = ( $association['template_id'] ?? '' ) === $configuration['template']['id'] && ( $association['content_item_id'] ?? '' ) === $content['content_item_id'];
             if ( ! in_array( $association['state'] ?? '', [ 'committed', 'retired' ], true ) || ( $same_item && self::compare( $content['content_item_version_id'], $association['content_item_version_id'] ?? '0' ) <= 0 ) ) { self::fail( 'association', 'This URL has an unfinished delivery, or a newer or equal version of this content item.' ); }
+            if ( self::deleted_demo( $association, $url ) ) {
+                return self::creation_target( $type, $url, $content['language'], $association );
+            }
             $wanted = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ) );
             $target = $association['target'];
             if ( $wanted['identity'] !== $target['target_url'] ) {
@@ -101,9 +110,6 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 $post = get_post( (int) $association['post_id'] );
                 if ( ! is_array( $actual ) || $actual['identity'] !== $wanted['identity'] || ! $post ) { self::fail( 'url_changed', 'A retained page cannot be moved to a different delivery URL.' ); }
                 $target = [ 'slug' => $post->post_name, 'parent' => (int) $post->post_parent, 'target_url' => $wanted['identity'] ] + $target;
-            }
-            if ( Nova_Bridge_Suite_Publication_Policy::test_url( $url ) && 'trash' === get_post_status( (int) $association['post_id'] ) ) {
-                return self::creation_target( $type, $url, $content['language'], $association );
             }
             if ( Nova_Bridge_Suite_Stored_Layout_Language::is_multilingual_post_provider() ) {
                 $target = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::existing( $resource, (int) $association['post_id'], $url, $content['language'] ) );
@@ -366,8 +372,8 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                     if ( $found ) { $record['post_id'] = $found; $record['state'] = 'reserved'; self::checkpoint( $key, $record ); }
                     elseif ( $record['state'] === 'creating' ) { self::fail( 'create_unknown', 'An uncertain creation has no unique reservation. Inspect it before trying again.' ); }
                     else {
-                        if ( $plan['association_before'] && 'trash' !== get_post_status( (int) $plan['association_before']['post_id'] ) ) {
-                            self::fail( 'target_changed', 'The previous demo page left the Trash after planning.' );
+                        if ( $plan['association_before'] && ! self::deleted_demo( $plan['association_before'], $plan['target']['target_url'] ) ) {
+                            self::fail( 'target_changed', 'The previous demo page is no longer eligible for replacement.' );
                         }
                         self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, 0 ) );
                         self::assert_unreserved( $plan['post_type'], $plan['target'] );
