@@ -18,7 +18,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         add_action( 'rest_api_init', [ __CLASS__, 'routes' ], 1005 );
     }
     public static function routes(): void {
-        foreach ( [ 'catalog' => [ 'GET', 'catalog' ], 'design' => [ 'POST', 'design' ], 'presentation' => [ 'POST', 'presentation' ], 'reusable-block' => [ 'POST', 'reusable_block' ], 'region' => [ 'POST', 'region' ], 'preview' => [ 'POST', 'preview' ], 'save' => [ 'POST', 'save' ], 'sync' => [ 'POST', 'sync' ], 'profile' => [ 'GET', 'profile' ], 'blank' => [ 'GET', 'blank' ], 'translate' => [ 'POST', 'translate' ] ] as $suffix => $operation ) {
+        foreach ( [ 'catalog' => [ 'GET', 'catalog' ], 'term-search' => [ 'POST', 'term_search' ], 'design' => [ 'POST', 'design' ], 'presentation' => [ 'POST', 'presentation' ], 'reusable-block' => [ 'POST', 'reusable_block' ], 'region' => [ 'POST', 'region' ], 'preview' => [ 'POST', 'preview' ], 'save' => [ 'POST', 'save' ], 'sync' => [ 'POST', 'sync' ], 'profile' => [ 'GET', 'profile' ], 'blank' => [ 'GET', 'blank' ], 'translate' => [ 'POST', 'translate' ] ] as $suffix => $operation ) {
             register_rest_route( 'nova-bridge/v1', '/mapping/layout-recipes/' . $suffix, [ 'methods' => $operation[0], 'callback' => self::callback( $operation[1] ), 'permission_callback' => [ __CLASS__, 'can_admin' ] ] );
         }
         register_rest_route( 'nova-bridge/v1', '/mapping/layout-recipes/draft', [ [ 'methods' => 'POST', 'callback' => self::callback( 'draft' ), 'permission_callback' => [ __CLASS__, 'can_admin' ] ], [ 'methods' => 'GET', 'callback' => self::callback( 'recover_draft' ), 'permission_callback' => [ __CLASS__, 'can_admin' ] ] ] );
@@ -304,12 +304,40 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $design['locale_preservation'] = Nova_Bridge_Suite_Layout_Locales::summary( Nova_Bridge_Suite_Layout_Locales::capture( $resource, $builder, $design['blueprint'], $id ) );
         return self::response( $design );
     }
+    public static function term_search( $request ) {
+        $body = self::body( $request ); if ( is_wp_error( $body ) ) { return $body; }
+        $resource = self::resource( $body['resource_id'] ?? '' ); if ( is_wp_error( $resource ) ) { return $resource; }
+        $taxonomy = $body['taxonomy'] ?? '';
+        if ( ! is_string( $taxonomy ) || ! isset( Nova_WordPress_Fixed_Terms::taxonomies( $resource['post_type'] ?? '' )[$taxonomy] ) ) { return self::error( 'taxonomy', 'Choose an available taxonomy.' ); }
+        $paged = true === ( $body['paginate'] ?? false );
+        $offset = $body['offset'] ?? 0;
+        if ( ! is_int( $offset ) || $offset < 0 ) { return self::error( 'offset', 'Choose a valid term offset.' ); }
+        $terms = Nova_WordPress_Fixed_Terms::all_language_terms( [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'lang' => '', 'search' => sanitize_text_field( $body['search'] ?? '' ), 'orderby' => 'name', 'offset' => $offset, 'number' => $paged ? 51 : 50 ] );
+        if ( is_wp_error( $terms ) ) { return $terms; }
+        if ( $paged && true === ( $body['group_translations'] ?? false ) ) {
+            $preferred = sanitize_key( $body['language'] ?? '' );
+            $as_choice = static function ( $term ) use ( $preferred ) { return Nova_WordPress_Fixed_Terms::picker_term( $term, $preferred ); };
+            $selected = $body['selected'] ?? [];
+            if ( ! is_array( $selected ) || count( $selected ) > 250 || count( array_filter( $selected, 'is_string' ) ) !== count( $selected ) ) { return self::error( 'terms', 'Invalid selected terms.' ); }
+            $pinned = $selected ? Nova_WordPress_Fixed_Terms::all_language_terms( [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'slug' => $selected ] ) : [];
+            if ( is_wp_error( $pinned ) ) { return $pinned; }
+            return self::response( [ 'terms' => array_map( $as_choice, array_slice( $terms, 0, 50 ) ), 'selected' => array_map( $as_choice, $pinned ), 'more' => count( $terms ) > 50 ] );
+        }
+        $items = array_map( static function ( $term ) { return [ 'label' => $term->name, 'slug' => $term->slug ]; }, array_slice( $terms, 0, 50 ) );
+        return self::response( $paged ? [ 'terms' => $items, 'more' => count( $terms ) > 50 ] : $items );
+    }
     /** Expose registrations for selection without reading custom-field values from the example. */
     private static function field_choices( array $design, string $resource, string $mode, int $example ): array {
+        if ( in_array( $mode, [ 'static', 'article' ], true ) && 0 === strpos( $resource, 'post_type:' ) ) { $design['seo_field_choices'] = Nova_WordPress_Layout_SEO::catalog();
+            if ( function_exists( 'get_object_taxonomies' ) ) {
+                $design['term_locale_settings'] = Nova_Bridge_Suite_Layout_Locales::term_locale_settings( substr( $resource, 10 ) );
+                $design['term_main_language'] = function_exists( 'pll_default_language' ) ? pll_default_language() : apply_filters( 'wpml_default_language', null );
+                $design['term_taxonomies'] = Nova_WordPress_Fixed_Terms::taxonomies( substr( $resource, 10 ) );
+                $design['reference_term_links'] = Nova_WordPress_Fixed_Terms::reference_links( $example ?: (int) ( $design['source_reference']['reference_id'] ?? 0 ), $design['term_taxonomies'] );
+            } }
         if ( 'taxonomy:product_cat' === $resource && $example && function_exists( 'get_edit_term_link' ) ) {
             $design['term_editor_url'] = get_edit_term_link( $example, 'product_cat', 'product' );
         }
-        if ( in_array( $mode, [ 'static', 'article' ], true ) && 0 === strpos( $resource, 'post_type:' ) ) { $design['seo_field_choices'] = Nova_WordPress_Layout_SEO::catalog(); }
         if ( in_array( $mode, [ 'static', 'article' ], true ) && 0 === strpos( $resource, 'post_type:' ) && 'acf' !== ( $design['builder'] ?? '' ) ) {
             // Editable Elementor settings can become editorial fields without an intermediate save.
             $fixed = 'elementor' === $design['builder'] && isset( $design['presentation_choices'] ) ? [] : Nova_Bridge_Suite_Layout_Custom_Fields::retained_meta( $design );
@@ -476,6 +504,18 @@ final class Nova_Bridge_Suite_Layout_Recipes {
             require_once __DIR__ . '/class-nova-bridge-suite-article-preview.php';
             $html = Nova_Bridge_Suite_Article_Preview::render( $result['writer_payload']['native_document'], $resource['post_type'] );
         }
+        if ( ! empty( $recipe['fixed_terms'] ) ) {
+            $resource = self::resource( $body['resource_id'] ?? '' ); if ( is_wp_error( $resource ) ) { return $resource; }
+            $terms = Nova_WordPress_Fixed_Terms::resolve( $recipe['fixed_terms'], $resource['post_type'] ?? '', $body['term_locale'] ?? '' );
+            if ( is_wp_error( $terms ) ) { return $terms; }
+            $summary = '<aside aria-label="Assigned terms">';
+            foreach ( $terms as $taxonomy => $ids ) {
+                $summary .= '<p>' . esc_html( get_taxonomy( $taxonomy )->labels->name ) . ' ';
+                foreach ( $ids as $id ) { $summary .= '<mark>' . esc_html( get_term( $id, $taxonomy )->name ) . '</mark> '; }
+                $summary .= '</p>';
+            }
+            $html = str_replace( '</body>', $summary . '</aside></body>', $html );
+        }
         return self::response( [ 'preview_document' => $html, 'preview_receipt' => self::receipt( $recipe, $content ), 'summary' => $result['summary'], 'content_schema' => $result['content_schema'], 'warnings' => $result['warnings'], 'engine_version' => $result['engine_version'], 'plan_digest' => $result['plan_digest'] ] );
     }
     public static function save( $request ) {
@@ -508,6 +548,10 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     }
     private static function save_local( $request ) {
         $body = self::body( $request ); if ( is_wp_error( $body ) ) { return $body; } $resource = self::resource( $body['resource_id'] ?? '' ); if ( is_wp_error( $resource ) ) { return $resource; } $recipe = self::reviewed( $body ); if ( is_wp_error( $recipe ) ) { return $recipe; }
+        if ( ! empty( $recipe['fixed_terms'] ) ) {
+            $terms = Nova_WordPress_Fixed_Terms::resolve( $recipe['fixed_terms'], $resource['post_type'] ?? '', '', true );
+            if ( is_wp_error( $terms ) ) { return $terms; }
+        }
         $scope = self::fits_resource( $recipe, $resource ); if ( is_wp_error( $scope ) ) { return $scope; }
         if ( isset( $body['posting_page_type'] ) && ! in_array( $body['posting_page_type'], [ 'service', 'informative', 'category' ], true ) ) { return self::error( 'posting_page_type', 'Choose Service, Informative or Category as the NOVA page type.' ); }
         if ( in_array( $resource['id'], [ 'taxonomy:product_cat', 'taxonomy:product_tag' ], true ) && isset( $body['posting_page_type'] ) && 'category' !== $body['posting_page_type'] ) { return self::error( 'posting_page_type', 'WooCommerce product categories use the NOVA Category page type.' ); }
@@ -636,6 +680,9 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $post = get_post( $id );
         if ( ! $post || $post->post_type !== $operation['post_type'] || 'draft' !== $post->post_status || ! current_user_can( 'edit_post', $id ) || (string) $post->post_title !== $operation['title'] ) { return self::error( 'draft_changed', 'The generated item is no longer the expected draft. Review it before retrying.', 409 ); }
         if ( array_key_exists( 'excerpt', $operation['post_fields'] ?? [] ) && (string) $post->post_excerpt !== $operation['post_fields']['excerpt'] ) { return self::error( 'draft_changed', 'The saved draft excerpt differs from the translated excerpt. Review it before retrying.', 409 ); }
+        if ( ! empty( $operation['fixed_terms'] ) ) {
+            $checked = Nova_WordPress_Fixed_Terms::verify( $id, $operation['fixed_terms'] ); if ( is_wp_error( $checked ) ) { return $checked; }
+        }
         $payload = $operation['writer_payload']; $builder = $operation['builder'];
         $media = null;
         if ( ! empty( $payload['nova_media'] ) ) {
@@ -706,6 +753,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $op_id = $body['operation_id'] ?? ''; $title = $body['title'] ?? ''; $revision = $body['revision'] ?? null;
         if ( ! self::uuid( $op_id ) || ! is_string( $title ) || '' === trim( $title ) || strlen( $title ) > 200 || ! is_int( $revision ) || ! is_array( $body['content'] ?? null ) ) { return self::error( 'draft', 'Name the test draft and supply a saved revision, filled content and unique draft request.' ); }
         $title = sanitize_text_field( $title ); $digest = Nova_Bridge_Suite_Recipe_Engine::digest( [ get_current_user_id(), $body['id'] ?? '', $revision, $body['content'], $title ] );
+        if ( ! empty( $body['term_locale'] ) ) { $digest = Nova_Bridge_Suite_Recipe_Engine::digest( [ $digest, $body['term_locale'] ] ); }
         $existing = self::operation( $op_id );
         if ( ! is_wp_error( $existing ) ) { return hash_equals( $existing['request_digest'], $digest ) ? self::recover_operation( $existing ) : self::error( 'operation_conflict', 'That draft request was already used with different content. No duplicate was created.', 409 ); }
         if ( 404 !== ( $existing->get_error_data()['status'] ?? 0 ) ) { return $existing; }
@@ -727,6 +775,11 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $meta = ! empty( $payload['meta_all'] ) ? Nova_Bridge_Suite_Content_Transport::validate_payload( $payload['meta_all'], $type, 0, $template ) : null;
         if ( is_wp_error( $meta ) ) { return $meta; }
         $operation = [ 'operation_id' => $op_id, 'user_id' => get_current_user_id(), 'request_digest' => $digest, 'profile_id' => $record['id'], 'revision' => $revision, 'builder' => $record['builder'], 'post_type' => $type, 'title' => $title, 'template' => $template, 'post_fields' => array_intersect_key( $fields, [ 'excerpt' => true ] ), 'writer_payload' => $payload, 'phase' => 'writing', 'updated_at' => time() ];
+        if ( ! empty( $record['recipe']['fixed_terms'] ) ) {
+            $terms = Nova_WordPress_Fixed_Terms::resolve( $record['recipe']['fixed_terms'], $type, $body['term_locale'] ?? '' );
+            if ( is_wp_error( $terms ) ) { return $terms; }
+            $operation['fixed_terms'] = $terms;
+        }
         $halo = ! empty( $compiled['halo_fields'] ) ? Nova_Bridge_Suite_Stored_Custom_Fields::prepare( $type, 0, $template, $compiled['halo_fields'] ) : [];
         if ( is_wp_error( $halo ) ) { return $halo; }
         if ( $halo ) { $operation['halo_fields'] = $halo; }
@@ -745,6 +798,10 @@ final class Nova_Bridge_Suite_Layout_Recipes {
             if ( is_wp_error( $result ) ) { self::update_operation( $operation, 'uncertain' ); return $result; }
             $data = $result instanceof WP_REST_Response ? $result->get_data() : $result; $id = (int) ( $data['id'] ?? $data['post_id'] ?? 0 );
             if ( ! $id || ! in_array( $id, self::witnesses( $operation ), true ) ) { self::update_operation( $operation, 'uncertain' ); return self::error( 'draft_uncertain', 'The native writer did not return this request’s witnessed draft. Use Recover draft before retrying.', 409 ); }
+            if ( ! empty( $operation['fixed_terms'] ) ) {
+                $written = Nova_WordPress_Fixed_Terms::write( $id, $operation['fixed_terms'] );
+                if ( is_wp_error( $written ) ) { self::update_operation( $operation, 'uncertain', $id ); return $written; }
+            }
             if ( $meta ) { $written = Nova_Bridge_Suite_Content_Transport::write_fields( get_post( $id ), $meta ); if ( is_wp_error( $written ) ) { self::update_operation( $operation, 'uncertain', $id ); return $written; } }
             $media = self::apply_operation_media( $operation, $id ); if ( is_wp_error( $media ) ) { self::update_operation( $operation, 'uncertain', $id ); return $media; }
             if ( ! empty( $operation['halo_fields'] ) ) {

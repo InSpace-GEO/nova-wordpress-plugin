@@ -423,6 +423,15 @@ final class Nova_Bridge_Suite_Posting_Worker {
                             ( ! isset( $job['payload']['plan'] ) && Nova_WordPress_Weglot_Source_Writer::eligible( $snapshot ) ) ) {
                             $writer_name = 'weglot_source';
                         }
+                        if ( 'dictionary_translation' === $writer_name && ! empty( $configuration['local']['fixed_terms'] ) && is_array( $provider ) ) {
+                            $rules = $configuration['local']['fixed_terms'];
+                            $type = $configuration['local']['routing']['post_type'];
+                            $source_terms = Nova_WordPress_Fixed_Terms::resolve( $rules, $type, $snapshot['url_family']['primary_language'] ?? $provider['source'] );
+                            $translated_terms = Nova_WordPress_Fixed_Terms::resolve( $rules, $type, $snapshot['language'] );
+                            if ( is_wp_error( $source_terms ) || is_wp_error( $translated_terms ) || $source_terms !== $translated_terms ) {
+                                return $this->native_failure( $job, $snapshot, 'shared_post_term_conflict', [ 'no_native_commit' => true ], 'These localized URLs share one WordPress post and must use the same term assignments.' );
+                            }
+                        }
                         if ( ! $retained_translation || $writer_name !== $retained_writer ) {
                             $job = $this->save_payload( $job, [ 'configuration' => $configuration, 'native_writer' => $writer_name ], 'received' );
                             if ( is_wp_error( $job ) ) { return $job; }

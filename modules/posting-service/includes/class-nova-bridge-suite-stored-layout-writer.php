@@ -255,6 +255,12 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             // changed since the previous publication. Freeze today's state for this operation's
             // apply/recovery checks; do not require the previous success's whole-page digest.
             $plan = [ 'format' => self::FORMAT, 'operation_id' => $operation, 'context' => $context, 'site_id' => $content['site_id'], 'template_id' => $configuration['template']['id'], 'template_revision' => $configuration['template']['revision'], 'profile_digest' => $configuration['profile_digest'], 'layout_digest' => $compiled['layout_digest'], 'post_type' => $type, 'payload' => $payload, 'post_fields' => $post_fields, 'target' => $target, 'target_post_id' => $target_id, 'desired_status' => $status, 'provider' => $provider, 'native_before' => $before, 'association_before' => $association, 'delivery_identity' => array_intersect_key( $content, array_flip( [ 'site_id', 'url_id', 'content_item_id', 'content_item_version_id', 'version_number', 'source_sha256', 'language', 'url_family' ] ) ) ];
+            if ( ! $target_id && ! empty( $local['fixed_terms'] ) ) {
+                $plan['fixed_terms'] = self::checked( Nova_WordPress_Fixed_Terms::resolve( $local['fixed_terms'], $type, $content['language'] ?? '', false, in_array( $target['native_language']['provider'] ?? '', [ 'wpml', 'polylang' ], true ) ? $target['native_language']['code'] : '' ) );
+            }
+            if ( $target_id && ! empty( $local['fixed_terms'] ) ) {
+                $plan['preserve_term_taxonomies'] = array_values( array_unique( array_column( $local['fixed_terms'], 'taxonomy' ) ) );
+            }
             if ( null !== $demo_target_url ) { $plan['delivery_identity']['demo_target_url'] = $demo_target_url; }
             if ( 'nova.stored-recipe/v1' === ( $local['stored_layout']['format'] ?? '' ) || 'elementor' !== $builder ) { $plan['builder'] = $builder; }
             if ( 'beaver' === $builder ) {
@@ -308,6 +314,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         $state = self::plan_state( $plan, $id );
         if ( ! $plan['target_post_id'] && isset( $plan['context']['author_user_id'] ) && $state['author'] !== (int) $plan['context']['author_user_id'] ) { self::fail( 'author', 'The created page does not have its selected author.' ); }
         if ( $state['type'] !== $plan['post_type'] || $state['title'] !== $plan['post_fields']['title'] || $state['excerpt'] !== ( $plan['post_fields']['excerpt'] ?? '' ) || $state['slug'] !== $plan['target']['slug'] || $state['parent'] !== $plan['target']['parent'] || $state['owner'] !== self::owner( $plan ) || ( $plan['target_post_id'] && $state['author'] !== $plan['native_before']['author'] ) ) { self::fail( 'native_mismatch', 'The retained page identity or fitted fields differ from the approved plan.' ); }
+        if ( ! empty( $plan['fixed_terms'] ) ) { self::checked( Nova_WordPress_Fixed_Terms::verify( $id, $plan['fixed_terms'] ) ); }
         self::checked( Nova_Bridge_Suite_Stored_Layout_Provider::verify( $plan['builder'] ?? 'elementor', $id, $plan['payload'], $plan['operation_id'], $include_featured ) );
         self::checked( Nova_Bridge_Suite_Stored_Layout_Language::verify( 'post_type:' . $plan['post_type'], $id, $plan['target'] ) );
         return $state;
@@ -336,6 +343,29 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         }
         return self::digest( $state );
     }
+    /** Keep WordPress from restoring a default term when a mapped taxonomy should stay empty. */
+    private static function save_with_term_policy( array $plan, int $id, callable $save ) {
+        $assignments = $plan['fixed_terms'] ?? [];
+        $defaults = [];
+        foreach ( $plan['preserve_term_taxonomies'] ?? array_keys( $assignments ) as $taxonomy ) {
+            $default = (int) get_option( 'category' === $taxonomy ? 'default_category' : 'default_term_' . $taxonomy );
+            if ( ! $default || ! taxonomy_exists( $taxonomy ) ) { continue; }
+            // For reposts, inspect the author's current assignments immediately before the native write.
+            $terms = $assignments[$taxonomy] ?? self::checked( wp_get_object_terms( $id, $taxonomy, [ 'fields' => 'ids' ] ) );
+            if ( [] === $terms ) { $defaults[$taxonomy] = $default; }
+        }
+        if ( ! $defaults ) { return $save(); }
+        $remove_default = static function ( $object_id, $terms, $tt_ids, $taxonomy ) use ( $id, $defaults ) {
+            if ( (int) $object_id !== $id || ! isset( $defaults[$taxonomy] ) ) { return; }
+            if ( [ $defaults[$taxonomy] ] === array_map( 'intval', (array) $terms ) ) {
+                self::checked( wp_remove_object_terms( $id, $defaults[$taxonomy], $taxonomy ) );
+            }
+        };
+        add_action( 'set_object_terms', $remove_default, 10, 4 );
+        try { return $save(); }
+        finally { remove_action( 'set_object_terms', $remove_default, 10 ); }
+    }
+
     private static function save_witnessed( array $plan, int $id, array $record ): bool {
         try { self::check_content( $plan, $id ); return true; }
         catch ( Nova_Bridge_Suite_Stored_Layout_Writer_Failure $error ) {
@@ -407,7 +437,9 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                         $record['state'] = 'creating'; self::checkpoint( $key, $record ); $marker = self::reservation_marker( $plan );
                         $protect = static function ( $data, $postarr, $raw ) use ( $marker ) { if ( ( $raw['post_content_filtered'] ?? null ) === $marker ) { $data['post_content_filtered'] = $marker; } return $data; };
                         add_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX, 3 );
-                        try { $id = wp_insert_post( wp_slash( [ 'post_type' => $plan['post_type'], 'post_status' => 'draft', 'post_title' => $plan['post_fields']['title'], 'post_name' => $plan['target']['slug'], 'post_parent' => $plan['target']['parent'], 'post_author' => $author, 'post_content_filtered' => $marker ] ), true ); } finally { remove_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX ); }
+                        $reservation = [ 'post_type' => $plan['post_type'], 'post_status' => 'draft', 'post_title' => $plan['post_fields']['title'], 'post_name' => $plan['target']['slug'], 'post_parent' => $plan['target']['parent'], 'post_author' => $author, 'post_content_filtered' => $marker ];
+                        if ( ! empty( $plan['fixed_terms'] ) ) { $reservation['tax_input'] = $plan['fixed_terms']; }
+                        try { $id = wp_insert_post( wp_slash( $reservation ), true ); } finally { remove_filter( 'wp_insert_post_data', $protect, PHP_INT_MAX ); }
                         if ( is_wp_error( $id ) || ! $id || self::reserved_post( $plan ) !== (int) $id ) { self::fail( 'create_unknown', 'WordPress did not confirm its reserved page. Reconcile this same operation.' ); }
                         $record['post_id'] = (int) $id; $record['state'] = 'reserved'; self::checkpoint( $key, $record );
                     }
@@ -450,7 +482,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                         $record['reserved_save_digest'] = self::reserved_save_digest( $plan, $id );
                     }
                     $record['state'] = 'saving'; self::checkpoint( $key, $record );
-                    self::checked( Nova_Bridge_Suite_Stored_Layout_Provider::apply( $plan['builder'] ?? 'elementor', $id, $plan['payload'], $plan['post_fields'], $operation ) );
+                    self::checked( self::save_with_term_policy( $plan, $id, static fn() => Nova_Bridge_Suite_Stored_Layout_Provider::apply( $plan['builder'] ?? 'elementor', $id, $plan['payload'], $plan['post_fields'], $operation ) ) );
                     self::check_content( $plan, $id );
                 }
                 // After the verified save (and again on a resumed one): another builder must not keep rendering the replaced page.
@@ -464,7 +496,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 if ( get_post_status( $id ) !== $plan['desired_status'] ) {
                     Nova_Bridge_Suite_Draft_Slug::for_post( $id, static function () use ( $plan, $id, &$record, $key ) {
                         if ( ! in_array( get_post_status( $id ), [ 'draft', 'publish' ], true ) || wp_unique_post_slug( $plan['target']['slug'], $id, $plan['desired_status'], $plan['post_type'], $plan['target']['parent'] ) !== $plan['target']['slug'] ) { self::fail( 'publication', 'The page status or planned slug changed before publication.' ); }
-                        $record['state'] = 'publishing'; self::checkpoint( $key, $record ); self::checked( wp_update_post( [ 'ID' => $id, 'post_status' => $plan['desired_status'] ], true ) );
+                        $record['state'] = 'publishing'; self::checkpoint( $key, $record ); self::checked( self::save_with_term_policy( $plan, $id, static fn() => wp_update_post( [ 'ID' => $id, 'post_status' => $plan['desired_status'] ], true ) ) );
                     } );
                 }
                 return self::complete( $plan, $record );

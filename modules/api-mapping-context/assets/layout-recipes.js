@@ -61,7 +61,7 @@
 		return scope.custom_fields ? customRoleIssue( scope.custom_fields, ( depth || 0 ) + 1 ) : '';
 	}
 	function visualContext( design, origin ) { var context = design && design.visual_preview, source = design && design.source_reference; if ( ! context || context.status !== 'available' || ! source || typeof context.session_id !== 'string' || ! context.session_id || typeof context.digest !== 'string' || ! context.digest || context.digest !== source.native_digest || context.reference_id !== source.reference_id || context.reference_type !== source.reference_type ) { return null; } var url; try { url = new URL( context.url, origin ); } catch ( error ) { return null; } if ( ! /^https?:$/.test( url.protocol ) || url.origin !== new URL( origin ).origin || ! Number.isSafeInteger( context.reference_id ) || context.reference_id < 1 || ! [ 'post', 'term' ].includes( context.reference_type ) ) { return null; } return Object.assign( {}, context, { url: url.href } ); }
-	function canvasMessage( event, frame, context, fields ) { if ( ! frame || ! context || event.source !== frame.contentWindow || event.origin !== 'null' || ! event.data || event.data.source !== 'nova-recipe-canvas' || event.data.sessionId !== context.session_id || event.data.digest !== context.digest || event.data.referenceId !== context.reference_id || event.data.referenceType !== context.reference_type || ! [ 'ready', 'bindings', 'pick', 'unbound' ].includes( event.data.type ) ) { return null; }
+	function canvasMessage( event, frame, context, fields ) { if ( ! frame || ! context || event.source !== frame.contentWindow || event.origin !== 'null' || ! event.data || event.data.source !== 'nova-recipe-canvas' || event.data.sessionId !== context.session_id || event.data.digest !== context.digest || event.data.referenceId !== context.reference_id || event.data.referenceType !== context.reference_type || ! [ 'ready', 'bindings', 'pick', 'unbound', 'term-highlight' ].includes( event.data.type ) ) { return null; }
 		var data = event.data;
 		if ( data.type !== 'pick' ) { return data; }
 		if ( ! Array.isArray( data.field_ids ) || data.field_ids.length > 2000 ) { return null; }
@@ -179,7 +179,7 @@
 			else { feedback( 'Creation default saved locally. Its posting-service default has not been confirmed.' + ( result.posting_support && result.posting_support.supported === false && result.posting_support.reason ? ' ' + result.posting_support.reason : '' ) ); }
 		}
 		async function run( callback, showAtSave ) { if ( state.busy ) { return; } state.busy = true; state.builderConflict = []; feedback( '', false ); emit(); try { await callback(); } catch ( error ) { if ( error && error.code === 'nova_recipe_builder_ambiguous' && error.data && Array.isArray( error.data.detected_builders ) ) { state.builderConflict = error.data.detected_builders.filter( function ( id ) { return typeof id === 'string' && supportedBuilder( id ); } ); } feedback( message( error ), true ); } finally { state.feedbackAtSave = !! showAtSave; state.busy = false; emit(); } }
-		function resetDesign() { feedback( '', false ); state.articlePreview = null; state.design = null; state.recipe = null; state.customDesign = null; state.customEnabled = false; state.declaredTermFields = {}; state.regionMeta = {}; state.id = ''; state.revision = 0; state.postingSync = null; state.postingSupport = null; state.baseline = ''; state.highestStep = 2; invalidate(); }
+		function resetDesign() { state.termLocale = ""; feedback( '', false ); state.articlePreview = null; state.design = null; state.recipe = null; state.customDesign = null; state.customEnabled = false; state.declaredTermFields = {}; state.regionMeta = {}; state.id = ''; state.revision = 0; state.postingSync = null; state.postingSupport = null; state.baseline = ''; state.highestStep = 2; invalidate(); }
 		async function regionMetadata( recipe, design, parent, variant, chain, variants ) { for ( var region of recipe.regions || [] ) { var payload = { design: { blueprint: design.blueprint, seal: design.seal, builder: design.builder }, target: region.target, start: region.start, count: region.count, prototype_start: region.prototype_start === undefined ? region.start : region.prototype_start, prototype_count: region.prototype_count === undefined ? 1 : region.prototype_count, source: region.source, kind: region.kind, label: region.label }; if ( parent ) { payload.parent_region = parent; payload.parent_chain = copy( chain || [ parent ] ); payload.parent_variants = copy( variants || payload.parent_chain.map( function () { return null; } ) ); payload.parent_variants[ payload.parent_variants.length - 1 ] = variant || null; if ( variant ) { payload.variant = variant; } } if ( payload.count === 0 ) { delete payload.prototype_start; delete payload.prototype_count; } var result = await request( '/region', payload ); if ( ! result || ! result.region ) { throw new Error( 'The saved native region could not be inspected. Your saved template is retained.' ); } state.regionMeta[ region.id ] = { limits: copy( result.collection_limits || {} ), fields: copy( result.fields || [] ), containers: copy( result.containers || [] ), sources: sources( result.sources || design.sources ), layouts: copy( result.layouts || [] ), variants_meta: copy( result.variants_meta || {} ) }; await regionMetadata( region.prototype, design, region, undefined, ( chain || [] ).concat( [ region ] ), ( payload.parent_variants || [] ).concat( [ null ] ) ); for ( var name of Object.keys( region.variants || {} ) ) { await regionMetadata( region.variants[ name ], design, region, name, ( chain || [] ).concat( [ region ] ), ( payload.parent_variants || [] ).concat( [ null ] ) ); } } }
 		async function applyPresentationSelection() {
 			var design = state.design, keys = design.pendingPresentationKeys;
@@ -354,14 +354,14 @@
 			}, true ); },
 			syncSaved: function ( replaceDefault ) { return run( async function () { if ( ! state.id || dirty() ) { throw new Error( 'Save your current edits before synchronizing the saved revision.' ); } var payload = { id: state.id, revision: state.revision }; if ( replaceDefault !== true ) { replacementApprovals = []; } if ( replaceDefault === true ) { var replacement = defaultReplacement( state ); if ( ! replacement ) { throw new Error( 'Synchronize the saved revision to review its current default before replacing it.' ); } replacementApprovals = replacementApprovals.filter( function ( item ) { return item.defaults_revision === replacement.defaults_revision && item.page_type !== replacement.page_type; } ); replacementApprovals.push( copy( replacement ) ); if ( replacementApprovals.length === 1 ) { payload.replace_default = copy( replacement ); } else { payload.replace_defaults = copy( replacementApprovals ); } } var result = await request( '/sync', payload ); if ( ! result || result.id !== state.id || result.revision !== state.revision || ! result.posting_sync ) { throw new Error( 'The saved revision synchronization could not be verified.' ); } syncFeedback( result ); }, true ); },
             previewArticle: function () { return run( async function () {
-                var result = await request( '/preview', { recipe: copy( state.recipe ), seal: state.design.seal, resource_id: state.resourceId, input: { content: copy( state.content ) } } );
+                var result = await request( '/preview', { recipe: copy( state.recipe ), seal: state.design.seal, resource_id: state.resourceId, term_locale: state.termLocale || '', input: { content: copy( state.content ) } } );
                 if ( ! result || typeof result.preview_document !== 'string' ) { throw new Error( 'The article preview could not be verified.' ); }
                 state.articlePreview = result.preview_document; feedback( ( result.warnings || [] ).join( ' ' ) );
             } ); },
             previewHalo: function () { return run( async function () {
                 if ( ! state.recipe ) { throw new Error( 'Choose a HALO layout first.' ); }
                 seedSavedSamples();
-                var result = await request( '/preview', { recipe: copy( state.recipe ), seal: state.design.seal, resource_id: state.resourceId, input: { content: copy( state.content ) } } );
+                var result = await request( '/preview', { recipe: copy( state.recipe ), seal: state.design.seal, resource_id: state.resourceId, term_locale: state.termLocale || '', input: { content: copy( state.content ) } } );
                 if ( ! result || typeof result.preview_document !== 'string' ) { throw new Error( 'The HALO preview could not be verified.' ); }
                 state.haloPreview = result.preview_document;
             } ); },
@@ -370,6 +370,7 @@
                 seedSavedSamples();
                 var title = state.mode === 'article' && typeof state.content.title === 'string' && state.content.title.trim() ? state.content.title : ( state.mode === 'article' ? 'Article preview - ' : 'HALO preview - ' ) + state.label;
                 var payload = state.pendingReview || { id: state.id, revision: state.revision, content: copy( state.content ), title: title, operation_id: operation };
+                if ( state.termLocale && ! state.pendingReview ) { payload.term_locale = state.termLocale; }
                 if ( ! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test( payload.operation_id ) ) { throw new Error( 'A valid preview operation is required.' ); }
                 state.pendingReview = payload;
                 if ( options.rememberDraft ) { options.rememberDraft( { id: payload.id, revision: payload.revision, operation_id: payload.operation_id } ); }
@@ -387,6 +388,20 @@
             } ); },
 			reload: function () { if ( dirty() && ! confirm( 'Reload the saved template and discard your unsaved rules?' ) ) { return Promise.resolve(); } return run( async function () { if ( state.id ) { var id = state.id; state.catalog = catalogResult( await request( '/catalog' ) ); await loadProfile( id ); } } ); }
 		};
+	}
+	function recipeRequestUrl( base, suffix ) {
+		if ( ! base.includes( '?' ) ) { return base + suffix; }
+		var url = new URL( base ), query = suffix.indexOf( '?' );
+		var path = query < 0 ? suffix : suffix.slice( 0, query );
+		if ( url.searchParams.has( 'rest_route' ) ) {
+			url.searchParams.set( 'rest_route', url.searchParams.get( 'rest_route' ) + path );
+		} else {
+			url.pathname += path;
+		}
+		if ( query >= 0 ) {
+			new URLSearchParams( suffix.slice( query + 1 ) ).forEach( function ( value, key ) { url.searchParams.append( key, value ); } );
+		}
+		return url.href;
 	}
 	function mount( host, config, dependencies ) {
 		dependencies = dependencies || {}; var doc = host.ownerDocument || document, win = doc.defaultView || window, controller, referenceId = 0, referenceResource = '', referenceSearch = '', referenceBuilder = 'auto', referenceView = 'desktop', composers = {}, variantTabs = {}, currentBinding = {}, fieldSearch = {}, termDeclarationChoices = Object.create( null ), canvasFrame = null, canvasKey = '', canvasReady = false, canvasTimer = null, canvasBindingKey = '', canvasSelection = '', canvasChoices = [], canvasStatuses = {}, canvasInfo, canvasStatus, canvasBody, chromeHost, workspaceHost, canvasHost, panelHost, renderedViewContext = '', renderedViewBusy = false, viewMemory = null, viewRenderSerial = 0, retainedOperations = operationStore( safeStorage( win ), 'nova-layout-recipe-review:' + config.url );
@@ -467,14 +482,14 @@
 		}
 		function clearCanvasTimer() { if ( canvasTimer !== null && win.clearTimeout ) { win.clearTimeout( canvasTimer ); } canvasTimer = null; }
 		function updateCanvas( state ) { var context = visualContext( state.design, win.location.origin ), active = state.step === 3 && !! context; canvasHost.hidden = ! active; workspaceHost.className = 'nlr-workspace' + ( active ? ' with-canvas' : '' ); if ( ! context ) { clearCanvasTimer(); if ( canvasFrame ) { canvasBody.replaceChildren(); } canvasFrame = null; canvasKey = ''; canvasReady = false; return; } canvasInfo.replaceChildren(); canvasInfo.append( exampleHeading( state.design.source_reference ), help( 'Reference page · ' + ( state.design.source_reference.builder || state.builder ) + '. Select a highlighted field. This shows existing content, not generated content.' ), help( 'Live embeds, links, forms and site scripts are paused in this read-only canvas. Images and map addresses remain selectable; use the inventory for fields without a visual match.' ) ); var views = node( 'div', undefined, 'nlr-actions' ); [ 'desktop', 'mobile' ].forEach( function ( value ) { var control = button( value === 'desktop' ? 'Desktop reference · ' + referenceGeometry( 1, 'desktop', config.referenceDesktopWidth ).width + ' px' : 'Mobile reference · 390 px', function () { referenceView = value; canvasHost.className = 'nlr-canvas' + ( value === 'mobile' ? ' mobile' : '' ); resizeCanvas(); }, false, false ); views.append( control ); } ); canvasInfo.append( views, help( 'The desktop viewport is scaled to fit. Device layout uses the width shown above, not the inspector column width.' ) ); var key = context.session_id + ':' + context.digest + ':' + context.url; if ( key !== canvasKey ) { clearCanvasTimer(); canvasKey = key; canvasReady = false; canvasBindingKey = ''; canvasStatuses = {}; canvasChoices = []; canvasSelection = ''; canvasFrame = node( 'iframe' ); canvasFrame.title = 'Reference page: ' + ( state.design.source_reference.title || context.reference_id ); canvasFrame.setAttribute( 'sandbox', 'allow-scripts' ); canvasFrame.referrerPolicy = 'no-referrer'; canvasFrame.src = context.url; canvasBody.replaceChildren( canvasFrame ); canvasStatus.textContent = 'Loading the reference. All writable fields are also available in the inspector.'; if ( win.setTimeout ) { canvasTimer = win.setTimeout( function () { if ( canvasKey === key && ! canvasReady ) { canvasStatus.textContent = 'The reference preview could not initialize. Open the example page using the arrow beside its title, or continue with the complete field list.'; } }, 15000 ); } } else if ( canvasReady && canvasBindingKey !== JSON.stringify( { fields: state.design.preview_fields, bindings: state.recipe.bindings, regions: state.recipe.regions, omissions: state.recipe.omissions } ) ) { bindCanvas( state ); } resizeCanvas(); }
-		function receiveCanvas( event ) { var state = controller.state, context = visualContext( state.design, win.location.origin ), data = canvasMessage( event, canvasFrame, context, state.design && state.design.preview_fields ); if ( ! data || state.step !== 3 ) { return; } if ( data.type === 'ready' ) { clearCanvasTimer(); canvasReady = true; canvasStatus.textContent = 'Choose a highlighted field, or select one in the complete field list.'; bindCanvas( state ); var selected = ( state.design.preview_fields || [] ).find( function ( field ) { return field.target === canvasSelection; } ); if ( selected ) { sendCanvas( 'select', { field_id: selected.field_id } ); } } else if ( data.type === 'pick' ) { canvasChoices = data.fields; selectNativeTarget( data.fields[0].target, true ); } else if ( data.type === 'bindings' ) { var known = new Set( ( state.design.preview_fields || [] ).map( function ( field ) { return field.field_id; } ) ); ( Array.isArray( data.fields ) ? data.fields : [] ).forEach( function ( field ) { if ( known.has( field.field_id ) ) { canvasStatuses[field.field_id] = field; } } ); canvasStatus.textContent = 'Reference ready. Fields without a visible match remain available in the inspector.'; } else if ( data.type === 'unbound' ) { canvasChoices = []; canvasStatus.textContent = 'This part of the page has no verified writable visual binding. Choose a supported field in the inspector; it has not been added automatically.'; } }
+		function receiveCanvas( event ) { var state = controller.state, context = visualContext( state.design, win.location.origin ), data = canvasMessage( event, canvasFrame, context, state.design && state.design.preview_fields ); if ( ! data || state.step !== 3 ) { return; } if ( data.type === 'ready' ) { clearCanvasTimer(); canvasReady = true; canvasStatus.textContent = 'Choose a highlighted field, or select one in the complete field list.'; bindCanvas( state ); var selected = ( state.design.preview_fields || [] ).find( function ( field ) { return field.target === canvasSelection; } ); if ( selected ) { sendCanvas( 'select', { field_id: selected.field_id } ); } } else if ( data.type === 'pick' ) { canvasChoices = data.fields; selectNativeTarget( data.fields[0].target, true ); } else if ( data.type === 'bindings' ) { var known = new Set( ( state.design.preview_fields || [] ).map( function ( field ) { return field.field_id; } ) ); ( Array.isArray( data.fields ) ? data.fields : [] ).forEach( function ( field ) { if ( known.has( field.field_id ) ) { canvasStatuses[field.field_id] = field; } } ); canvasStatus.textContent = 'Reference ready. Fields without a visible match remain available in the inspector.'; } else if ( data.type === 'term-highlight' ) { canvasStatus.textContent = data.found ? 'Term highlighted on the reference post.' : 'This term has no visible link in the reference post.'; } else if ( data.type === 'unbound' ) { canvasChoices = []; canvasStatus.textContent = 'This part of the page has no verified writable visual binding. Choose a supported field in the inspector; it has not been added automatically.'; } }
 		win.addEventListener( 'message', receiveCanvas );
 		function field( label, control, hint ) { var wrap = node( 'div', undefined, 'nlr-control' ), title = node( 'label', label ); var id = 'nlr-' + String( ++field.counter ); control.id = id; control.setAttribute( 'data-nlr-view-key', 'control:' + label ); title.htmlFor = id; wrap.append( title, control ); if ( hint ) { wrap.append( help( hint ) ); } return wrap; } field.counter = 0;
 		function input( value, action, multiline ) { var element = node( multiline ? 'textarea' : 'input' ); if ( ! multiline ) { element.type = 'text'; } element.value = value || ''; element.addEventListener( 'input', function () { action( element.value ); } ); return element; }
 		function select( choices, value, action ) { var element = node( 'select' ); choices.forEach( function ( item ) { var option = node( 'option', item.label ); option.value = item.value; option.disabled = !! item.disabled; element.append( option ); } ); element.value = value; element.addEventListener( 'change', function () { action( element.value ); } ); return element; }
 		function check( label, checked, action, hint ) { var wrap = node( 'div', undefined, 'nlr-check' ), box = node( 'input' ), title = node( 'label', label ), text = node( 'div' ); box.type = 'checkbox'; box.checked = checked; box.id = 'nlr-check-' + ++field.counter; box.setAttribute( 'data-nlr-view-key', 'check:' + label ); title.htmlFor = box.id; box.addEventListener( 'change', function () { action( box.checked ); } ); text.append( title ); if ( hint ) { text.append( help( hint ) ); } wrap.append( box, text ); return wrap; }
 		function warnings( messages, parent ) { if ( ! messages || ! messages.length ) { return; } var wrap = node( 'div', undefined, 'nlr-warnings' ); messages.forEach( function ( item ) { wrap.append( node( 'p', message( item ) ) ); } ); parent.append( wrap ); }
-		function request( suffix, data ) { return ( dependencies.fetch || win.fetch.bind( win ) )( config.url + suffix, { method: data === undefined ? 'GET' : 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': config.nonce, 'X-Nova-Environment': config.environment || '' }, body: data === undefined ? undefined : JSON.stringify( data ) } ).then( async function ( response ) { var result; try { result = await response.json(); } catch ( error ) { throw new Error( 'WordPress returned an unreadable response. Your choices are kept.' ); } if ( ! response.ok ) { var failure = new Error( message( result ) ); failure.status = response.status; failure.code = result && result.code; failure.data = result && result.data; throw failure; } return result; } ); }
+		function request( suffix, data ) { return ( dependencies.fetch || win.fetch.bind( win ) )( recipeRequestUrl( config.url, suffix ), { method: data === undefined ? 'GET' : 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': config.nonce, 'X-Nova-Environment': config.environment || '' }, body: data === undefined ? undefined : JSON.stringify( data ) } ).then( async function ( response ) { var result; try { result = await response.json(); } catch ( error ) { throw new Error( 'WordPress returned an unreadable response. Your choices are kept.' ); } if ( ! response.ok ) { var failure = new Error( message( result ) ); failure.status = response.status; failure.code = result && result.code; failure.data = result && result.data; throw failure; } return result; } ); }
 		function updateGates( state ) {
 			if ( ! host.querySelectorAll ) { return; }
 			var saved = !! state.id && fingerprint( state ) === state.baseline;
@@ -660,6 +675,151 @@
 				wrap.append( row );
 			} );
 			return wrap;
+		}
+		var termPickers = new Map();
+		function fixedTermsEditor( state ) {
+			var section = node( 'details', undefined, 'nlr-region-list nlr-fixed-terms' ), choices = state.design.term_taxonomies;
+			section.setAttribute( 'data-nlr-view-key', 'fixed-terms' );
+			var rows = state.recipe.fixed_terms || [], locale = state.termLocale || '*';
+			section.append( node( 'summary', 'Categories, tags and other terms' ), node( 'h4', 'Always assign to new posts' ), help( 'Every checked term is added to new posts using this layout. NOVA does not choose terms based on the article.' ) );
+			var locales = new Set( rows.map( function ( row ) { return row.locale; } ) );
+			var settings = state.design.term_locale_settings || state.design.locale_preservation || {}, catalog = settings.catalog || [];
+			catalog.forEach( function ( entry ) { if ( entry.locale ) { locales.add( entry.locale.toLowerCase().replace( /_/g, '-' ) ); } } );
+			locales.add( locale ); locales.delete( '*' );
+			var main = state.design.term_main_language || '';
+			function usesDefaults( value ) {
+				if ( ! main || rows.some( function ( row ) { return row.locale === value; } ) ) { return false; }
+				return value === main || catalog.some( function ( entry ) { return entry.code === main && ( entry.locale || '' ).toLowerCase().replace( /_/g, '-' ) === value; } );
+			}
+			var options = [ { value: '*', label: main ? 'All locales (main language: ' + main + ')' : 'All locales (default)' } ];
+			Array.from( locales ).sort().forEach( function ( value ) {
+				if ( usesDefaults( value ) ) { return; }
+				var label = value;
+				try { label = Intl.getCanonicalLocales( value )[0]; } catch ( error ) { /* Keep the stored locale code. */ }
+				options.push( { value: value, label: label } );
+			} );
+			if ( options.length > 1 ) {
+				section.append( field( 'Destination locale', select( options, locale, function ( value ) { state.termLocale = value === '*' ? '' : value; render(); } ) ) );
+			}
+			var providers = { wpml: 'WPML', polylang: 'Polylang', translatepress: 'TranslatePress', weglot: 'Weglot' };
+			if ( [ 'wpml', 'polylang' ].includes( settings.provider ) ) {
+				section.append( help( providers[settings.provider] + ' supplies the linked terms for each language. Open +N to exclude a translation. Missing translations are skipped.' ) );
+			} else if ( [ 'translatepress', 'weglot' ].includes( settings.provider ) ) {
+				section.append( help( providers[settings.provider] + ' translates the same WordPress post. Its categories and tags are shared across languages.' ) );
+			}
+			if ( locale !== '*' ) { section.append( help( 'Selecting a term here replaces the defaults for that taxonomy in this locale. Remove its last local selection to use the defaults again.' ) ); }
+			function update( values ) { controller.edit( function () { if ( values.length ) { state.recipe.fixed_terms = values; } else { delete state.recipe.fixed_terms; } } ); }
+			Object.keys( choices ).forEach( function ( tax ) {
+				var group = node( 'fieldset' ), chips = node( 'div', undefined, 'nlr-term-chips' ), extra = node( 'div' ), status = help( '' );
+				var scoped = rows.filter( function ( row ) { return row.taxonomy === tax && row.locale === locale; } );
+				var selected = scoped.length ? scoped : rows.filter( function ( row ) { return row.taxonomy === tax && row.locale === '*'; } );
+				var key = JSON.stringify( [ state.resourceId, tax, locale ] );
+				var picker = termPickers.get( key );
+				if ( ! picker ) { picker = { expanded: false, query: '', pages: [], families: new Map() }; termPickers.set( key, picker ); }
+				function primary( slug ) { var family = picker.families.get( slug ); return family ? family.slug : slug; }
+				function toggle( slug ) {
+					var exists = selected.some( function ( row ) { return primary( row.slug ) === slug; } );
+					if ( ! exists ) { update( rows.concat( [ { taxonomy: tax, locale: locale, slug: slug } ] ) ); }
+					else if ( scoped.length ) { update( rows.filter( function ( row ) { return ! ( row.taxonomy === tax && row.locale === locale && primary( row.slug ) === slug ); } ) ); }
+					else if ( selected.length > 1 ) {
+						update( rows.concat( selected.filter( function ( row ) { return primary( row.slug ) !== slug; } ).map( function ( row ) { return Object.assign( {}, row, { locale: locale } ); } ) ) );
+					}
+				}
+				var panel = node( 'div', undefined, 'nlr-term-panel' );
+				function paint() {
+					panel.replaceChildren(); panel.hidden = true; chips.replaceChildren(); var terms = new Map();
+					selected.forEach( function ( row ) { terms.set( primary( row.slug ), picker.families.get( row.slug ) || { slug: row.slug, label: row.slug } ); } );
+					var matches = picker.pages;
+					matches.forEach( function ( term ) {
+						if ( picker.expanded || terms.size < 10 ) { terms.set( term.slug, term ); }
+					} );
+					terms.forEach( function ( term, slug ) {
+						var label = term.label;
+						var active = selected.some( function ( row ) { return primary( row.slug ) === slug; } );
+						var wrap = node( 'span', undefined, 'nlr-term-option' );
+						var caption = label + ( term.locale_only ? ' · ' + term.language : '' );
+						if ( Number.isInteger( term.count ) ) { caption += ' (' + term.count + ')'; }
+						var control = button( caption, function () { toggle( slug ); }, false, active && ! scoped.length && selected.length === 1 );
+						control.setAttribute( 'aria-pressed', String( active ) ); control.setAttribute( 'data-nlr-view-key', 'term:' + tax + ':' + slug );
+						if ( control.disabled ) { control.title = 'Inherited default. Select another term to replace it for this locale.'; }
+						wrap.append( control );
+						var variants = term.translations || [];
+						var links = ( state.design.reference_term_links || {} )[tax] || {};
+						var linked = [ term ].concat( variants ).find( function ( entry ) { return links[entry.slug]; } );
+						function highlight() { sendCanvas( 'highlight-term', { url: links[linked.slug] } ); canvasHost.scrollIntoView( { block: 'nearest' } ); }
+						if ( variants.length && locale === '*' ) {
+							var expand = button( '+' + variants.length, function () {
+								picker.openTerm = picker.openTerm === slug ? '' : slug; paint();
+								chips.querySelector( '[data-term-index="' + index + '"]' )?.focus( { preventScroll: true } );
+							} );
+							var index = chips.children.length;
+							expand.setAttribute( 'data-term-index', String( index ) );
+							expand.setAttribute( 'aria-label', 'Translations of ' + label ); expand.setAttribute( 'aria-expanded', String( picker.openTerm === slug ) ); wrap.append( expand );
+							if ( picker.openTerm === slug ) {
+								panel.hidden = false; panel.append( node( 'strong', label + ' · translations' ) );
+								if ( ! active ) { panel.append( help( 'Select the term to include its translations.' ) ); }
+								variants.forEach( function ( variant ) {
+									var matching = selected.filter( function ( row ) { return primary( row.slug ) === slug; } );
+									var enabled = matching.some( function ( row ) { return ! ( row.excluded_languages || [] ).includes( variant.language ); } );
+									var item = check( variant.language + ' · ' + variant.label + ' (' + variant.count + ')', enabled, function ( include ) {
+										update( rows.map( function ( row ) {
+											if ( ! matching.includes( row ) ) { return row; }
+											var copy = Object.assign( {}, row ), excluded = new Set( row.excluded_languages || [] );
+											if ( include ) { excluded.delete( variant.language ); } else { excluded.add( variant.language ); }
+											if ( excluded.size ) { copy.excluded_languages = Array.from( excluded ).sort(); } else { delete copy.excluded_languages; }
+											return copy;
+										} ) );
+									} );
+									item.querySelector( 'input' ).disabled = ! active; panel.append( item );
+								} );
+								if ( linked ) { panel.append( button( 'Show in preview', highlight ) ); }
+							}
+						} else if ( linked && active ) {
+							var show = button( 'Preview', highlight ); show.setAttribute( 'aria-label', 'Show ' + label + ' in preview' ); wrap.append( show );
+						}
+						chips.append( wrap );
+					} );
+					more.hidden = ! picker.expanded && ! picker.more && matches.every( function ( term ) { return terms.has( term.slug ); } );
+					more.textContent = picker.expanded ? 'Show fewer' : 'Show more'; more.setAttribute( 'aria-expanded', String( picker.expanded ) );
+					extra.hidden = ! picker.expanded; next.hidden = ! picker.expanded || ! picker.more || !! picker.pending;
+					retry.hidden = ! picker.error;
+					status.textContent = picker.error || ( picker.pending ? 'Loading terms…' : ! matches.length ? ( picker.query ? 'No matching terms.' : 'No terms available.' ) : '' );
+				}
+				function load( append ) {
+					var query = picker.query, offset = append ? picker.pages.length : 0;
+					if ( ! append ) { picker.pages = []; picker.more = false; }
+					picker.error = ''; picker.loaded = false; picker.retryAppend = append;
+					var pending = ( dependencies.request || request )( '/term-search', { resource_id: state.resourceId, taxonomy: tax, search: query, offset: offset, paginate: true, group_translations: true, language: ( catalog.find( function ( entry ) { return ( entry.locale || '' ).toLowerCase().replace( /_/g, '-' ) === locale; } ) || {} ).code || '', selected: offset ? [] : selected.map( function ( row ) { return row.slug; } ) } );
+					picker.pending = pending; paint();
+					pending.then( function ( result ) {
+						if ( picker.pending !== pending ) { return; }
+						result.terms.concat( result.selected || [] ).forEach( function ( term ) {
+							[ term ].concat( term.translations || [] ).forEach( function ( member ) { picker.families.set( member.slug, term ); } );
+						} );
+						picker.pages = picker.pages.concat( result.terms ); picker.more = result.more; picker.loaded = true;
+					} ).catch( function ( error ) { if ( picker.pending === pending ) { picker.error = error.message; } } ).finally( function () {
+						if ( picker.pending === pending ) { picker.pending = null;
+							if ( picker.loaded && picker.more && ! picker.expanded && new Set( picker.pages.map( function ( term ) { return term.slug; } ) ).size <= 10 ) { load( true ); }
+							else { picker.paint(); } }
+					} );
+				}
+				var search = input( picker.query, function ( value ) {
+					clearTimeout( picker.timer ); picker.pending = null; picker.query = value; picker.pages = []; picker.more = false;
+					picker.timer = setTimeout( function () { load( false ); }, 180 );
+				} );
+				var more = button( '', function () {
+					picker.expanded = ! picker.expanded;
+					if ( ! picker.expanded && picker.query ) { clearTimeout( picker.timer ); picker.query = ''; search.value = ''; load( false ); } else { paint(); }
+				} );
+				var next = button( 'Load more terms', function () { load( true ); } ), retry = button( 'Retry', function () { load( picker.retryAppend ); } );
+				extra.append( field( 'Filter ' + choices[tax], search ) );
+				group.append( node( 'legend', choices[tax] ) );
+				if ( selected.length && ! scoped.length ) { group.append( help( 'Inherited from default' ) ); }
+				group.append( extra, chips, panel, more, next, status, retry ); section.append( group );
+				picker.paint = paint;
+				if ( ! picker.pending && ! picker.loaded && ! picker.error ) { load( false ); } else { paint(); }
+			} );
+			return section;
 		}
 		function seoFieldsEditor( state ) {
             var selected = state.recipe.seo_fields || {}, choices = state.design.seo_field_choices || {}, entries = Object.assign( {}, selected, choices );
@@ -1032,6 +1192,7 @@
 				}
 				var seoEditor = seoFieldsEditor( state ); if ( seoEditor ) { panel.append( seoEditor ); } panel.append( node( 'h3', state.mode === 'static' ? 'Choose your fixed content fields' : 'Choose content fields and saved regions' ), node( 'div', 'Choose a purpose for each field you want NOVA to fill. Unselected content, styles and responsive settings stay protected. To change styling or device layout, edit the design in your builder and capture it again.', 'nlr-protected' ), recipeEditor( 'main', state.recipe, state.design ) ); if ( state.customDesign ) { panel.append( check( state.design.source_reference && state.design.source_reference.reference_type === 'term' ? 'Map additional ACF category fields (' + state.customDesign.fields.filter( function ( item ) { return item.writable !== false; } ).length + ' fields)' : 'Include custom fields', state.customEnabled, function ( value ) { controller.includeCustom( value ); }, 'Use the same content for this builder layout and the site’s declared custom field schema. Fields not rendered on the page remain selectable in their schema.' ) ); if ( state.customEnabled ) { var customPanel = node( 'details' ); customPanel.setAttribute( 'data-nlr-view-key', 'custom-fields-editor' ); customPanel.append( node( 'summary', 'Custom fields and nested rows' ), help( 'Closing this section keeps your mappings enabled.' ), recipeEditor( 'custom', state.recipe.custom_fields, state.customDesign ) ); panel.append( customPanel ); } } var templateContext = node( 'details' ); templateContext.append( node( 'summary', 'Extra Template Context (optional)' ), field( 'Instructions for the whole template', input( state.recipe.instructions || '', function ( value ) { controller.edit( function () { state.recipe.instructions = value; }, false ); }, true ), 'Add shared guidance for all mapped fields when needed.' ) ); panel.append( templateContext ); warnings( state.design.warnings, panel ); }
 			if ( state.step === 3 && state.mode === 'article' ) { panel.append( articleEditor( state ), articlePostFieldsEditor( state ) ); var articleSeo = seoFieldsEditor( state ); if ( articleSeo ) { panel.append( articleSeo ); } var articleFields = editorialFieldsEditor( state ); if ( articleFields ) { panel.append( articleFields ); } }
+			if ( state.step === 3 && Object.keys( state.design.term_taxonomies || {} ).length && [ 'article', 'static' ].includes( state.mode ) ) { panel.append( fixedTermsEditor( state ) ); }
 			if ( state.step === 3 ) { appendSaveControls( panel, state ); }
 			if ( state.step < 3 ) {
 				var actions = node( 'div', undefined, 'nlr-savebar' );
@@ -1046,5 +1207,5 @@
 		controller = createController( { resourceId: config.resourceId, profileId: config.profileId, request: dependencies.request || request, change: render, inputsChanged: updateGates, confirm: dependencies.confirm || win.confirm.bind( win ), origin: win.location.origin, forgetDraft: retainedOperations.forget, rememberDraft: retainedOperations.remember } );
 		win.addEventListener( 'beforeunload', function ( event ) { if ( controller.dirty() ) { event.preventDefault(); event.returnValue = ''; } } ); render(); controller.ready = controller.init(); return controller;
 	}
-	return { modes: MODES, displayMode: displayMode, modeLabel: modeLabel, clearOptionalRegions: clearOptionalRegions, manualResource: manualResource, builderChoices: builderChoices, sources: sources, catalogResult: catalogResult, designResult: designResult, recipeFrom: recipeFrom, fingerprint: fingerprint, defaultContent: defaultContent, draftResult: draftResult, operationStore: operationStore, rolePath: rolePath, fieldRules: fieldRules, regionLimits: regionLimits, assignRole: assignRole, rolesFor: rolesFor, customRoleIssue: customRoleIssue, visualContext: visualContext, canvasMessage: canvasMessage, referenceGeometry: referenceGeometry, contentValue: contentValue, setContentValue: setContentValue, seedScope: seedScope, mergeInputScopes: mergeInputScopes, ancestorChain: ancestorChain, ancestorContext: ancestorContext, createController: createController, mount: mount };
+	return { recipeRequestUrl: recipeRequestUrl, modes: MODES, displayMode: displayMode, modeLabel: modeLabel, clearOptionalRegions: clearOptionalRegions, manualResource: manualResource, builderChoices: builderChoices, sources: sources, catalogResult: catalogResult, designResult: designResult, recipeFrom: recipeFrom, fingerprint: fingerprint, defaultContent: defaultContent, draftResult: draftResult, operationStore: operationStore, rolePath: rolePath, fieldRules: fieldRules, regionLimits: regionLimits, assignRole: assignRole, rolesFor: rolesFor, customRoleIssue: customRoleIssue, visualContext: visualContext, canvasMessage: canvasMessage, referenceGeometry: referenceGeometry, contentValue: contentValue, setContentValue: setContentValue, seedScope: seedScope, mergeInputScopes: mergeInputScopes, ancestorChain: ancestorChain, ancestorContext: ancestorContext, createController: createController, mount: mount };
 } ) );

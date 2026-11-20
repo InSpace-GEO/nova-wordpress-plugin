@@ -82,6 +82,11 @@ final class Nova_Bridge_Suite_Layout_Locales {
         return [ 'provider' => 'core', 'source_locale' => '', 'rows' => [] ];
     }
 
+    public static function term_locale_settings( string $post_type ): array {
+        $settings = self::translations( 0, $post_type );
+        return [ 'provider' => $settings['provider'], 'catalog' => $settings['catalog'] ?? [] ];
+    }
+
     public static function capture( array $resource, string $builder, array $blueprint, int $id ): array {
         $empty = [ 'version' => 1, 'provider' => 'core', 'source_locale' => '', 'catalog' => [], 'variants' => [], 'unavailable' => [] ];
         if ( ( $resource['type'] ?? '' ) === 'taxonomy' || empty( $resource['post_type'] ) ) { return $empty; }

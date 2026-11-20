@@ -103,6 +103,12 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         return $context;
     }
 
+    public static function term_language_code( string $language, string $type ) {
+        if ( '' === $language || ! self::is_multilingual_post_provider() ) { return ''; }
+        $context = self::context( $language, $type );
+        return is_wp_error( $context ) ? $context : $context['code'];
+    }
+
     public static function language_home( string $language ) {
         if ( 'core' === self::provider() ) { return self::site_home(); }
         $context = self::context( $language );
