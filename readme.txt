@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.9.8
+Stable tag: 1.9.9
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.9.9 =
+* Remove empty Custom HTML FAQ accordions when their mapped content is omitted.
 
 = 1.9.8 =
 
