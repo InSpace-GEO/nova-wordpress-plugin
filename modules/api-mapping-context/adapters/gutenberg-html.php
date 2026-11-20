@@ -180,7 +180,7 @@ final class Nova_Mapping_Gutenberg_HTML {
     private static function elements( string $html, array $spans ): array {
         require_once __DIR__ . '/gutenberg-html-tag-cursor.php';
         $cursor = new Nova_Mapping_Otter_HTML_Tags( $html );
-        $stack = []; $owners = []; $ranges = [];
+        $stack = []; $owners = []; $ranges = []; $details = [];
         while ( $cursor->next_token() ) {
             $tag = $cursor->get_tag();
             [ $start, $length ] = $cursor->span();
@@ -188,6 +188,7 @@ final class Nova_Mapping_Gutenberg_HTML {
             if ( $cursor->is_tag_closer() ) {
                 if ( ! $parent || $parent['tag'] !== $tag ) { return []; }
                 array_pop( $stack );
+                if ( 'DETAILS' === $tag ) { $details[$parent['path']] = true; }
                 $ranges[$parent['path']] = [ $parent['start'], $start + $length - $parent['start'] ];
                 continue;
             }
@@ -206,7 +207,7 @@ final class Nova_Mapping_Gutenberg_HTML {
             if ( 'schema' === $span['kind'] ) { continue; }
             foreach ( $span['attributes'] ?? [ $span['key'] ] as $key ) { $owners[$key] = $path; }
         }
-        return $stack || $cursor->paused_at_incomplete_token() ? [] : [ 'owners' => $owners, 'ranges' => $ranges ];
+        return $stack || $cursor->paused_at_incomplete_token() ? [] : [ 'owners' => $owners, 'ranges' => $ranges, 'details' => $details ];
     }
 
     public static function omit( array $block, string $owner ): array {
@@ -246,6 +247,22 @@ final class Nova_Mapping_Gutenberg_HTML {
         return null === $scheme || ( is_string( $scheme ) && in_array( strtolower( $scheme ), 'src' === $attribute ? [ 'https', 'http' ] : [ 'https', 'http', 'mailto', 'tel' ], true ) );
     }
 
+    /** Only collapse a disclosure affected by an omission. Unrecognized markup is content. */
+    private static function empty_disclosure( string $shell ): bool {
+        $cursor = new WP_HTML_Tag_Processor( $shell );
+        while ( $cursor->next_token() ) {
+            if ( '#text' === $cursor->get_token_type() && '' === trim( $cursor->get_modifiable_text() ) ) { continue; }
+            $tag = $cursor->get_tag();
+            if ( ! in_array( $tag, [ 'DETAILS', 'SUMMARY', 'SPAN' ], true ) ) { return false; }
+            if ( $cursor->is_tag_closer() ) { continue; }
+            foreach ( $cursor->get_attribute_names_with_prefix( '' ) ?? [] as $name ) {
+                if ( ! in_array( $name, [ 'class', 'open', 'aria-hidden' ], true ) ) { return false; }
+            }
+            if ( 'SPAN' === $tag && 'true' !== $cursor->get_attribute( 'aria-hidden' ) ) { return false; }
+        }
+        return ! $cursor->paused_at_incomplete_token();
+    }
+
     public static function render_blocks( array $blocks ): array {
         foreach ( $blocks as &$block ) {
             if ( ! empty( $block['innerBlocks'] ) ) { $block['innerBlocks'] = self::render_blocks( $block['innerBlocks'] ); }
@@ -253,10 +270,35 @@ final class Nova_Mapping_Gutenberg_HTML {
             $source = $block['innerHTML']; $values = $block[self::SLOTS];
             $plan = self::plan( $source, null === $block['blockName'] ); $out = ''; $end = 0;
             $spans = $plan['spans'];
+            $affected = [];
             foreach ( $block['nova_html_omissions'] ?? [] as $owner ) {
                 if ( ! isset( $plan['ranges'][$owner] ) ) { throw new InvalidArgumentException( 'Cannot locate the removed HTML element.' ); }
                 [ $start, $length ] = $plan['ranges'][$owner];
                 $spans[$start] = [ 'kind' => 'omit', 'length' => $length ];
+                // Group removed elements under their nearest disclosure in source order.
+                $ancestor = $owner;
+                while ( false !== ( $slash = strrpos( $ancestor, '/' ) ) ) {
+                    $ancestor = substr( $ancestor, 0, $slash );
+                    if ( isset( $plan['details'][$ancestor] ) ) {
+                        $affected[$ancestor][$start] = $length;
+                        break;
+                    }
+                }
+            }
+            foreach ( $affected as $path => $removed ) {
+                [ $start, $length ] = $plan['ranges'][$path];
+                $offset = $start;
+                $shell = '';
+                ksort( $removed, SORT_NUMERIC );
+                foreach ( $removed as $position => $size ) {
+                    if ( $position < $offset ) { continue; }
+                    $shell .= substr( $source, $offset, $position - $offset );
+                    $offset = $position + $size;
+                }
+                $shell .= substr( $source, $offset, $start + $length - $offset );
+                if ( self::empty_disclosure( $shell ) ) {
+                    $spans[$start] = [ 'kind' => 'omit', 'length' => $length ];
+                }
             }
             ksort( $spans, SORT_NUMERIC );
             foreach ( $spans as $start => $span ) {
