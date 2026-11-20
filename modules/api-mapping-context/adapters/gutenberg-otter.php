@@ -152,6 +152,9 @@ final class Nova_Mapping_Gutenberg_Otter {
                 }
             } elseif ( ( $mark_core_children || self::body_preview_target( $block ) ) && ( $target = self::core_target( $name ) ) ) {
                 $markers[0][] = self::marker( $path, $block, $target );
+                if ( 'core/button' === $name && empty( $block['attrs']['anchor'] ) ) {
+                    $markers[0][] = self::marker( $path, $block, '/button-url' );
+                }
             }
             krsort( $markers );
             foreach ( $markers as $offset => $ids ) {
@@ -177,7 +180,7 @@ final class Nova_Mapping_Gutenberg_Otter {
     }
 
     public static function body_preview_target( array $block ): bool {
-        return empty( $block['attrs']['anchor'] ) && in_array( $block['blockName'] ?? '', [ 'core/paragraph', 'core/image' ], true );
+        return empty( $block['attrs']['anchor'] ) && in_array( $block['blockName'] ?? '', [ 'core/paragraph', 'core/image', 'core/button' ], true );
     }
 
     public static function core_target( string $name ): ?string {

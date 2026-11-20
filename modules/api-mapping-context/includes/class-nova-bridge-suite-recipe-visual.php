@@ -32,6 +32,19 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             foreach ( $resource['targets'] ?? [] as $target ) {
                 if ( ! empty( $target['url'] ) && rtrim( $target['url'], '/' ) === rtrim( trim( $url ), '/' ) ) { return (int) $target['reference_id']; }
             }
+            // The example picker is paginated. Verify the candidate's complete native permalink.
+            $taxonomy = $resource['taxonomy'];
+            $path = rtrim( $parsed['path'] ?? '/', '/' );
+            $query = [];
+            parse_str( $parsed['query'] ?? '', $query );
+            $object = get_taxonomy( $taxonomy );
+            $slug = $object && is_string( $object->query_var ) && isset( $query[$object->query_var] )
+                ? $query[$object->query_var] : rawurldecode( basename( $path ) );
+            if ( is_string( $slug ) && '' !== $slug ) {
+                $term = get_term_by( 'slug', $slug, $taxonomy );
+                $link = $term ? get_term_link( $term ) : null;
+                if ( is_string( $link ) && rtrim( $link, '/' ) === rtrim( trim( $url ), '/' ) ) { return (int) $term->term_id; }
+            }
             return self::error( 'Choose this category from the example list so its exact identity is known.', 422 );
         }
         $id = function_exists( 'url_to_postid' ) ? (int) url_to_postid( trim( $url ) ) : 0;
@@ -151,6 +164,10 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 if ( '/document/title' === $field['target'] ) { $locator = [ 'strategy' => 'core', 'control_path' => [ 'taxonomy' === $resource['type'] ? 'name' : 'title' ], 'precision' => 'region' ]; }
                 elseif ( '/document/sections/0/body' === $field['target'] ) { $locator = [ 'strategy' => 'core', 'control_path' => [ 'taxonomy' === $resource['type'] ? 'description' : 'content' ], 'precision' => 'document' ]; }
                 elseif ( 'product_cat' === ( $resource['taxonomy'] ?? '' ) && 'content_below_products' === ( $field['custom_field_key'] ?? '' ) && ! empty( $field['writable'] ) ) { $locator = [ 'strategy' => 'core', 'control_path' => [ 'bottom_content' ], 'precision' => 'region' ]; }
+                elseif ( 'taxonomy' === $resource['type'] && ! empty( $field['custom_field_key'] ) && ! empty( $field['writable'] ) && in_array( $field['format'], [ 'html', 'text' ], true ) ) {
+                    $locator = self::acf_locator( [ 'value' => $field['current_value'], 'kind' => 'html' === $field['format'] ? 'wysiwyg' : 'text' ] );
+                    if ( 'value_match' === $locator['strategy'] ) { $locator['node_id'] = 'term_field'; }
+                }
                 else { $locator = [ 'strategy' => 'unbound', 'reason' => 'This field has no independent element on the source page.' ]; }
             }
             if ( 'acf' === $builder || ( 'gutenberg' === $builder && isset( $field['acf_key'] ) ) ) { $locator = self::acf_locator( $field ); }
@@ -173,7 +190,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
                 $locator = Nova_Mapping_Beaver_HTML::locator( $design['blueprint'], $field ) ?? $locator;
             }
             $field['locator'] = $locator; $fields[] = $field;
-            $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator', 'current_value', 'node_target', 'section_scopes' ] ) );
+            $preview[] = array_intersect_key( $field, array_flip( [ 'field_id', 'target', 'label', 'format', 'kind', 'example', 'writable', 'protected', 'reason', 'locator', 'current_value', 'node_target', 'section_scopes', 'can_omit_value' ] ) );
         }
         foreach ( $design['containers'] ?? [] as $container ) {
             $container['container_id'] = 'container_' . substr( hash( 'sha256', $builder . ':' . $container['target'] ), 0, 20 );

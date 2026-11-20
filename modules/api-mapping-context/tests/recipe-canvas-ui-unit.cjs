@@ -102,6 +102,16 @@ check(canvas.normalizeItems(Array(2001).fill(field('x')),config,false).length===
 const textFallback={...record,locator:{strategy:'acf',reference_id:12,control_path:'intro'},preview_text:'Native heading'};check(canvas.locate(fixture.document,textFallback,config)===null,'Matching ACF/source text never creates native write proof');
 const core=canvas.normalizeItems([field('body','/document/content',{strategy:'core',control_path:'content'})],config,false)[0];check(canvas.locate(fixture.document,core,config).precision==='region','Core content locator honestly identifies the entire region');check(canvas.locate(fixture.document,{...core,locator:{...core.locator,control_path:'intro'}},config)===null,'Synthetic core intro cannot bind unrelated DOM');
 const termConfig={...config,referenceType:'term'}, top=fixture.root.appendChild(new Node('div')), bottom=fixture.root.appendChild(new Node('div'));fixture.document.selectors.set('.term-description',[top]);fixture.document.selectors.set('.wc-content-below-products',[bottom]);const categoryTop={...core,locator:{strategy:'core',reference_id:12,control_path:['description']}}, categoryBottom={...core,locator:{strategy:'core',reference_id:12,control_path:['bottom_content']}};
+const archiveFixture = dom(), archiveHeading = archiveFixture.root.appendChild(new Node('h1'));
+archiveHeading.textContent = 'Brand archive';
+archiveFixture.document.selectors.set('h1', [archiveHeading]);
+const archiveTitle = {...categoryTop, current_value:'Brand archive', locator:{...categoryTop.locator,control_path:['name']}};
+check(canvas.locate(archiveFixture.document,archiveTitle,termConfig).node === archiveHeading,'A unique matching theme archive heading is selectable');
+const duplicate = archiveFixture.root.appendChild(new Node('h1'));
+duplicate.textContent = archiveHeading.textContent;
+archiveFixture.document.selectors.set('h1', [archiveHeading,duplicate]);
+const ambiguous = {};
+check(!canvas.locate(archiveFixture.document,archiveTitle,termConfig,null,ambiguous) && ambiguous.reason === 'multiple_matches','Identical archive headings remain ambiguous');
 check(canvas.locate(fixture.document,categoryTop,termConfig).node===top&&canvas.locate(fixture.document,categoryBottom,termConfig).node===bottom,'Category top and bottom content resolve distinct exact DOM regions');
 check(canvas.locate(fixture.document,categoryBottom,termConfig).precision==='region','Category bottom content is labelled as a complete rich-text region');
 check(canvas.locate(fixture.document,categoryBottom,config)===null,'Category bottom locator cannot bind a post canvas');

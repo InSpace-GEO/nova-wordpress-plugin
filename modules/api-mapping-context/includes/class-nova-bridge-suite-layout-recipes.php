@@ -335,6 +335,9 @@ final class Nova_Bridge_Suite_Layout_Recipes {
                 $design['term_taxonomies'] = Nova_WordPress_Fixed_Terms::taxonomies( substr( $resource, 10 ) );
                 $design['reference_term_links'] = Nova_WordPress_Fixed_Terms::reference_links( $example ?: (int) ( $design['source_reference']['reference_id'] ?? 0 ), $design['term_taxonomies'] );
             } }
+        if ( 'taxonomy:product_cat' === $resource && $example && function_exists( 'get_edit_term_link' ) ) {
+            $design['term_editor_url'] = get_edit_term_link( $example, 'product_cat', 'product' );
+        }
         if ( in_array( $mode, [ 'static', 'article' ], true ) && 0 === strpos( $resource, 'post_type:' ) && 'acf' !== ( $design['builder'] ?? '' ) ) {
             // Editable Elementor settings can become editorial fields without an intermediate save.
             $fixed = 'elementor' === $design['builder'] && isset( $design['presentation_choices'] ) ? [] : Nova_Bridge_Suite_Layout_Custom_Fields::retained_meta( $design );

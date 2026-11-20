@@ -491,7 +491,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     }
 
     private function structural( string $tag ): bool {
-        if ( 'gutenberg' === $this->builder ) { return in_array( $tag, [ 'core/group', 'core/columns', 'core/column', 'core/cover', 'core/details', 'core/list' ], true ) || Nova_Mapping_Gutenberg_Otter::structural( $tag ); }
+        if ( 'gutenberg' === $this->builder ) { return in_array( $tag, [ 'core/group', 'core/columns', 'core/column', 'core/cover', 'core/buttons', 'core/details', 'core/list' ], true ) || Nova_Mapping_Gutenberg_Otter::structural( $tag ); }
         if ( 'divi5' === $this->builder ) { return in_array( $tag, [ 'divi/placeholder', 'divi/section', 'divi/row', 'divi/row-inner', 'divi/column', 'divi/column-inner', 'divi/group', 'divi/accordion' ], true ); }
         if ( 'wpbakery' === $this->builder ) { return in_array( $tag, [ 'vc_row', 'vc_column', 'vc_row_inner', 'vc_column_inner', 'vc_tta_accordion', 'vc_tta_section', 'vc_tta_tabs', 'vc_tta_tour' ], true ); }
         if ( 'avada' === $this->builder ) { return in_array( $tag, [ 'fusion_builder_container', 'fusion_builder_row', 'fusion_builder_column', 'fusion_accordion', 'fusion_tabs' ], true ); }
@@ -643,6 +643,9 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 $result['fields'][] = [ 'target' => $target, 'label' => $label . ' · ' . ucwords( str_replace( '_', ' ', $kind ) ), 'format' => $format, 'kind' => $kind, 'value' => $value,
                     'context' => $node_context, 'writable' => $writable, 'protected' => ! $writable, 'reason' => $writable ? '' : ( $connected ? 'This Beaver field has an active field connection. Edit or map its source instead.' : 'This native value belongs to a protected, dynamic or interactive region.' ) ] + $this->provenance( $node, $path, $target );
                 if ( null !== $semantic_value ) { $result['fields'][count( $result['fields'] ) - 1]['sample'] = $semantic_value; }
+                if ( 'gutenberg' === $this->builder && 'core/button' === $node['blockName'] && 'link_url' === $kind && empty( $node['attrs']['anchor'] ) ) {
+                    $result['fields'][count( $result['fields'] ) - 1]['locator'] = Nova_Mapping_Gutenberg_Otter::locator( $path, $node, '/button-url' );
+                }
                 if ( ( $mark_core_children || ( 'gutenberg' === $this->builder && Nova_Mapping_Gutenberg_Otter::body_preview_target( $node ) ) ) && '/innerHTML' === substr( $target, strlen( $path ) ) && Nova_Mapping_Gutenberg_Otter::core_target( (string) $node['blockName'] ) ) {
                     $result['fields'][count( $result['fields'] ) - 1]['locator'] = Nova_Mapping_Gutenberg_Otter::locator( $path, $node, '/innerHTML' );
                     // Some ACF renderers render InnerBlocks directly, bypassing the_content markers.
@@ -719,7 +722,12 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                     if ( $found_image ) { $add( $path . '/innerHTML', 'url', 'image_url', $image_url ); }
                 } elseif ( 'core/button' === $name && empty( $node['innerBlocks'] ) ) {
                     if ( preg_match( '/<a\b[^>]*>([\s\S]*?)<\/a>/i', $node['innerHTML'], $button ) ) { $add( $path . '/innerHTML', 'text', 'button_text', html_entity_decode( strip_tags( $button[1] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ); }
-                    if ( isset( $node['attrs']['url'] ) && is_string( $node['attrs']['url'] ) ) { $add( $path . '/attrs/url', 'url', 'link_url' ); }
+                    if ( isset( $node['attrs']['url'] ) && is_string( $node['attrs']['url'] ) ) {
+                        $add( $path . '/attrs/url', 'url', 'link_url' );
+                    } elseif ( ! array_key_exists( 'url', $node['attrs'] ) && [ $node['innerHTML'] ] === $node['innerContent'] ) {
+                        $href = self::html_attribute( $node['innerHTML'], 'a', 'href', $found_href );
+                        if ( $found_href ) { $add( $path . '/innerContent/0', 'url', 'link_url', $href ); }
+                    }
                 } elseif ( 'core/details' === $name && isset( $node['innerContent'][0] ) && preg_match( '/<summary\b/i', $node['innerContent'][0] ) ) {
                     $add( $path . '/innerContent/0', 'text', 'question' );
                 }
@@ -859,7 +867,12 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
                 $value = self::inside_wrapper( $original, $value, 'text' === $binding['format'] );
             }
         } elseif ( 'gutenberg' === $this->builder && '/innerContent/0' === substr( $target, -15 ) ) {
-            $value = preg_replace_callback( '/(<summary\b[^>]*>)[\s\S]*?(<\/summary>)/i', static function ( $match ) use ( $value ) { return $match[1] . esc_html( (string) $value ) . $match[2]; }, (string) $original );
+            $parent = Nova_Bridge_Suite_Recipe_Engine::get( $native, substr( $target, 0, -15 ) );
+            if ( 'core/button' === $parent['blockName'] ) {
+                $value = self::html_attribute( $original, 'a', 'href' ) === $value ? $original : self::replace_html_attribute( $original, 'a', 'href', (string) $value );
+            } else {
+                $value = preg_replace_callback( '/(<summary\b[^>]*>)[\s\S]*?(<\/summary>)/i', static function ( $match ) use ( $value ) { return $match[1] . esc_html( (string) $value ) . $match[2]; }, (string) $original );
+            }
         }
         if ( 'wpbakery' === $this->builder && $this->packed_link( $native, $target ) ) {
             $value = nova_mapping_wpb_replace_packed_link_url( (string) $original, (string) $value );
@@ -1045,7 +1058,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
     private function preview( array $blueprint ): string {
         $html = '';
         foreach ( $this->fields( $blueprint ) as $field ) {
-            $value = 'gutenberg' === $this->builder && Nova_Mapping_Gutenberg_Otter::is_block( (string) ( $field['element_type'] ?? '' ) )
+            $value = 'gutenberg' === $this->builder && ( 'core/button' === ( $field['element_type'] ?? '' ) || Nova_Mapping_Gutenberg_Otter::is_block( (string) ( $field['element_type'] ?? '' ) ) )
                 ? $field['value'] : Nova_Bridge_Suite_Recipe_Engine::get( $blueprint, $field['target'] );
             if ( ! is_string( $value ) || '' === trim( $value ) ) { continue; }
             if ( 'divi4' === $this->builder && false !== strpos( $field['target'], '/attributes/' ) ) { $value = nova_mapping_divi_decode_attr( $value ); }

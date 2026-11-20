@@ -200,7 +200,7 @@
 		return roots.length ? roots : document.body ? [ document.body ] : [];
 	}
 	// ACF values are printed by the theme: accept exactly one element showing the value, never a guess among copies.
-	function valueMatch( document, locator, excluded ) {
+	function valueMatch( document, locator, excluded, diagnostic ) {
 		var roots = contentRoots( document ), matches = []; excluded = excluded || function ( node ) { return node.closest( outsideContent ); };
 		if ( typeof locator.media === 'string' ) {
 			var stem = mediaStem( locator.media ); if ( ! stem ) { return null; }
@@ -235,6 +235,7 @@
 				return true;
 			} );
 		}
+		if ( diagnostic ) { diagnostic.reason = matches.length > 1 ? 'multiple_matches' : 'no_rendered_match'; }
 		return matches.length === 1 ? { node: matches[0], owner: matches[0], precision: locator.precision === 'region' ? 'region' : 'field' } : null;
 	}
 	// The singular post may use a template's ID, while related cards repeat the same excerpt/image.
@@ -264,11 +265,19 @@
 		var view = document.defaultView; if ( view && view.getComputedStyle ) { matches = matches.filter( function ( node ) { return visible( node, view ); } ); }
 		return matches.length === 1 ? { node: matches[0], owner: matches[0], precision: 'field' } : null;
 	}
-	function locate( document, item, config, htmlTargets ) {
+	function locate( document, item, config, htmlTargets, diagnostic ) {
 		var locator = item && item.locator; if ( ! locator || locator.reference_id !== config.referenceId ) { return null; }
 		if ( locator.strategy === 'custom_html' ) { if ( htmlTargets && htmlTargets.has( locator.marker ) ) { return htmlTargets.get( locator.marker ); }
             return locator.fallback ? valueMatch( document, locator.fallback ) : null; }
-		if ( locator.strategy === 'value_match' ) { return valueMatch( document, locator ); }
+		if ( locator.strategy === 'value_match' ) {
+			if ( locator.node_id === 'term_field' ) {
+				// Category copy must not bind to a product card, native description or sidebar.
+				return valueMatch( document, locator, function ( node ) {
+					return node.closest( outsideContent + ',.products,.wc-block-product-template,.widget,.woocommerce-breadcrumb,.term-description,.woocommerce-products-header__title,h1' );
+				}, diagnostic );
+			}
+			return valueMatch( document, locator );
+		}
 		var strategy = locator.strategy, id = String( locator.node_id || '' ), control = controlPath( locator ), owner, selector;
 		if ( strategy === 'bricks' && safeId.test( id ) ) {
             var scope = unique( document, '#brx-content' );
@@ -361,7 +370,11 @@
 			if ( control === 'excerpt' ) { return config.referenceType === 'post' ? valueMatch( document, { text: locator.text, precision: 'region' }, nativeExcluded ) : null; }
 			if ( control === 'featured_image' ) { return config.referenceType === 'post' ? nativeFeatured( document, locator ) : null; }
 			selector = { title: '.entry-title', content: '.entry-content', name: '.woocommerce-products-header__title', description: '.term-description', bottom_content: '.wc-content-below-products' }[ control ];
-			if ( ! selector ) { return null; } owner = unique( document, selector ); if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); }
+			if ( ! selector ) { return null; } owner = unique( document, selector );
+			if ( ! owner && diagnostic && config.referenceType === 'term' ) {
+				diagnostic.reason = document.querySelectorAll( selector ).length > 1 ? 'multiple_matches' : 'no_rendered_match';
+			}
+			if ( ! owner && control === 'content' ) { owner = unique( document, '.wp-block-post-content' ); }
 			// Theme-builder templates print the post body through their own post-content module (Divi, Elementor Pro, Beaver Themer).
 			if ( ! owner && control === 'content' ) { owner = unique( document, '.et_pb_post_content' ) || unique( document, '.elementor-widget-theme-post-content' ) || unique( document, '.fl-module-fl-post-content' ); } if ( ! owner && control === 'title' ) { owner = unique( document, '.wp-block-post-title' ); }
 			if ( ! owner && config.qodeBridge && control === 'title' && config.referenceType === 'post' ) {
@@ -369,10 +382,14 @@
 			}
 			// Themes and builders print the title in their own markup; accept exactly one visible H1 with the same text.
 			// WordPress prints the stored title with entities decoded and quotes and dashes curled.
-			if ( ! owner && control === 'title' && item.current_value && item.current_value.trim() ) {
+			if ( ! owner && ( control === 'title' || ( control === 'name' && config.referenceType === 'term' ) ) && item.current_value && item.current_value.trim() ) {
 				var named = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' }, decoded = String( item.current_value ).replace( /&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|(amp|quot|apos|lt|gt|nbsp));/gi, function ( entity, dec, hex, name ) { var code = dec ? parseInt( dec, 10 ) : hex ? parseInt( hex, 16 ) : 0; return name ? named[ name.toLowerCase() ] : code > 0 && code <= 0x10ffff ? String.fromCodePoint( code ) : entity; } );
 				var expected = normalizeText( decoded ), headings = expected ? Array.from( document.querySelectorAll( 'h1' ) ).filter( function ( heading ) { return normalizeText( heading.textContent ) === expected && ! heading.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"],[hidden],[aria-hidden="true"]' ); } ) : [];
-				owner = headings.length === 1 ? headings[0] : null;
+				if ( control === 'name' ) {
+                    headings = headings.filter( function ( heading ) { return ! heading.closest( '.products,.widget,.site-header' ) && ( ! document.defaultView || visible( heading, document.defaultView ) ); } );
+                    if ( diagnostic ) { diagnostic.reason = headings.length > 1 ? 'multiple_matches' : 'no_rendered_match'; }
+                }
+                owner = headings.length === 1 ? headings[0] : null;
 			} if ( ! owner || owner.closest( 'nav,footer,form,[role="navigation"],[role="contentinfo"]' ) ) { return null; }
 			if ( control === 'bottom_content' && ( config.referenceType !== 'term' || ! owner.closest( 'main,[role="main"],.woocommerce,.content,.site-content' ) ) ) { return null; }
 			return { node: owner, owner: owner, precision: [ 'content', 'description', 'bottom_content' ].includes( control ) ? 'region' : 'field' };
@@ -415,7 +432,7 @@
 			marked.forEach( function ( node ) { node.classList.remove( 'nrc-target', 'nrc-discoverable', 'nrc-selected', 'nrc-assigned', 'nrc-protected', 'nrc-omitted' ); } ); marked.clear(); targets.clear(); containerTargets.clear();
 			var nodeFlags = new Map(), omittedOwners = new Set();
 			var htmlTargets = fields.some( function ( field ) { return field.locator.strategy === 'custom_html'; } ) ? customHtmlTargets( document ) : null;
-			var statuses = fields.map( function ( item ) { var target = locate( document, item, config, htmlTargets ), shown = !! ( target && visible( target.node, win ) ); if ( target ) { targets.set( item.id, target ); if ( item.omitted ) { omittedOwners.add( target.owner ); } var flags = nodeFlags.get( target.node ) || { assigned: false, writable: false }; flags.discoverable = flags.discoverable || item.locator.strategy === 'bricks' || !! item.locator.fallback; flags.assigned = flags.assigned || item.assigned; flags.writable = flags.writable || item.writable; nodeFlags.set( target.node, flags ); } return { field_id: item.id, target: item.target, visible: shown, precision: target ? target.precision : 'none', assigned: item.assigned, writable: item.writable, reason: ! target ? 'no_verified_locator' : ! shown ? 'not_visible_in_static_canvas' : '' }; } );
+			var statuses = fields.map( function ( item ) { var diagnostic = {}, target = locate( document, item, config, htmlTargets, diagnostic ), shown = !! ( target && visible( target.node, win ) ); if ( target ) { targets.set( item.id, target ); if ( item.omitted ) { omittedOwners.add( target.owner ); } var flags = nodeFlags.get( target.node ) || { assigned: false, writable: false }; flags.discoverable = flags.discoverable || item.locator.strategy === 'bricks' || !! item.locator.fallback; flags.assigned = flags.assigned || item.assigned; flags.writable = flags.writable || item.writable; nodeFlags.set( target.node, flags ); } return { field_id: item.id, target: item.target, visible: shown, precision: target ? target.precision : 'none', assigned: item.assigned, writable: item.writable, reason: ! target ? ( config.referenceType === 'term' && ! item.current_value ? 'empty_field' : diagnostic.reason || 'no_verified_locator' ) : ! shown ? 'not_visible_in_static_canvas' : '' }; } );
 			omittedOwners.forEach( function ( owner ) { mark( owner, 'nrc-omitted', true ); } ); nodeFlags.forEach( function ( flags, node ) { mark( node, 'nrc-target', true ); mark( node, 'nrc-discoverable', flags.discoverable ); mark( node, 'nrc-assigned', flags.assigned ); mark( node, 'nrc-protected', ! flags.writable ); } );
 			var groupStatuses = containers.map( function ( item ) { var target = locate( document, item, config ); if ( target ) { containerTargets.set( item.id, target ); } return { container_id: item.id, target: item.target, visible: !! ( target && visible( target.node, win ) ), precision: target ? 'region' : 'none', assigned: item.assigned, writable: item.writable }; } );
 			highlight( targets.has( selected ) || containerTargets.has( selected ) ? selected : '', false ); var fingerprint = JSON.stringify( [ statuses, groupStatuses ] ); if ( fingerprint !== lastStatuses ) { lastStatuses = fingerprint; send( 'bindings', { fields: statuses, containers: groupStatuses, viewport: { width: win.innerWidth, height: win.innerHeight } } ); }

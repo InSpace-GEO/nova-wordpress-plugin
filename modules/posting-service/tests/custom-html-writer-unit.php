@@ -93,3 +93,32 @@ check( str_contains( $encoded, '\u003C' ) && ! str_contains( $encoded, 'alert(1)
 $bad_url = $adapter->bind( $blueprint, [ 'target' => $indexed['/old/']['target'], 'format' => 'url' ], 'javascript:alert(1)' );
 check( is_wp_error( $adapter->finalize( $bad_url, 'unsafe-url' ) ), 'Dangerous link schemes are rejected.' );
 echo "Custom HTML capture, writer create/update, markup preservation and JSON-LD checks passed.\n";
+$rows = [];
+$pairs = [];
+for ( $i = 1; $i <= 6; $i++ ) {
+    $rows[$i] = '<details class="faq"><summary><h3>Question ' . $i . '</h3><span class="icon" aria-hidden="true"></span></summary><p>Answer ' . $i . '</p></details>';
+    $pairs['Question ' . $i] = 'Written question ' . $i;
+    $pairs['Answer ' . $i] = 'Written answer ' . $i;
+}
+$reference->post_content = '<!-- wp:html -->' . implode( '', $rows ) . '<details><summary></summary></details><!-- /wp:html -->';
+$posts[901] = $reference;
+$bp = ok( $adapter->capture( 901 ) )['blueprint'];
+$indexed = array_column( $adapter->fields( $bp ), null, 'value' );
+$record = html_record( $bp, $pairs, $indexed );
+foreach ( $record['recipe']['bindings'] as &$binding ) { $binding['required'] = false; }
+unset( $binding );
+$draft = ok( Nova_Bridge_Suite_Stored_Layout::from_recipe( $record ) );
+foreach ( [ 8, 9, 0, 12 ] as $count ) {
+    $values = [ Nova_Bridge_Suite_Writing_Adapter::field_id( '/title' ) => 'FAQ' ];
+    $expected = $reference->post_content;
+    foreach ( array_slice( $pairs, 0, $count, true ) as $old => $new ) {
+        $values[Nova_Bridge_Suite_Writing_Adapter::field_id( $indexed[$old]['target'] )] = $new;
+        $expected = str_replace( $old, $new, $expected );
+    }
+    foreach ( $rows as $i => $row ) {
+        if ( $i * 2 - 1 > $count ) { $expected = str_replace( $row, '', $expected ); }
+        elseif ( $i * 2 > $count ) { $expected = str_replace( '<p>Answer ' . $i . '</p>', '', $expected ); }
+    }
+    $compiled = ok( Nova_Bridge_Suite_Stored_Layout::compile( $draft, $values, 'faq-omission' ) );
+    check( $compiled['writer_payload']['native_document'] === $expected, 'Optional FAQ output with ' . $count . ' supplied fields preserves exactly the remaining content.' );
+}

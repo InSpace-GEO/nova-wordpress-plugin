@@ -57,12 +57,12 @@ function wp_unique_post_slug( $slug, $id, $status, $type, $parent ) {
         if ( empty( $GLOBALS['simulate_old_draft_check'] ) ) { foreach ( $GLOBALS['filters']['query'] ?? [] as $filter ) { $query = $filter( $query ); } }
         $ignore_drafts = strpos( $query, "post_status NOT IN ('draft','auto-draft')" ) !== false;
     }
-    foreach ( $GLOBALS['posts'] as $post ) { if ( $post->ID !== $id && $post->post_name === $slug && ! ( $ignore_drafts && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return $slug . '-2'; } }
+    foreach ( $GLOBALS['posts'] as $post ) { if ( $post->ID !== $id && $post->post_type === $type && $post->post_parent === $parent && $post->post_name === $slug && ! ( $ignore_drafts && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return $slug . '-2'; } }
     return $slug;
 }
 function add_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key][] = $fn; }
 function remove_filter( $key, $fn, ...$rest ) { $GLOBALS['filters'][$key] = array_values( array_filter( $GLOBALS['filters'][$key] ?? [], static function ( $v ) use ( $fn ) { return $v !== $fn; } ) ); }
-function wp_insert_post( $data, $error = false ) { foreach ( $GLOBALS['filters']['wp_insert_post_data'] ?? [] as $fn ) { $data = $fn( $data, $data, $data ); } $post = new WP_Post(); $post->ID = 10 + count( $GLOBALS['posts'] ); foreach ( $data as $k => $v ) { $post->$k = is_string( $v ) ? stripslashes( $v ) : $v; } $GLOBALS['posts'][$post->ID] = $post; ++$GLOBALS['inserts']; if ( $GLOBALS['crash_insert'] ) { $GLOBALS['crash_insert'] = false; throw new RuntimeException( 'Lost insert response' ); } return $post->ID; }
+function wp_insert_post( $data, $error = false ) { foreach ( $GLOBALS['filters']['wp_insert_post_data'] ?? [] as $fn ) { $data = $fn( $data, $data, $data ); } $post = new WP_Post(); $post->ID = 10 + max( $GLOBALS['inserts'], count( $GLOBALS['posts'] ) ); foreach ( $data as $k => $v ) { $post->$k = is_string( $v ) ? stripslashes( $v ) : $v; } $GLOBALS['posts'][$post->ID] = $post; ++$GLOBALS['inserts']; if ( $GLOBALS['crash_insert'] ) { $GLOBALS['crash_insert'] = false; throw new RuntimeException( 'Lost insert response' ); } return $post->ID; }
 function wp_update_post( $data, $error = false ) { $post = get_post( $data['ID'] ); foreach ( $data as $k => $v ) { if ( $k !== 'ID' ) { $post->$k = is_string( $v ) ? stripslashes( $v ) : $v; } } ++$GLOBALS['publication_changes']; if ( $GLOBALS['crash_publish'] ) { $GLOBALS['crash_publish'] = false; throw new RuntimeException( 'Lost publication response' ); } return $post->ID; }
 class Layout_Controls { public function get_control( $type ) { return new \Elementor\Base_Data_Control(); } public function delete_stack( $document ) {} }
 class Layout_Document { private $id; public function __construct( $id ) { $this->id = $id; } public function get_controls() { $controls = [ 'background_color' => [ 'type' => 'color' ], 'vendor_width' => [ 'type' => 'choice' ], 'vendor_header' => [ 'type' => 'switcher' ] ]; if ( ! empty( $GLOBALS['missing_presentation_control'] ) ) { unset( $controls['vendor_width'] ); } return $controls; } public function get_settings() { $settings = get_post_meta( $this->id, '_elementor_page_settings', true ); $settings = is_array( $settings ) ? array_merge( [ 'background_color' => '' ], $settings ) : [ 'background_color' => '' ]; $settings['vendor_width'] = get_post_meta( $this->id, 'vendor_width', true ); $settings['vendor_header'] = get_post_meta( $this->id, 'vendor_header', true ); return $settings; } }
@@ -100,7 +100,7 @@ class Nova_Bridge_Suite_Mapped_Content_Target {
         $post = $matches[0]; if ( $resource !== 'post_type:' . $post->post_type || ! current_user_can( 'edit_post', $post->ID ) ) { return new WP_Error( 'nova_mapped_target_resource_mismatch', 'Wrong type or permission' ); }
         return [ 'reference_type' => 'post', 'reference_id' => $post->ID, 'resource_id' => $resource, 'requested_url' => $wanted['identity'] ];
     }
-    public static function creation( $resource, $url, $language ) { $normalized = self::normalize_url( $url ); if ( is_wp_error( $normalized ) ) { return $normalized; } if ( $language !== 'en-US' ) { return new WP_Error( 'language', 'Wrong language' ); } $slug = trim( parse_url( $url, PHP_URL_PATH ), '/' ); foreach ( $GLOBALS['posts'] as $post ) { if ( $post->post_name === $slug && ! ( ! empty( $GLOBALS['native_draft_slugs'] ) && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return new WP_Error( 'occupied', 'Already occupied' ); } } return [ 'slug' => $slug, 'parent' => 0, 'target_url' => $normalized['identity'], 'language' => $language, 'native_language' => [ 'provider' => 'core', 'code' => 'en-us' ] ]; }
+    public static function creation( $resource, $url, $language ) { $normalized = self::normalize_url( $url ); if ( is_wp_error( $normalized ) ) { return $normalized; } if ( $language !== 'en-US' ) { return new WP_Error( 'language', 'Wrong language' ); } $slug = trim( parse_url( $url, PHP_URL_PATH ), '/' ); foreach ( $GLOBALS['posts'] as $post ) { if ( rtrim( get_permalink( $post->ID ), '/' ) === $normalized['identity'] && ! ( ! empty( $GLOBALS['native_draft_slugs'] ) && in_array( $post->post_status, [ 'draft', 'auto-draft' ], true ) ) ) { return new WP_Error( 'occupied', 'Already occupied' ); } } return [ 'slug' => $slug, 'parent' => 0, 'target_url' => $normalized['identity'], 'language' => $language, 'native_language' => [ 'provider' => 'core', 'code' => 'en-us' ] ]; }
     public static function with_creation_language( $target, $fn ) { return $fn(); }
     public static function verify_created_language( $resource, $kind, $id, $target ) { return true; }
     public static function native_url( $resource, $kind, $id ) { return get_permalink( $id ); }
@@ -181,6 +181,37 @@ foreach ( [ 'human_edit', 'owner_changed', 'wrong_type', 'ambiguous', 'private' 
         $plan = Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, op( 1 ) );
     }
     check( is_wp_error( $plan ) && $inserts === 0 && $saves === 0, 'Changed, ambiguously owned, wrong-type or unsupported existing pages fail before replacement.' );
+}
+// Older installations keep the first test route under the original association key.
+reset_native();
+existing_page( 20, 'masterclass' ); existing_page( 21, 'lorem-ipsum-demo-service', 'draft', 20 );
+$demo_routes = [ '/masterclass/lorem-ipsum-demo-service/', '/lorem-ipsum-demo-service/' ];
+$route_ids = [];
+foreach ( [ 0, 1, 0, 1 ] as $step => $route ) {
+    [ $demo, $config ] = fixture( (string) ( 501 + $step ) );
+    $demo['url'] = $demo_routes[$route];
+    $operation = op( 41 + $step );
+    $plan = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $demo, $config, [ 'operation_id' => $operation ] ) );
+    $saved = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $plan, $operation ) );
+    if ( isset( $route_ids[$route] ) ) { check( $saved['post_id'] === $route_ids[$route], 'Repeat sends reuse the draft at the requested full URL.' ); }
+    $route_ids[$route] = $saved['post_id'];
+    check( get_permalink( $saved['post_id'] ) === home_url( $demo['url'] ), 'Same-slug demos report the correct endpoint path.' );
+}
+check( $route_ids[0] === 21 && $route_ids[1] !== 21 && $inserts === 1, 'Both live demo routes retain independent native IDs.' );
+// A demo replacement must still be safe when its plan is applied.
+foreach ( [ 'restored', 'occupied' ] as $conflict ) {
+    reset_native(); [ $demo, $config ] = fixture();
+    $demo['url'] = 'https://example.test/lorem-ipsum-demo-service/';
+    $initial = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $demo, $config, [ 'operation_id' => op( 1 ) ] ) );
+    $original = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $initial, op( 1 ) ) )['post_id'];
+    $demo['content_item_version_id'] = '502';
+    $demo['url'] = 'https://example.test/lorem-ipsum-demo-informative/';
+    check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $demo, $config, [ 'operation_id' => op( 2 ) ] ) ), 'A live demo cannot move to another path.' );
+    $posts[$original]->post_status = 'trash';
+    $replacement = ok( Nova_Bridge_Suite_Stored_Layout_Writer::plan( $demo, $config, [ 'operation_id' => op( 2 ) ] ) );
+    if ( 'restored' === $conflict ) { $posts[$original]->post_status = 'draft'; }
+    else { existing_page( 22, 'lorem-ipsum-demo-informative' ); }
+    check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $replacement, op( 2 ) ) ) && $inserts === 1 && $saves === 1, 'A demo replacement stops before writing if the target was ' . $conflict . '.' );
 }
 // A delivery overwrites the page at its exact URL even when another NOVA delivery (another URL record or environment) wrote it.
 reset_native(); existing_page(); $meta[10]['_nova_stored_layout_owner'] = [ 'site_id' => op( 77 ), 'url_id' => 'different' ]; $posts[10]->post_content_filtered = Nova_Bridge_Suite_Stored_Layout_Writer::FORMAT . ':' . op( 70 ) . ':old';
