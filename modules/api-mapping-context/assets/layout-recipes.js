@@ -651,15 +651,33 @@
 			return wrap;
 		}
 		function fixedTermsEditor( state ) {
-			var section = node( 'section', undefined, 'nlr-fixed-terms' ), choices = state.design.term_taxonomies;
+			var section = node( 'details', undefined, 'nlr-region-list nlr-fixed-terms' ), choices = state.design.term_taxonomies;
+			section.setAttribute( 'data-nlr-view-key', 'fixed-terms' );
 			var rows = state.recipe.fixed_terms || [], locale = state.termLocale || '*';
-			section.append( node( 'h3', 'Fixed taxonomy assignments' ), help( 'New posts receive these terms. Existing posts keep their assignments. A locale overrides the defaults for its taxonomy.' ) );
-			var code = input( state.termLocale || '', function () {} );
-			section.append( field( 'Destination locale', code, 'Leave blank for the default or enter a locale such as de-AT.' ), button( 'Show locale', function () {
+			section.append( node( 'summary', 'Categories, tags and other terms' ), node( 'h4', 'Always assign to new posts' ), help( 'WordPress adds every term you select to each new post. Selecting two tags adds both, regardless of the article content. Existing posts keep their terms.' ) );
+			var locales = new Set( rows.map( function ( row ) { return row.locale; } ) );
+			var catalog = ( state.design.locale_preservation || {} ).catalog || [];
+			catalog.forEach( function ( entry ) { if ( entry.locale ) { locales.add( entry.locale.toLowerCase().replace( /_/g, '-' ) ); } } );
+			locales.add( locale ); locales.delete( '*' );
+			var options = [ { value: '*', label: 'All locales (default)' } ];
+			Array.from( locales ).sort().forEach( function ( value ) {
+				var label = value;
+				try { label = Intl.getCanonicalLocales( value )[0]; } catch ( error ) { /* Keep the stored locale code. */ }
+				options.push( { value: value, label: label } );
+			} );
+			options.push( { value: '+', label: 'Add another locale…' } );
+			var custom = node( 'div' ), code = input( '', function () {} ); custom.hidden = true;
+			var switcher = select( options, locale, function ( value ) {
+				if ( value === '+' ) { switcher.value = locale; custom.hidden = false; code.focus(); return; }
+				state.termLocale = value === '*' ? '' : value; render();
+			} );
+			section.append( field( 'Destination locale', switcher ), help( 'Set defaults once. For translated taxonomies, WPML or Polylang uses the linked term in the destination language. A missing translation blocks posting. Other taxonomies use the selected term as configured.' ) );
+			custom.append( field( 'New locale code', code, 'For example, de-AT.' ), button( 'Use locale', function () {
 				var next = code.value.trim().toLowerCase().replace( /_/g, '-' );
-				if ( next && ! /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/.test( next ) ) { code.setCustomValidity( 'Enter a valid locale.' ); code.reportValidity(); code.setCustomValidity( '' ); return; }
+				if ( ! /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/.test( next ) ) { code.setCustomValidity( 'Enter a valid locale.' ); code.reportValidity(); code.setCustomValidity( '' ); return; }
 				state.termLocale = next; render();
-			} ) );
+			} ) ); section.append( custom );
+			if ( locale !== '*' ) { section.append( help( 'Selecting a term here replaces the defaults for that taxonomy in this locale. Remove its last local selection to use the defaults again.' ) ); }
 			function update( values ) { controller.edit( function () { if ( values.length ) { state.recipe.fixed_terms = values; } else { delete state.recipe.fixed_terms; } } ); }
 			Object.keys( choices ).forEach( function ( tax ) {
 				var group = node( 'fieldset' ), query = input( '', function () {} ), results = node( 'div' ), status = node( 'p' );
@@ -701,7 +719,6 @@
 					} catch ( error ) { preview.textContent = error.message; }
 				} ), preview );
 			}
-			if ( rows.length ) { section.append( help( 'Configured locales: ' + Array.from( new Set( rows.map( function ( row ) { return row.locale; } ) ) ).join( ', ' ) ) ); }
 			return section;
 		}
 		function seoFieldsEditor( state ) {

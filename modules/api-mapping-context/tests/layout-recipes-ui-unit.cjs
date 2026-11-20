@@ -799,12 +799,15 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   t.controller.next(); await t.controller.capture(42);
   const click = label => t.host.all().find(el => el.tag === 'button' && el.ownText === label).events.click();
   await click('Find terms'); click('News (news)');
-  controlFor(t,'Destination locale').value='de-AT'; click('Show locale');
+  controlFor(t,'New locale code').value='de-AT'; click('Use locale');
   assert(t.host.textContent.includes('Inherited from default'));
   await click('Find terms'); click('Regional (regional)');
   assert.deepEqual(t.controller.state.recipe.fixed_terms, [
    {taxonomy:'category',locale:'*',slug:'news'}, {taxonomy:'category',locale:'de-at',slug:'regional'}
   ]);
+  const locales = controlFor(t,'Destination locale'); locales.value='*'; locales.events.change();
+  assert(t.host.all().some(el => el.title === 'Remove news'));
+  const regional = controlFor(t,'Destination locale'); regional.value='de-at'; regional.events.change();
   t.host.all().find(el => el.title === 'Remove regional').events.click(); assert(t.host.textContent.includes('Inherited from default'));
  });
  await test('plain and pretty REST routes keep profile and recovery parameters separate',async () => {
