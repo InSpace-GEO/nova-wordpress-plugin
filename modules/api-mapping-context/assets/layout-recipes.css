@@ -62,3 +62,13 @@
     .nlr-block-icon { flex-basis: 32px; height: 32px; }
     .nlr-transform-settings { padding: 16px; }
 }
+
+.nlr .nlr-fixed-terms { max-width: 46rem; }
+.nlr .nlr-fixed-terms fieldset { margin: 1rem 0; padding: .75rem 0; border-top: 1px solid var(--nova-border,#ddd); }
+.nlr-fixed-terms legend { padding-right: .5rem; font-weight: 600; }
+.nlr-fixed-terms .nlr-control { margin-bottom: .4rem; }
+.nlr-fixed-terms .nlr-term-chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-bottom: .75rem; }
+.nlr-fixed-terms .nlr-term-chip { display: inline-flex; align-items: center; gap: .25rem; padding: .15rem .45rem; background: var(--nova-purple-wash,#f0e6fa); border-radius: .5rem; overflow-wrap: anywhere; }
+.nlr .nlr-term-chip button.button { font: inherit; min-height: 0; height: auto; line-height: 1.5; padding: .15rem .25rem; color: inherit; background: transparent; border: 0; box-shadow: none; }
+.nlr .nlr-term-chip button:first-child { text-decoration: underline; text-underline-offset: .15em; }
+.nlr-fixed-terms iframe { display: block; width: 100%; height: 22rem; margin: .75rem 0; border: 1px solid var(--nova-border,#ddd); border-radius: .6rem; }

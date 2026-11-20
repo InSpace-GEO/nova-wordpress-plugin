@@ -805,7 +805,7 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert.deepEqual(t.controller.state.recipe.fixed_terms, [
    {taxonomy:'category',locale:'*',slug:'news'}, {taxonomy:'category',locale:'de-at',slug:'regional'}
   ]);
-  click('Remove regional'); assert(t.host.textContent.includes('Inherited from default'));
+  t.host.all().find(el => el.title === 'Remove regional').events.click(); assert(t.host.textContent.includes('Inherited from default'));
  });
  await test('plain and pretty REST routes keep profile and recovery parameters separate',async () => {
   const route='/nova-bridge/v1/mapping/layout-recipes';

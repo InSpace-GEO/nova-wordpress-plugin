@@ -651,7 +651,7 @@
 			return wrap;
 		}
 		function fixedTermsEditor( state ) {
-			var section = node( 'section' ), choices = state.design.term_taxonomies;
+			var section = node( 'section', undefined, 'nlr-fixed-terms' ), choices = state.design.term_taxonomies;
 			var rows = state.recipe.fixed_terms || [], locale = state.termLocale || '*';
 			section.append( node( 'h3', 'Fixed taxonomy assignments' ), help( 'New posts receive these terms. Existing posts keep their assignments. A locale overrides the defaults for its taxonomy.' ) );
 			var code = input( state.termLocale || '', function () {} );
@@ -666,13 +666,20 @@
 				group.append( node( 'legend', choices[tax] ) );
 				var scoped = rows.filter( function ( row ) { return row.taxonomy === tax && row.locale === locale; } );
 				var visible = scoped.length ? scoped : rows.filter( function ( row ) { return row.taxonomy === tax && row.locale === '*'; } );
+				var chips = node( 'div', undefined, 'nlr-term-chips' ); group.append( chips );
 				visible.forEach( function ( row ) {
-					group.append( node( 'mark', row.slug ) );
-					if ( row.locale === locale ) { group.append( button( 'Remove ' + row.slug, function () { update( rows.filter( function ( x ) { return x !== row; } ) ); } ) ); }
-					else { group.append( help( 'Inherited from default' ) ); }
+					var chip = node( 'span', undefined, 'nlr-term-chip' ); chips.append( chip );
 					var link = ( ( state.design.reference_term_links || {} )[tax] || {} )[row.slug];
-					if ( link ) { group.append( button( 'Highlight ' + row.slug, function () { sendCanvas( 'highlight-term', { url: link } ); } ) ); }
+					if ( link ) {
+						var highlight = button( row.slug, function () { sendCanvas( 'highlight-term', { url: link } ); } );
+						highlight.title = 'Highlight ' + row.slug + ' on the reference post'; chip.append( highlight );
+					} else { chip.append( node( 'span', row.slug ) ); }
+					if ( row.locale === locale ) {
+						var remove = button( '×', function () { update( rows.filter( function ( x ) { return x !== row; } ) ); } );
+						remove.setAttribute( 'aria-label', 'Remove ' + row.slug ); remove.title = 'Remove ' + row.slug; chip.append( remove );
+					}
 				} );
+				if ( visible.length && ! scoped.length ) { group.append( help( 'Inherited from default' ) ); }
 				group.append( field( 'Find ' + choices[tax], query ), button( 'Find terms', async function () {
 					try {
 						var matches = await ( dependencies.request || request )( '/term-search', { resource_id: state.resourceId, taxonomy: tax, search: query.value } );
