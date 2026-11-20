@@ -312,8 +312,17 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $paged = true === ( $body['paginate'] ?? false );
         $offset = $body['offset'] ?? 0;
         if ( ! is_int( $offset ) || $offset < 0 ) { return self::error( 'offset', 'Choose a valid term offset.' ); }
-        $terms = get_terms( [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'lang' => '', 'search' => sanitize_text_field( $body['search'] ?? '' ), 'orderby' => 'name', 'offset' => $offset, 'number' => $paged ? 51 : 50 ] );
+        $terms = Nova_WordPress_Fixed_Terms::all_language_terms( [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'lang' => '', 'search' => sanitize_text_field( $body['search'] ?? '' ), 'orderby' => 'name', 'offset' => $offset, 'number' => $paged ? 51 : 50 ] );
         if ( is_wp_error( $terms ) ) { return $terms; }
+        if ( $paged && true === ( $body['group_translations'] ?? false ) ) {
+            $preferred = sanitize_key( $body['language'] ?? '' );
+            $as_choice = static function ( $term ) use ( $preferred ) { return Nova_WordPress_Fixed_Terms::picker_term( $term, $preferred ); };
+            $selected = $body['selected'] ?? [];
+            if ( ! is_array( $selected ) || count( $selected ) > 250 || count( array_filter( $selected, 'is_string' ) ) !== count( $selected ) ) { return self::error( 'terms', 'Invalid selected terms.' ); }
+            $pinned = $selected ? Nova_WordPress_Fixed_Terms::all_language_terms( [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'slug' => $selected ] ) : [];
+            if ( is_wp_error( $pinned ) ) { return $pinned; }
+            return self::response( [ 'terms' => array_map( $as_choice, array_slice( $terms, 0, 50 ) ), 'selected' => array_map( $as_choice, $pinned ), 'more' => count( $terms ) > 50 ] );
+        }
         $items = array_map( static function ( $term ) { return [ 'label' => $term->name, 'slug' => $term->slug ]; }, array_slice( $terms, 0, 50 ) );
         return self::response( $paged ? [ 'terms' => $items, 'more' => count( $terms ) > 50 ] : $items );
     }
@@ -321,6 +330,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     private static function field_choices( array $design, string $resource, string $mode, int $example ): array {
         if ( in_array( $mode, [ 'static', 'article' ], true ) && 0 === strpos( $resource, 'post_type:' ) ) { $design['seo_field_choices'] = Nova_WordPress_Layout_SEO::catalog();
             if ( function_exists( 'get_object_taxonomies' ) ) {
+                $design['term_main_language'] = function_exists( 'pll_default_language' ) ? pll_default_language() : apply_filters( 'wpml_default_language', null );
                 $design['term_taxonomies'] = Nova_WordPress_Fixed_Terms::taxonomies( substr( $resource, 10 ) );
                 $design['reference_term_links'] = Nova_WordPress_Fixed_Terms::reference_links( $example ?: (int) ( $design['source_reference']['reference_id'] ?? 0 ), $design['term_taxonomies'] );
             } }

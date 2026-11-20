@@ -3,6 +3,12 @@
 define( 'ABSPATH', __DIR__ );
 require dirname( __DIR__ ) . '/includes/class-nova-wordpress-fixed-terms.php';
 class WP_Error { public $code; public function __construct( $code, $message ) { $this->code = $code; } }
+function pll_is_translated_taxonomy( $taxonomy ) { return 'book_topic' === $taxonomy; }
+function pll_default_language() { return 'en'; }
+function pll_get_term_translations( $id ) { return 43 === $id ? [ 'fr' => 43 ] : [ 'de' => 41, 'en' => 42 ]; }
+function get_term( $id, $taxonomy ) {
+    return (object) [ 'term_id' => $id, 'taxonomy' => $taxonomy, 'slug' => 'topic-' . $id, 'name' => 'Topic ' . $id, 'count' => $id - 40 ];
+}
 function current_user_can( $cap ) { return 'assign' === $cap; }
 function get_object_taxonomies( $type, $output ) {
     return array_map( static function ( $name ) {
@@ -31,8 +37,14 @@ $resolve = static function ( $locale, $native = '' ) use ( $rules ) { return Nov
 check( $resolve( 'de_AT' ) === [ 'post_tag' => [12], 'topicGroup' => [11] ], 'Only the overridden taxonomy changes.' );
 check( $resolve( 'de-CH' ) === [ 'post_tag' => [12], 'topicGroup' => [10] ], 'Other regions retain the defaults.' );
 check( $resolve( 'fr-FR', 'fr' )['topicGroup'] === [30], 'Native translated taxonomy uses the exact linked term.' );
-check( $resolve( 'it-IT', 'it' )->code === 'fixed_term_translation_missing', 'A missing translation fails before writing.' );
+check( $resolve( 'it-IT', 'it' ) === [ 'post_tag' => [12], 'topicGroup' => [] ], 'Skip the missing translation and keep the other taxonomy.' );
 check( Nova_WordPress_Fixed_Terms::resolve( $rules, 'post', 'de-AT' )->code === 'fixed_taxonomy_unavailable', 'Reject taxonomies from another post type.' );
 $rules[0]['slug'] = 'deleted';
 check( Nova_WordPress_Fixed_Terms::resolve( $rules, 'story', 'en-US' )->code === 'fixed_term_missing', 'Removed terms cannot create new terms.' );
+$family = Nova_WordPress_Fixed_Terms::picker_term( get_term( 41, 'book_topic' ), '' );
+check( $family['slug'] === 'topic-42' && $family['count'] === 2 && $family['translations'][0]['slug'] === 'topic-41' && $family['translations'][0]['count'] === 1, 'Group a translated search hit under the primary term and retain individual counts.' );
+$regional = Nova_WordPress_Fixed_Terms::picker_term( get_term( 42, 'book_topic' ), 'de' );
+check( $regional['slug'] === 'topic-41' && $regional['translations'][0]['language'] === 'en', 'Use the local representative when editing that language.' );
+$orphan = Nova_WordPress_Fixed_Terms::picker_term( get_term( 43, 'book_topic' ), '' );
+check( $orphan['locale_only'] && $orphan['language'] === 'fr' && ! $orphan['translations'], 'Keep terms that only exist outside the main language selectable.' );
 echo "PASS fixed taxonomy assignments and locale scoping\n";

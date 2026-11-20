@@ -25,6 +25,48 @@ final class Nova_WordPress_Fixed_Terms {
         return $links;
     }
 
+    /** Return one picker choice per translation group, preferring the requested language. */
+    public static function picker_term( $term, string $preferred ): array {
+        $taxonomy = $term->taxonomy;
+        $members = [];
+        $main = '';
+        if ( function_exists( 'pll_is_translated_taxonomy' ) && pll_is_translated_taxonomy( $taxonomy ) ) {
+            $main = (string) pll_default_language();
+            foreach ( pll_get_term_translations( $term->term_id ) as $code => $id ) {
+                $members[$code] = get_term( $id, $taxonomy );
+            }
+        } elseif ( apply_filters( 'wpml_is_translated_taxonomy', false, $taxonomy ) ) {
+            $main = (string) apply_filters( 'wpml_default_language', null );
+            $type = 'tax_' . $taxonomy;
+            $trid = apply_filters( 'wpml_element_trid', null, $term->term_taxonomy_id, $type );
+            if ( $trid ) {
+                foreach ( (array) apply_filters( 'wpml_get_element_translations', [], $trid, $type ) as $translation ) {
+                    $members[$translation->language_code] = get_term_by( 'term_taxonomy_id', $translation->element_id, $taxonomy );
+                }
+            }
+        }
+        $variants = [];
+        foreach ( $members as $code => $member ) {
+            if ( ! $member || is_wp_error( $member ) || $member->taxonomy !== $taxonomy ) { continue; }
+            $variants[$code] = [ 'slug' => $member->slug, 'label' => $member->name, 'count' => (int) $member->count, 'language' => $code ];
+        }
+        if ( ! $variants ) { return [ 'slug' => $term->slug, 'label' => $term->name, 'count' => (int) $term->count, 'translations' => [] ]; }
+        ksort( $variants );
+        $primary = $variants[$preferred] ?? $variants[$main] ?? reset( $variants );
+        $locale_only = ! isset( $variants[$main] );
+        unset( $variants[$primary['language']] );
+        return $primary + [ 'locale_only' => $locale_only, 'translations' => array_values( $variants ) ];
+    }
+
+    /** Query across languages even when WPML filters the current admin request. */
+    public static function all_language_terms( array $args ) {
+        $current = apply_filters( 'wpml_current_language', null );
+        if ( ! $current || 'all' === $current ) { return get_terms( $args + [ 'lang' => '' ] ); }
+        do_action( 'wpml_switch_language', 'all' );
+        try { return get_terms( $args + [ 'lang' => '' ] ); }
+        finally { do_action( 'wpml_switch_language', $current ); }
+    }
+
     public static function validate( $rules ): void {
         if ( ! is_array( $rules ) || array_values( $rules ) !== $rules || count( $rules ) > 250 ) { throw new InvalidArgumentException( 'Choose up to 250 fixed terms per layout.' ); }
         foreach ( $rules as $rule ) {
@@ -52,17 +94,25 @@ final class Nova_WordPress_Fixed_Terms {
             if ( ! isset( $eligible[$taxonomy] ) ) { return new WP_Error( 'fixed_taxonomy_unavailable', 'A selected taxonomy is unavailable for this post type or posting user.' ); }
             $slugs = $all ? array_merge( ...array_values( $scopes ) ) : ( $scopes[$locale] ?? $scopes['*'] ?? [] );
             foreach ( array_unique( $slugs ) as $slug ) {
-                $matches = get_terms( [ 'taxonomy' => $taxonomy, 'slug' => $slug, 'hide_empty' => false, 'number' => 2, 'lang' => '' ] );
+                $matches = self::all_language_terms( [ 'taxonomy' => $taxonomy, 'slug' => $slug, 'hide_empty' => false, 'number' => 2, 'lang' => '' ] );
                 if ( is_wp_error( $matches ) ) { return $matches; }
                 if ( count( $matches ) !== 1 || $matches[0]->slug !== $slug ) { return new WP_Error( 'fixed_term_missing', 'A selected slug must identify exactly one term in its taxonomy. Review the saved mapping.' ); }
                 $id = (int) $matches[0]->term_id;
-                if ( '' !== $native_code ) {
+                $code = $native_code;
+                if ( ! $all && ! $code && '' === $locale ) {
+                    $code = function_exists( 'pll_default_language' ) ? pll_default_language() : apply_filters( 'wpml_default_language', null );
+                }
+                if ( $code ) {
                     if ( function_exists( 'pll_is_translated_taxonomy' ) && pll_is_translated_taxonomy( $taxonomy ) ) {
-                        $id = (int) pll_get_term( $id, $native_code );
+                        $id = (int) pll_get_term( $id, $code );
                     } elseif ( apply_filters( 'wpml_is_translated_taxonomy', false, $taxonomy ) ) {
-                        $id = (int) apply_filters( 'wpml_object_id', $id, $taxonomy, false, $native_code );
+                        $id = (int) apply_filters( 'wpml_object_id', $id, $taxonomy, false, $code );
                     }
-                    if ( ! $id || ! term_exists( $id, $taxonomy ) ) { return new WP_Error( 'fixed_term_translation_missing', 'The selected term needs a translation for the destination locale.' ); }
+                    if ( ! $id || ! term_exists( $id, $taxonomy ) ) {
+                        // An explicit empty assignment clears any category WordPress added on insert.
+                        $result[$taxonomy] = $result[$taxonomy] ?? [];
+                        continue;
+                    }
                 }
                 $result[$taxonomy][] = $id;
             }

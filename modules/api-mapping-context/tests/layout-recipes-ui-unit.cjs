@@ -799,7 +799,7 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   t.controller.next(); await t.controller.capture(42);
   const click = label => t.host.all().find(el => el.tag === 'button' && el.ownText === label).events.click();
   await new Promise(resolve=>setImmediate(resolve)); click('News');
-  controlFor(t,'New locale code').value='de-AT'; click('Use locale');
+  controlFor(t,'New locale code').value='de-AT'; click('Use locale'); await new Promise(resolve=>setImmediate(resolve));
   assert(t.host.textContent.includes('Inherited from default'));
   click('Regional');
   assert.deepEqual(t.controller.state.recipe.fixed_terms, [

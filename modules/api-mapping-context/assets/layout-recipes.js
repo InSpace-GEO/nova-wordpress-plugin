@@ -660,8 +660,14 @@
 			var catalog = ( state.design.locale_preservation || {} ).catalog || [];
 			catalog.forEach( function ( entry ) { if ( entry.locale ) { locales.add( entry.locale.toLowerCase().replace( /_/g, '-' ) ); } } );
 			locales.add( locale ); locales.delete( '*' );
-			var options = [ { value: '*', label: 'All locales (default)' } ];
+			var main = state.design.term_main_language || '';
+			function usesDefaults( value ) {
+				if ( ! main || rows.some( function ( row ) { return row.locale === value; } ) ) { return false; }
+				return value === main || catalog.some( function ( entry ) { return entry.code === main && ( entry.locale || '' ).toLowerCase().replace( /_/g, '-' ) === value; } );
+			}
+			var options = [ { value: '*', label: main ? 'All locales (main language: ' + main + ')' : 'All locales (default)' } ];
 			Array.from( locales ).sort().forEach( function ( value ) {
+				if ( usesDefaults( value ) ) { return; }
 				var label = value;
 				try { label = Intl.getCanonicalLocales( value )[0]; } catch ( error ) { /* Keep the stored locale code. */ }
 				options.push( { value: value, label: label } );
@@ -672,11 +678,11 @@
 				if ( value === '+' ) { switcher.value = locale; custom.hidden = false; code.focus(); return; }
 				state.termLocale = value === '*' ? '' : value; render();
 			} );
-			section.append( field( 'Destination locale', switcher ), help( 'Set defaults once. For translated taxonomies, WPML or Polylang uses the linked term in the destination language. A missing translation blocks posting. Other taxonomies use the selected term as configured.' ) );
+			section.append( field( 'Destination locale', switcher ), help( 'In All locales, choose the main-language term once. Expand +N to see its linked translations. For translated taxonomies, WPML or Polylang uses the linked term in the destination language. If a translation is missing, NOVA skips that term and continues posting. Other taxonomies use the selected term as configured.' ) );
 			custom.append( field( 'New locale code', code, 'For example, de-AT.' ), button( 'Use locale', function () {
 				var next = code.value.trim().toLowerCase().replace( /_/g, '-' );
 				if ( ! /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/.test( next ) ) { code.setCustomValidity( 'Enter a valid locale.' ); code.reportValidity(); code.setCustomValidity( '' ); return; }
-				state.termLocale = next; render();
+				state.termLocale = usesDefaults( next ) ? '' : next; render();
 			} ) ); section.append( custom );
 			if ( locale !== '*' ) { section.append( help( 'Selecting a term here replaces the defaults for that taxonomy in this locale. Remove its last local selection to use the defaults again.' ) ); }
 			function update( values ) { controller.edit( function () { if ( values.length ) { state.recipe.fixed_terms = values; } else { delete state.recipe.fixed_terms; } } ); }
@@ -684,32 +690,46 @@
 				var group = node( 'fieldset' ), chips = node( 'div', undefined, 'nlr-term-chips' ), extra = node( 'div' ), status = help( '' );
 				var scoped = rows.filter( function ( row ) { return row.taxonomy === tax && row.locale === locale; } );
 				var selected = scoped.length ? scoped : rows.filter( function ( row ) { return row.taxonomy === tax && row.locale === '*'; } );
-				var key = JSON.stringify( [ state.resourceId, tax ] );
+				var key = JSON.stringify( [ state.resourceId, tax, locale ] );
 				var picker = termPickers.get( key );
-				if ( ! picker ) { picker = { expanded: false, query: '', pages: [], labels: new Map() }; termPickers.set( key, picker ); }
+				if ( ! picker ) { picker = { expanded: false, query: '', pages: [], families: new Map() }; termPickers.set( key, picker ); }
+				function primary( slug ) { var family = picker.families.get( slug ); return family ? family.slug : slug; }
 				function toggle( slug ) {
-					var exists = selected.some( function ( row ) { return row.slug === slug; } );
+					var exists = selected.some( function ( row ) { return primary( row.slug ) === slug; } );
 					if ( ! exists ) { update( rows.concat( [ { taxonomy: tax, locale: locale, slug: slug } ] ) ); }
-					else if ( scoped.length ) { update( rows.filter( function ( row ) { return ! ( row.taxonomy === tax && row.locale === locale && row.slug === slug ); } ) ); }
+					else if ( scoped.length ) { update( rows.filter( function ( row ) { return ! ( row.taxonomy === tax && row.locale === locale && primary( row.slug ) === slug ); } ) ); }
 					else if ( selected.length > 1 ) {
-						update( rows.concat( selected.filter( function ( row ) { return row.slug !== slug; } ).map( function ( row ) { return Object.assign( {}, row, { locale: locale } ); } ) ) );
+						update( rows.concat( selected.filter( function ( row ) { return primary( row.slug ) !== slug; } ).map( function ( row ) { return Object.assign( {}, row, { locale: locale } ); } ) ) );
 					}
 				}
 				function paint() {
 					chips.replaceChildren(); var terms = new Map();
-					selected.forEach( function ( row ) { terms.set( row.slug, picker.labels.get( row.slug ) || row.slug ); } );
+					selected.forEach( function ( row ) { terms.set( primary( row.slug ), picker.families.get( row.slug ) || { slug: row.slug, label: row.slug } ); } );
 					var matches = picker.pages;
 					matches.forEach( function ( term ) {
-						if ( picker.expanded || terms.size < 10 ) { terms.set( term.slug, term.label ); }
+						if ( picker.expanded || terms.size < 10 ) { terms.set( term.slug, term ); }
 					} );
-					terms.forEach( function ( label, slug ) {
-						var active = selected.some( function ( row ) { return row.slug === slug; } );
+					terms.forEach( function ( term, slug ) {
+						var label = term.label;
+						var active = selected.some( function ( row ) { return primary( row.slug ) === slug; } );
 						var wrap = node( 'span', undefined, 'nlr-term-option' );
-						var control = button( label, function () { toggle( slug ); }, false, active && ! scoped.length && selected.length === 1 );
+						var caption = label + ( term.locale_only ? ' · ' + term.language : '' );
+						if ( Number.isInteger( term.count ) ) { caption += ' (' + term.count + ')'; }
+						var control = button( caption, function () { toggle( slug ); }, false, active && ! scoped.length && selected.length === 1 );
 						control.setAttribute( 'aria-pressed', String( active ) ); control.setAttribute( 'data-nlr-view-key', 'term:' + tax + ':' + slug );
 						if ( control.disabled ) { control.title = 'Inherited default. Select another term to replace it for this locale.'; }
 						wrap.append( control );
-						var link = ( ( state.design.reference_term_links || {} )[tax] || {} )[slug];
+						var variants = term.translations || [];
+						if ( variants.length ) {
+							var details = node( 'details', undefined, 'nlr-term-translations' ), summary = node( 'summary', '+' + variants.length );
+							summary.setAttribute( 'aria-label', 'Show translations of ' + label ); details.append( summary );
+							var list = node( 'ul' );
+							variants.forEach( function ( variant ) { list.append( node( 'li', variant.language + ' · ' + variant.label + ' (' + variant.count + ')' ) ); } );
+							details.append( list ); wrap.append( details );
+						}
+						var links = ( state.design.reference_term_links || {} )[tax] || {};
+						var linked = [ term ].concat( variants ).find( function ( entry ) { return links[entry.slug]; } );
+						var link = linked && links[linked.slug];
 						if ( link && active ) {
 							var highlight = button( '◎', function () { sendCanvas( 'highlight-term', { url: link } ); } );
 							highlight.title = 'Highlight ' + label + ' on the reference post'; highlight.setAttribute( 'aria-label', highlight.title ); wrap.append( highlight );
@@ -726,14 +746,18 @@
 					var query = picker.query, offset = append ? picker.pages.length : 0;
 					if ( ! append ) { picker.pages = []; picker.more = false; }
 					picker.error = ''; picker.loaded = false; picker.retryAppend = append;
-					var pending = ( dependencies.request || request )( '/term-search', { resource_id: state.resourceId, taxonomy: tax, search: query, offset: offset, paginate: true } );
+					var pending = ( dependencies.request || request )( '/term-search', { resource_id: state.resourceId, taxonomy: tax, search: query, offset: offset, paginate: true, group_translations: true, language: ( catalog.find( function ( entry ) { return ( entry.locale || '' ).toLowerCase().replace( /_/g, '-' ) === locale; } ) || {} ).code || '', selected: offset ? [] : selected.map( function ( row ) { return row.slug; } ) } );
 					picker.pending = pending; paint();
 					pending.then( function ( result ) {
 						if ( picker.pending !== pending ) { return; }
-						result.terms.forEach( function ( term ) { picker.labels.set( term.slug, term.label ); } );
+						result.terms.concat( result.selected || [] ).forEach( function ( term ) {
+							[ term ].concat( term.translations || [] ).forEach( function ( member ) { picker.families.set( member.slug, term ); } );
+						} );
 						picker.pages = picker.pages.concat( result.terms ); picker.more = result.more; picker.loaded = true;
 					} ).catch( function ( error ) { if ( picker.pending === pending ) { picker.error = error.message; } } ).finally( function () {
-						if ( picker.pending === pending ) { picker.pending = null; picker.paint(); }
+						if ( picker.pending === pending ) { picker.pending = null;
+							if ( picker.loaded && picker.more && ! picker.expanded && new Set( picker.pages.map( function ( term ) { return term.slug; } ) ).size <= 10 ) { load( true ); }
+							else { picker.paint(); } }
 					} );
 				}
 				var search = input( picker.query, function ( value ) {

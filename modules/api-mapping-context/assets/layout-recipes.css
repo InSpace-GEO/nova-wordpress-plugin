@@ -73,3 +73,7 @@
 .nlr .nlr-term-option .button { margin: 0; background: transparent; color: inherit; border: 0; border-radius: .55rem; min-height: 32px; padding: .25rem .6rem; white-space: normal; }
 .nlr .nlr-term-option [aria-pressed="true"]::before { content: '✓ '; }
 .nlr .nlr-term-option button + button { padding-inline: .4rem; }
+
+.nlr .nlr-term-translations { align-self: center; padding-inline: .35rem; }
+.nlr .nlr-term-translations summary { cursor: pointer; font-size: .875rem; }
+.nlr .nlr-term-translations ul { margin: .35rem 0; padding-inline-start: 1rem; }
