@@ -313,6 +313,20 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   nativeControl(t.host,'Second cell').events.click();choosePurpose(t,'');
   assert.equal(t.controller.state.recipe.omissions.length,0);
  });
+ await test('omitting an individual ACF field keeps the sibling mapping and row',async()=>{
+  const section={target:'/document/0/acf_rows/rows/0',label:'Rows › Row 1'};
+  const items=['Title','Text'].map(label=>({target:'/document/0/attrs/data/rows_0_'+label.toLowerCase(),label,format:'text',writable:true,can_omit_value:true,section_scopes:[section]}));
+  const t=await visualMounted({request:async(path,payload,current)=>{if(path==='/design'){current.fields=items;current.preview_fields=clone(items);return current;}}});
+  t.controller.selectMode('static');t.controller.next();await t.controller.capture(42);
+  for(const item of items){nativeControl(t.host,item.label).events.click();choosePurpose(t,'title');}
+  nativeControl(t.host,'Title').events.click();choosePurpose(t,'omit');
+  assert.equal(t.controller.state.recipe.omissions[0].target,items[0].target);
+  assert.deepEqual(t.controller.state.recipe.bindings.map(b=>b.target),[items[1].target]);
+  nativeControl(t.host,'Text').events.click();
+  const picker=controlFor(t,'Enclosing section');picker.value=section.target;picker.events.change();
+  t.host.all().find(el=>el.ownText==='Remove selected section from new pages').events.click();
+  assert.deepEqual(t.controller.state.recipe.omissions,[section]);
+ });
  await test('custom purposes require a name and writing guidance before saving',async()=>{
   const schemaField={target:'/document/0/nova_html_slots/s1',label:'Course name',kind:'schema_value',format:'text',writable:true};
   assert.deepEqual(ui.rolesFor(schemaField).map(role=>role.id),['custom']);

@@ -147,11 +147,14 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         foreach ( $omissions as $omission ) {
             if ( ! is_array( $omission ) || array_diff( array_keys( $omission ), [ 'target', 'label' ] ) || ! is_string( $omission['target'] ?? null ) ) { self::fail( 'Each removed element names its native element.' ); }
             self::metadata( $omission ); $parts = self::parts( $omission['target'] );
-            if ( count( $parts ) < 2 || ! ctype_digit( (string) end( $parts ) ) ) { self::fail( 'Only an element inside the layout can be removed.' ); }
+            if ( count( $parts ) < 2 || ( ! ctype_digit( (string) end( $parts ) ) && ! self::acf_value_pointer( $omission['target'] ) ) ) { self::fail( 'Only an element inside the layout can be removed.' ); }
             $targets[] = $omission['target'];
         }
         if ( count( array_unique( $targets ) ) !== count( $targets ) ) { self::fail( 'An element can be removed only once.' ); }
         return $targets;
+    }
+    private static function acf_value_pointer( string $path ): bool {
+        return (bool) preg_match( '~^/document/[0-9]+(?:/innerBlocks/[0-9]+)*/attrs/data/[a-zA-Z0-9_]+$~D', $path );
     }
     private static function validate_omissions( array $recipe, $adapter ): void {
         $targets = self::omission_targets( $recipe['omissions'] );
@@ -167,6 +170,10 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         foreach ( $fields as $field ) {
             $owners = array_column( $field['section_scopes'] ?? [], 'target' );
             if ( ! empty( $field['writable'] ) ) { foreach ( $owners as $owner ) { $elements[$owner] = true; } }
+            if ( ! empty( $field['can_omit_value'] ) ) {
+                $elements[$field['target']] = true;
+                if ( in_array( $field['target'], $targets, true ) && array_intersect( $targets, $owners ) ) { self::fail( 'This field already belongs to a removed section.' ); }
+            }
             if ( is_string( $field['node_target'] ?? null ) ) { $owners[] = $field['node_target']; $elements[$field['node_target']] = true; }
             $field_owners[$field['target']] = $owners;
         }
@@ -181,6 +188,16 @@ final class Nova_Bridge_Suite_Recipe_Engine {
         }
     }
     public static function apply_omissions( array $native, array $targets, $adapter ): array {
+        // Clear field values at their captured indexes before any section or block is removed.
+        $values = array_filter( $targets, [ self::class, 'acf_value_pointer' ] );
+        if ( $values ) {
+            $fields = array_column( $adapter->fields( $native ), null, 'target' );
+            foreach ( $values as $path ) {
+                if ( empty( $fields[$path]['can_omit_value'] ) ) { self::fail( 'The selected ACF field cannot be left empty.' ); }
+                $native = self::checked( $adapter->bind( $native, $fields[$path], '' ) );
+            }
+            $targets = array_diff( $targets, $values );
+        }
         // Remove later siblings first so earlier pointers keep their indexes.
         usort( $targets, static function ( $a, $b ) { $x = self::parts( $a ); $y = self::parts( $b ); for ( $i = 0, $n = min( count( $x ), count( $y ) ); $i < $n; $i++ ) { if ( $x[$i] === $y[$i] ) { continue; } return ctype_digit( $x[$i] ) && ctype_digit( $y[$i] ) ? (int) $y[$i] <=> (int) $x[$i] : strcmp( $y[$i], $x[$i] ); } return count( $y ) <=> count( $x ); } );
         foreach ( $targets as $target ) {

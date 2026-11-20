@@ -119,7 +119,9 @@ final class Nova_Mapping_Gutenberg_ACF {
                 $writable = ! $locked && ! $sensitive;
                 $fields[] = [ 'target' => $path . '/' . $flat, 'label' => $title, 'format' => 'wysiwyg' === $type ? 'html' : ( 'url' === $type ? 'url' : 'text' ),
                     'kind' => $type, 'value' => $data[$flat], 'writable' => $writable, 'protected' => ! $writable, 'acf_key' => $key,
-                    'reason' => $writable ? '' : 'This ACF value belongs to a protected or interactive field.' ] + ( $scopes ? [ 'section_scopes' => $scopes ] : [] );
+                    'reason' => $writable ? '' : 'This ACF value belongs to a protected or interactive field.' ]
+                    + ( $writable && empty( $field['required'] ) && '/meta' !== $path ? [ 'can_omit_value' => true ] : [] )
+                    + ( $scopes ? [ 'section_scopes' => $scopes ] : [] );
             }
         }
     }

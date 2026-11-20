@@ -49,6 +49,17 @@ $row_result = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $row_recipe, 
 $rows = parse_blocks( $row_result['writer_payload']['native_document'] )[0]['attrs']['data'];
 recipe_assert( $rows['sections_0_rows'] === 1 && $rows['sections_0_rows_0_title'] === 'Surviving row' && $rows['_sections_0_rows_0_title'] === 'field_title' && ! isset( $rows['sections_0_rows_1_title'] ), 'Retain sibling content and reindex its hidden ACF field references.' );
 $row_recipe['omissions'][0]['target'] = $scopes[0]['target'];
+$leaf_recipe = $row_recipe;
+$leaf_recipe['omissions'] = [ [ 'target' => $scopes[1]['target'] ], [ 'target' => $prefix . 'sections_0_rows_1_body' ] ];
+$leaf_result = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $leaf_recipe, [ 'title' => 'Sibling' ], 'acf-field' ), 'Omit a field and a preceding row in one layout' );
+$leaf_rows = parse_blocks( $leaf_result['native_document'] )[0]['attrs']['data'];
+recipe_assert( '' === $leaf_rows['sections_0_rows_0_body'] && 'Sibling' === $leaf_rows['sections_0_rows_0_title'] && 'field_body' === $leaf_rows['_sections_0_rows_0_body'], 'Omit the captured field before shifting its row' );
+$leaf_recipe['omissions'] = [ [ 'target' => $prefix . 'sections_0_rows_0_locked' ] ];
+recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::validate( $leaf_recipe ) ), 'Locked ACF fields cannot be omitted' );
+$GLOBALS['block_schema'][0]['layouts'][0]['sub_fields'][0]['sub_fields'][1]['required'] = 1;
+$leaf_recipe['omissions'] = [ [ 'target' => $prefix . 'sections_0_rows_0_body' ] ];
+recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::validate( $leaf_recipe ) ), 'Required ACF fields cannot be omitted' );
+unset( $GLOBALS['block_schema'][0]['layouts'][0]['sub_fields'][0]['sub_fields'][1]['required'] );
 recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::validate( $row_recipe ) ), 'A removed section cannot contain an active mapping.' );
 $row_recipe['bindings'] = [];
 $GLOBALS['block_schema'][0]['min'] = 1;
