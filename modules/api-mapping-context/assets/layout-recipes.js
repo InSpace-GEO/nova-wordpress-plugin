@@ -389,6 +389,20 @@
 			reload: function () { if ( dirty() && ! confirm( 'Reload the saved template and discard your unsaved rules?' ) ) { return Promise.resolve(); } return run( async function () { if ( state.id ) { var id = state.id; state.catalog = catalogResult( await request( '/catalog' ) ); await loadProfile( id ); } } ); }
 		};
 	}
+	function recipeRequestUrl( base, suffix ) {
+		if ( ! base.includes( '?' ) ) { return base + suffix; }
+		var url = new URL( base ), query = suffix.indexOf( '?' );
+		var path = query < 0 ? suffix : suffix.slice( 0, query );
+		if ( url.searchParams.has( 'rest_route' ) ) {
+			url.searchParams.set( 'rest_route', url.searchParams.get( 'rest_route' ) + path );
+		} else {
+			url.pathname += path;
+		}
+		if ( query >= 0 ) {
+			new URLSearchParams( suffix.slice( query + 1 ) ).forEach( function ( value, key ) { url.searchParams.append( key, value ); } );
+		}
+		return url.href;
+	}
 	function mount( host, config, dependencies ) {
 		dependencies = dependencies || {}; var doc = host.ownerDocument || document, win = doc.defaultView || window, controller, referenceId = 0, referenceResource = '', referenceSearch = '', referenceBuilder = 'auto', referenceView = 'desktop', composers = {}, variantTabs = {}, currentBinding = {}, fieldSearch = {}, termDeclarationChoices = Object.create( null ), canvasFrame = null, canvasKey = '', canvasReady = false, canvasTimer = null, canvasBindingKey = '', canvasSelection = '', canvasChoices = [], canvasStatuses = {}, canvasInfo, canvasStatus, canvasBody, chromeHost, workspaceHost, canvasHost, panelHost, renderedViewContext = '', renderedViewBusy = false, viewMemory = null, viewRenderSerial = 0, retainedOperations = operationStore( safeStorage( win ), 'nova-layout-recipe-review:' + config.url );
 		function node( tag, text, className ) { var element = doc.createElement( tag ); if ( text !== undefined ) { element.textContent = text; } if ( className ) { element.className = className; } return element; }
@@ -475,7 +489,7 @@
 		function select( choices, value, action ) { var element = node( 'select' ); choices.forEach( function ( item ) { var option = node( 'option', item.label ); option.value = item.value; option.disabled = !! item.disabled; element.append( option ); } ); element.value = value; element.addEventListener( 'change', function () { action( element.value ); } ); return element; }
 		function check( label, checked, action, hint ) { var wrap = node( 'div', undefined, 'nlr-check' ), box = node( 'input' ), title = node( 'label', label ), text = node( 'div' ); box.type = 'checkbox'; box.checked = checked; box.id = 'nlr-check-' + ++field.counter; box.setAttribute( 'data-nlr-view-key', 'check:' + label ); title.htmlFor = box.id; box.addEventListener( 'change', function () { action( box.checked ); } ); text.append( title ); if ( hint ) { text.append( help( hint ) ); } wrap.append( box, text ); return wrap; }
 		function warnings( messages, parent ) { if ( ! messages || ! messages.length ) { return; } var wrap = node( 'div', undefined, 'nlr-warnings' ); messages.forEach( function ( item ) { wrap.append( node( 'p', message( item ) ) ); } ); parent.append( wrap ); }
-		function request( suffix, data ) { return ( dependencies.fetch || win.fetch.bind( win ) )( config.url + suffix, { method: data === undefined ? 'GET' : 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': config.nonce, 'X-Nova-Environment': config.environment || '' }, body: data === undefined ? undefined : JSON.stringify( data ) } ).then( async function ( response ) { var result; try { result = await response.json(); } catch ( error ) { throw new Error( 'WordPress returned an unreadable response. Your choices are kept.' ); } if ( ! response.ok ) { var failure = new Error( message( result ) ); failure.status = response.status; failure.code = result && result.code; failure.data = result && result.data; throw failure; } return result; } ); }
+		function request( suffix, data ) { return ( dependencies.fetch || win.fetch.bind( win ) )( recipeRequestUrl( config.url, suffix ), { method: data === undefined ? 'GET' : 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': config.nonce, 'X-Nova-Environment': config.environment || '' }, body: data === undefined ? undefined : JSON.stringify( data ) } ).then( async function ( response ) { var result; try { result = await response.json(); } catch ( error ) { throw new Error( 'WordPress returned an unreadable response. Your choices are kept.' ); } if ( ! response.ok ) { var failure = new Error( message( result ) ); failure.status = response.status; failure.code = result && result.code; failure.data = result && result.data; throw failure; } return result; } ); }
 		function updateGates( state ) {
 			if ( ! host.querySelectorAll ) { return; }
 			var saved = !! state.id && fingerprint( state ) === state.baseline;
@@ -1069,5 +1083,5 @@
 		controller = createController( { resourceId: config.resourceId, profileId: config.profileId, request: dependencies.request || request, change: render, inputsChanged: updateGates, confirm: dependencies.confirm || win.confirm.bind( win ), origin: win.location.origin, forgetDraft: retainedOperations.forget, rememberDraft: retainedOperations.remember } );
 		win.addEventListener( 'beforeunload', function ( event ) { if ( controller.dirty() ) { event.preventDefault(); event.returnValue = ''; } } ); render(); controller.ready = controller.init(); return controller;
 	}
-	return { modes: MODES, displayMode: displayMode, modeLabel: modeLabel, clearOptionalRegions: clearOptionalRegions, manualResource: manualResource, builderChoices: builderChoices, sources: sources, catalogResult: catalogResult, designResult: designResult, recipeFrom: recipeFrom, fingerprint: fingerprint, defaultContent: defaultContent, draftResult: draftResult, operationStore: operationStore, rolePath: rolePath, fieldRules: fieldRules, regionLimits: regionLimits, assignRole: assignRole, rolesFor: rolesFor, customRoleIssue: customRoleIssue, visualContext: visualContext, canvasMessage: canvasMessage, referenceGeometry: referenceGeometry, contentValue: contentValue, setContentValue: setContentValue, seedScope: seedScope, mergeInputScopes: mergeInputScopes, ancestorChain: ancestorChain, ancestorContext: ancestorContext, createController: createController, mount: mount };
+	return { recipeRequestUrl: recipeRequestUrl, modes: MODES, displayMode: displayMode, modeLabel: modeLabel, clearOptionalRegions: clearOptionalRegions, manualResource: manualResource, builderChoices: builderChoices, sources: sources, catalogResult: catalogResult, designResult: designResult, recipeFrom: recipeFrom, fingerprint: fingerprint, defaultContent: defaultContent, draftResult: draftResult, operationStore: operationStore, rolePath: rolePath, fieldRules: fieldRules, regionLimits: regionLimits, assignRole: assignRole, rolesFor: rolesFor, customRoleIssue: customRoleIssue, visualContext: visualContext, canvasMessage: canvasMessage, referenceGeometry: referenceGeometry, contentValue: contentValue, setContentValue: setContentValue, seedScope: seedScope, mergeInputScopes: mergeInputScopes, ancestorChain: ancestorChain, ancestorContext: ancestorContext, createController: createController, mount: mount };
 } ) );

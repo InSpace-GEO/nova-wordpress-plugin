@@ -807,5 +807,15 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   ]);
   click('Remove regional'); assert(t.host.textContent.includes('Inherited from default'));
  });
+ await test('plain and pretty REST routes keep profile and recovery parameters separate',async () => {
+  const route='/nova-bridge/v1/mapping/layout-recipes';
+  for(const suffix of ['/catalog','/profile?id=recipe-1','/draft?operation_id=op-1']){
+   const expected=new URL('https://site.example'+route+suffix);
+   const plain=new URL(ui.recipeRequestUrl('https://site.example/index.php?rest_route='+route,suffix));
+   assert.equal(plain.searchParams.get('rest_route'),expected.pathname);
+   for(const [key,value] of expected.searchParams) assert.equal(plain.searchParams.get(key),value);
+   assert.equal(ui.recipeRequestUrl('https://site.example/wp-json'+route,suffix),'https://site.example/wp-json'+route+suffix);
+  }
+ });
  console.log('PASS '+checks+' layout recipe UI workflows.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
