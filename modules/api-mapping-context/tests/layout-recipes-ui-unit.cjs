@@ -794,21 +794,21 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
  await test('fixed taxonomy picker persists separate default and regional choices', async () => {
   const t = await visualMounted({ request: async (route, payload, design) => {
    if (route === '/design') return {...design, term_taxonomies: {category: 'Categories'}};
-   if (route === '/term-search') return [{label:'News',slug:'news'}, {label:'Regional',slug:'regional'}];
+   if (route === '/term-search') return { terms: [{label:'News',slug:'news'}, {label:'Regional',slug:'regional'}], more:false };
   }});
   t.controller.next(); await t.controller.capture(42);
   const click = label => t.host.all().find(el => el.tag === 'button' && el.ownText === label).events.click();
-  await click('Find terms'); click('News (news)');
+  await new Promise(resolve=>setImmediate(resolve)); click('News');
   controlFor(t,'New locale code').value='de-AT'; click('Use locale');
   assert(t.host.textContent.includes('Inherited from default'));
-  await click('Find terms'); click('Regional (regional)');
+  click('Regional');
   assert.deepEqual(t.controller.state.recipe.fixed_terms, [
    {taxonomy:'category',locale:'*',slug:'news'}, {taxonomy:'category',locale:'de-at',slug:'regional'}
   ]);
   const locales = controlFor(t,'Destination locale'); locales.value='*'; locales.events.change();
-  assert(t.host.all().some(el => el.title === 'Remove news'));
+  assert(t.host.all().some(el => el.ownText === 'News' && el.attributes['aria-pressed'] === 'true'));
   const regional = controlFor(t,'Destination locale'); regional.value='de-at'; regional.events.change();
-  t.host.all().find(el => el.title === 'Remove regional').events.click(); assert(t.host.textContent.includes('Inherited from default'));
+  click('Regional'); assert(t.host.textContent.includes('Inherited from default'));
  });
  await test('plain and pretty REST routes keep profile and recovery parameters separate',async () => {
   const route='/nova-bridge/v1/mapping/layout-recipes';

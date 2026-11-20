@@ -650,6 +650,7 @@
 			} );
 			return wrap;
 		}
+		var termPickers = new Map();
 		function fixedTermsEditor( state ) {
 			var section = node( 'details', undefined, 'nlr-region-list nlr-fixed-terms' ), choices = state.design.term_taxonomies;
 			section.setAttribute( 'data-nlr-view-key', 'fixed-terms' );
@@ -680,45 +681,77 @@
 			if ( locale !== '*' ) { section.append( help( 'Selecting a term here replaces the defaults for that taxonomy in this locale. Remove its last local selection to use the defaults again.' ) ); }
 			function update( values ) { controller.edit( function () { if ( values.length ) { state.recipe.fixed_terms = values; } else { delete state.recipe.fixed_terms; } } ); }
 			Object.keys( choices ).forEach( function ( tax ) {
-				var group = node( 'fieldset' ), query = input( '', function () {} ), results = node( 'div' ), status = node( 'p' );
-				group.append( node( 'legend', choices[tax] ) );
+				var group = node( 'fieldset' ), chips = node( 'div', undefined, 'nlr-term-chips' ), extra = node( 'div' ), status = help( '' );
 				var scoped = rows.filter( function ( row ) { return row.taxonomy === tax && row.locale === locale; } );
-				var visible = scoped.length ? scoped : rows.filter( function ( row ) { return row.taxonomy === tax && row.locale === '*'; } );
-				var chips = node( 'div', undefined, 'nlr-term-chips' ); group.append( chips );
-				visible.forEach( function ( row ) {
-					var chip = node( 'span', undefined, 'nlr-term-chip' ); chips.append( chip );
-					var link = ( ( state.design.reference_term_links || {} )[tax] || {} )[row.slug];
-					if ( link ) {
-						var highlight = button( row.slug, function () { sendCanvas( 'highlight-term', { url: link } ); } );
-						highlight.title = 'Highlight ' + row.slug + ' on the reference post'; chip.append( highlight );
-					} else { chip.append( node( 'span', row.slug ) ); }
-					if ( row.locale === locale ) {
-						var remove = button( '×', function () { update( rows.filter( function ( x ) { return x !== row; } ) ); } );
-						remove.setAttribute( 'aria-label', 'Remove ' + row.slug ); remove.title = 'Remove ' + row.slug; chip.append( remove );
+				var selected = scoped.length ? scoped : rows.filter( function ( row ) { return row.taxonomy === tax && row.locale === '*'; } );
+				var key = JSON.stringify( [ state.resourceId, tax ] );
+				var picker = termPickers.get( key );
+				if ( ! picker ) { picker = { expanded: false, query: '', pages: [], labels: new Map() }; termPickers.set( key, picker ); }
+				function toggle( slug ) {
+					var exists = selected.some( function ( row ) { return row.slug === slug; } );
+					if ( ! exists ) { update( rows.concat( [ { taxonomy: tax, locale: locale, slug: slug } ] ) ); }
+					else if ( scoped.length ) { update( rows.filter( function ( row ) { return ! ( row.taxonomy === tax && row.locale === locale && row.slug === slug ); } ) ); }
+					else if ( selected.length > 1 ) {
+						update( rows.concat( selected.filter( function ( row ) { return row.slug !== slug; } ).map( function ( row ) { return Object.assign( {}, row, { locale: locale } ); } ) ) );
 					}
+				}
+				function paint() {
+					chips.replaceChildren(); var terms = new Map();
+					selected.forEach( function ( row ) { terms.set( row.slug, picker.labels.get( row.slug ) || row.slug ); } );
+					var matches = picker.pages;
+					matches.forEach( function ( term ) {
+						if ( picker.expanded || terms.size < 10 ) { terms.set( term.slug, term.label ); }
+					} );
+					terms.forEach( function ( label, slug ) {
+						var active = selected.some( function ( row ) { return row.slug === slug; } );
+						var wrap = node( 'span', undefined, 'nlr-term-option' );
+						var control = button( label, function () { toggle( slug ); }, false, active && ! scoped.length && selected.length === 1 );
+						control.setAttribute( 'aria-pressed', String( active ) ); control.setAttribute( 'data-nlr-view-key', 'term:' + tax + ':' + slug );
+						if ( control.disabled ) { control.title = 'Inherited default. Select another term to replace it for this locale.'; }
+						wrap.append( control );
+						var link = ( ( state.design.reference_term_links || {} )[tax] || {} )[slug];
+						if ( link && active ) {
+							var highlight = button( '◎', function () { sendCanvas( 'highlight-term', { url: link } ); } );
+							highlight.title = 'Highlight ' + label + ' on the reference post'; highlight.setAttribute( 'aria-label', highlight.title ); wrap.append( highlight );
+						}
+						chips.append( wrap );
+					} );
+					more.hidden = ! picker.expanded && ! picker.more && matches.every( function ( term ) { return terms.has( term.slug ); } );
+					more.textContent = picker.expanded ? 'Show fewer' : 'Show more'; more.setAttribute( 'aria-expanded', String( picker.expanded ) );
+					extra.hidden = ! picker.expanded; next.hidden = ! picker.expanded || ! picker.more || !! picker.pending;
+					retry.hidden = ! picker.error;
+					status.textContent = picker.error || ( picker.pending ? 'Loading terms…' : ! matches.length ? ( picker.query ? 'No matching terms.' : 'No terms available.' ) : '' );
+				}
+				function load( append ) {
+					var query = picker.query, offset = append ? picker.pages.length : 0;
+					if ( ! append ) { picker.pages = []; picker.more = false; }
+					picker.error = ''; picker.loaded = false; picker.retryAppend = append;
+					var pending = ( dependencies.request || request )( '/term-search', { resource_id: state.resourceId, taxonomy: tax, search: query, offset: offset, paginate: true } );
+					picker.pending = pending; paint();
+					pending.then( function ( result ) {
+						if ( picker.pending !== pending ) { return; }
+						result.terms.forEach( function ( term ) { picker.labels.set( term.slug, term.label ); } );
+						picker.pages = picker.pages.concat( result.terms ); picker.more = result.more; picker.loaded = true;
+					} ).catch( function ( error ) { if ( picker.pending === pending ) { picker.error = error.message; } } ).finally( function () {
+						if ( picker.pending === pending ) { picker.pending = null; picker.paint(); }
+					} );
+				}
+				var search = input( picker.query, function ( value ) {
+					clearTimeout( picker.timer ); picker.pending = null; picker.query = value; picker.pages = []; picker.more = false;
+					picker.timer = setTimeout( function () { load( false ); }, 180 );
 				} );
-				if ( visible.length && ! scoped.length ) { group.append( help( 'Inherited from default' ) ); }
-				group.append( field( 'Find ' + choices[tax], query ), button( 'Find terms', async function () {
-					try {
-						var matches = await ( dependencies.request || request )( '/term-search', { resource_id: state.resourceId, taxonomy: tax, search: query.value } );
-						results.replaceChildren(); status.textContent = matches.length === 50 ? 'Showing 50 matches. Refine the search for more.' : matches.length + ' matching terms';
-						matches.forEach( function ( term ) {
-							results.append( button( term.label + ' (' + term.slug + ')', function () {
-								update( rows.concat( [ { taxonomy: tax, locale: locale, slug: term.slug } ] ) );
-							}, false, scoped.some( function ( row ) { return row.slug === term.slug; } ) ) );
-						} );
-					} catch ( error ) { status.textContent = error.message; }
-				} ), status, results ); section.append( group );
+				var more = button( '', function () {
+					picker.expanded = ! picker.expanded;
+					if ( ! picker.expanded && picker.query ) { clearTimeout( picker.timer ); picker.query = ''; search.value = ''; load( false ); } else { paint(); }
+				} );
+				var next = button( 'Load more terms', function () { load( true ); } ), retry = button( 'Retry', function () { load( picker.retryAppend ); } );
+				extra.append( field( 'Filter ' + choices[tax], search ) );
+				group.append( node( 'legend', choices[tax] ) );
+				if ( selected.length && ! scoped.length ) { group.append( help( 'Inherited from default' ) ); }
+				group.append( extra, chips, more, next, status, retry ); section.append( group );
+				picker.paint = paint;
+				if ( ! picker.pending && ! picker.loaded && ! picker.error ) { load( false ); } else { paint(); }
 			} );
-			if ( rows.length && state.mode === 'static' ) {
-				var preview = node( 'div' );
-				section.append( button( 'Preview assigned terms', async function () {
-					try {
-						var response = await ( dependencies.request || request )( '/preview', { resource_id: state.resourceId, recipe: state.recipe, seal: state.design.seal, acf_seal: state.customDesign && state.customDesign.seal, term_locale: state.termLocale || '', input: { content: state.content } } );
-						var frame = node( 'iframe' ); frame.title = 'Assigned terms preview'; frame.setAttribute( 'sandbox', '' ); frame.srcdoc = response.preview_document; preview.replaceChildren( frame );
-					} catch ( error ) { preview.textContent = error.message; }
-				} ), preview );
-			}
 			return section;
 		}
 		function seoFieldsEditor( state ) {

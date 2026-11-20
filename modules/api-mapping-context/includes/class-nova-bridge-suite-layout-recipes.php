@@ -309,9 +309,13 @@ final class Nova_Bridge_Suite_Layout_Recipes {
         $resource = self::resource( $body['resource_id'] ?? '' ); if ( is_wp_error( $resource ) ) { return $resource; }
         $taxonomy = $body['taxonomy'] ?? '';
         if ( ! is_string( $taxonomy ) || ! isset( Nova_WordPress_Fixed_Terms::taxonomies( $resource['post_type'] ?? '' )[$taxonomy] ) ) { return self::error( 'taxonomy', 'Choose an available taxonomy.' ); }
-        $terms = get_terms( [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'lang' => '', 'search' => sanitize_text_field( $body['search'] ?? '' ), 'number' => 50 ] );
+        $paged = true === ( $body['paginate'] ?? false );
+        $offset = $body['offset'] ?? 0;
+        if ( ! is_int( $offset ) || $offset < 0 ) { return self::error( 'offset', 'Choose a valid term offset.' ); }
+        $terms = get_terms( [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'lang' => '', 'search' => sanitize_text_field( $body['search'] ?? '' ), 'orderby' => 'name', 'offset' => $offset, 'number' => $paged ? 51 : 50 ] );
         if ( is_wp_error( $terms ) ) { return $terms; }
-        return self::response( array_map( static function ( $term ) { return [ 'label' => $term->name, 'slug' => $term->slug ]; }, $terms ) );
+        $items = array_map( static function ( $term ) { return [ 'label' => $term->name, 'slug' => $term->slug ]; }, array_slice( $terms, 0, 50 ) );
+        return self::response( $paged ? [ 'terms' => $items, 'more' => count( $terms ) > 50 ] : $items );
     }
     /** Expose registrations for selection without reading custom-field values from the example. */
     private static function field_choices( array $design, string $resource, string $mode, int $example ): array {

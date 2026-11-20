@@ -68,7 +68,8 @@
 .nlr-fixed-terms legend { padding-right: .5rem; font-weight: 600; }
 .nlr-fixed-terms .nlr-control { margin-bottom: .4rem; }
 .nlr-fixed-terms .nlr-term-chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-bottom: .75rem; }
-.nlr-fixed-terms .nlr-term-chip { display: inline-flex; align-items: center; gap: .25rem; padding: .15rem .45rem; background: var(--nova-purple-wash,#f0e6fa); border-radius: .5rem; overflow-wrap: anywhere; }
-.nlr .nlr-term-chip button.button { font: inherit; min-height: 0; height: auto; line-height: 1.5; padding: .15rem .25rem; color: inherit; background: transparent; border: 0; box-shadow: none; }
-.nlr .nlr-term-chip button:first-child { text-decoration: underline; text-underline-offset: .15em; }
-.nlr-fixed-terms iframe { display: block; width: 100%; height: 22rem; margin: .75rem 0; border: 1px solid var(--nova-border,#ddd); border-radius: .6rem; }
+.nlr .nlr-term-option { display: inline-flex; max-width: 100%; align-items: stretch; border: 1px solid var(--nova-border,#ccc); border-radius: .6rem; overflow-wrap: anywhere; }
+.nlr .nlr-term-option:has([aria-pressed="true"]) { border-color: var(--nova-purple,#8511d9); background: var(--nova-purple-wash,#f0e6fa); }
+.nlr .nlr-term-option .button { margin: 0; background: transparent; color: inherit; border: 0; border-radius: .55rem; min-height: 32px; padding: .25rem .6rem; white-space: normal; }
+.nlr .nlr-term-option [aria-pressed="true"]::before { content: '✓ '; }
+.nlr .nlr-term-option button + button { padding-inline: .4rem; }
