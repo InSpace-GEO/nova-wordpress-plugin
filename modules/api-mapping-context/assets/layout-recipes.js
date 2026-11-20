@@ -655,9 +655,9 @@
 			var section = node( 'details', undefined, 'nlr-region-list nlr-fixed-terms' ), choices = state.design.term_taxonomies;
 			section.setAttribute( 'data-nlr-view-key', 'fixed-terms' );
 			var rows = state.recipe.fixed_terms || [], locale = state.termLocale || '*';
-			section.append( node( 'summary', 'Categories, tags and other terms' ), node( 'h4', 'Always assign to new posts' ), help( 'WordPress adds every term you select to each new post. Selecting two tags adds both, regardless of the article content. Existing posts keep their terms.' ) );
+			section.append( node( 'summary', 'Categories, tags and other terms' ), node( 'h4', 'Always assign to new posts' ), help( 'Every checked term is added to new posts using this layout. NOVA does not choose terms based on the article.' ) );
 			var locales = new Set( rows.map( function ( row ) { return row.locale; } ) );
-			var catalog = ( state.design.locale_preservation || {} ).catalog || [];
+			var settings = state.design.term_locale_settings || state.design.locale_preservation || {}, catalog = settings.catalog || [];
 			catalog.forEach( function ( entry ) { if ( entry.locale ) { locales.add( entry.locale.toLowerCase().replace( /_/g, '-' ) ); } } );
 			locales.add( locale ); locales.delete( '*' );
 			var main = state.design.term_main_language || '';
@@ -672,18 +672,15 @@
 				try { label = Intl.getCanonicalLocales( value )[0]; } catch ( error ) { /* Keep the stored locale code. */ }
 				options.push( { value: value, label: label } );
 			} );
-			options.push( { value: '+', label: 'Add another locale…' } );
-			var custom = node( 'div' ), code = input( '', function () {} ); custom.hidden = true;
-			var switcher = select( options, locale, function ( value ) {
-				if ( value === '+' ) { switcher.value = locale; custom.hidden = false; code.focus(); return; }
-				state.termLocale = value === '*' ? '' : value; render();
-			} );
-			section.append( field( 'Destination locale', switcher ), help( 'In All locales, choose the main-language term once. Expand +N to see its linked translations. For translated taxonomies, WPML or Polylang uses the linked term in the destination language. If a translation is missing, NOVA skips that term and continues posting. Other taxonomies use the selected term as configured.' ) );
-			custom.append( field( 'New locale code', code, 'For example, de-AT.' ), button( 'Use locale', function () {
-				var next = code.value.trim().toLowerCase().replace( /_/g, '-' );
-				if ( ! /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/.test( next ) ) { code.setCustomValidity( 'Enter a valid locale.' ); code.reportValidity(); code.setCustomValidity( '' ); return; }
-				state.termLocale = usesDefaults( next ) ? '' : next; render();
-			} ) ); section.append( custom );
+			if ( options.length > 1 ) {
+				section.append( field( 'Destination locale', select( options, locale, function ( value ) { state.termLocale = value === '*' ? '' : value; render(); } ) ) );
+			}
+			var providers = { wpml: 'WPML', polylang: 'Polylang', translatepress: 'TranslatePress', weglot: 'Weglot' };
+			if ( [ 'wpml', 'polylang' ].includes( settings.provider ) ) {
+				section.append( help( providers[settings.provider] + ' supplies the linked terms for each language. Open +N to exclude a translation. Missing translations are skipped.' ) );
+			} else if ( [ 'translatepress', 'weglot' ].includes( settings.provider ) ) {
+				section.append( help( providers[settings.provider] + ' translates the same WordPress post. Its categories and tags are shared across languages.' ) );
+			}
 			if ( locale !== '*' ) { section.append( help( 'Selecting a term here replaces the defaults for that taxonomy in this locale. Remove its last local selection to use the defaults again.' ) ); }
 			function update( values ) { controller.edit( function () { if ( values.length ) { state.recipe.fixed_terms = values; } else { delete state.recipe.fixed_terms; } } ); }
 			Object.keys( choices ).forEach( function ( tax ) {
@@ -702,8 +699,9 @@
 						update( rows.concat( selected.filter( function ( row ) { return primary( row.slug ) !== slug; } ).map( function ( row ) { return Object.assign( {}, row, { locale: locale } ); } ) ) );
 					}
 				}
+				var panel = node( 'div', undefined, 'nlr-term-panel' );
 				function paint() {
-					chips.replaceChildren(); var terms = new Map();
+					panel.replaceChildren(); panel.hidden = true; chips.replaceChildren(); var terms = new Map();
 					selected.forEach( function ( row ) { terms.set( primary( row.slug ), picker.families.get( row.slug ) || { slug: row.slug, label: row.slug } ); } );
 					var matches = picker.pages;
 					matches.forEach( function ( term ) {
@@ -720,19 +718,38 @@
 						if ( control.disabled ) { control.title = 'Inherited default. Select another term to replace it for this locale.'; }
 						wrap.append( control );
 						var variants = term.translations || [];
-						if ( variants.length ) {
-							var details = node( 'details', undefined, 'nlr-term-translations' ), summary = node( 'summary', '+' + variants.length );
-							summary.setAttribute( 'aria-label', 'Show translations of ' + label ); details.append( summary );
-							var list = node( 'ul' );
-							variants.forEach( function ( variant ) { list.append( node( 'li', variant.language + ' · ' + variant.label + ' (' + variant.count + ')' ) ); } );
-							details.append( list ); wrap.append( details );
-						}
 						var links = ( state.design.reference_term_links || {} )[tax] || {};
 						var linked = [ term ].concat( variants ).find( function ( entry ) { return links[entry.slug]; } );
-						var link = linked && links[linked.slug];
-						if ( link && active ) {
-							var highlight = button( '◎', function () { sendCanvas( 'highlight-term', { url: link } ); } );
-							highlight.title = 'Highlight ' + label + ' on the reference post'; highlight.setAttribute( 'aria-label', highlight.title ); wrap.append( highlight );
+						function highlight() { sendCanvas( 'highlight-term', { url: links[linked.slug] } ); canvasHost.scrollIntoView( { block: 'nearest' } ); }
+						if ( variants.length && locale === '*' ) {
+							var expand = button( '+' + variants.length, function () {
+								picker.openTerm = picker.openTerm === slug ? '' : slug; paint();
+								chips.querySelector( '[data-term-index="' + index + '"]' )?.focus( { preventScroll: true } );
+							} );
+							var index = chips.children.length;
+							expand.setAttribute( 'data-term-index', String( index ) );
+							expand.setAttribute( 'aria-label', 'Translations of ' + label ); expand.setAttribute( 'aria-expanded', String( picker.openTerm === slug ) ); wrap.append( expand );
+							if ( picker.openTerm === slug ) {
+								panel.hidden = false; panel.append( node( 'strong', label + ' · translations' ) );
+								if ( ! active ) { panel.append( help( 'Select the term to include its translations.' ) ); }
+								variants.forEach( function ( variant ) {
+									var matching = selected.filter( function ( row ) { return primary( row.slug ) === slug; } );
+									var enabled = matching.some( function ( row ) { return ! ( row.excluded_languages || [] ).includes( variant.language ); } );
+									var item = check( variant.language + ' · ' + variant.label + ' (' + variant.count + ')', enabled, function ( include ) {
+										update( rows.map( function ( row ) {
+											if ( ! matching.includes( row ) ) { return row; }
+											var copy = Object.assign( {}, row ), excluded = new Set( row.excluded_languages || [] );
+											if ( include ) { excluded.delete( variant.language ); } else { excluded.add( variant.language ); }
+											if ( excluded.size ) { copy.excluded_languages = Array.from( excluded ).sort(); } else { delete copy.excluded_languages; }
+											return copy;
+										} ) );
+									} );
+									item.querySelector( 'input' ).disabled = ! active; panel.append( item );
+								} );
+								if ( linked ) { panel.append( button( 'Show in preview', highlight ) ); }
+							}
+						} else if ( linked && active ) {
+							var show = button( 'Preview', highlight ); show.setAttribute( 'aria-label', 'Show ' + label + ' in preview' ); wrap.append( show );
 						}
 						chips.append( wrap );
 					} );
@@ -772,7 +789,7 @@
 				extra.append( field( 'Filter ' + choices[tax], search ) );
 				group.append( node( 'legend', choices[tax] ) );
 				if ( selected.length && ! scoped.length ) { group.append( help( 'Inherited from default' ) ); }
-				group.append( extra, chips, more, next, status, retry ); section.append( group );
+				group.append( extra, chips, panel, more, next, status, retry ); section.append( group );
 				picker.paint = paint;
 				if ( ! picker.pending && ! picker.loaded && ! picker.error ) { load( false ); } else { paint(); }
 			} );

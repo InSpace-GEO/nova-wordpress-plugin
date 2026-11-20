@@ -330,6 +330,7 @@ final class Nova_Bridge_Suite_Layout_Recipes {
     private static function field_choices( array $design, string $resource, string $mode, int $example ): array {
         if ( in_array( $mode, [ 'static', 'article' ], true ) && 0 === strpos( $resource, 'post_type:' ) ) { $design['seo_field_choices'] = Nova_WordPress_Layout_SEO::catalog();
             if ( function_exists( 'get_object_taxonomies' ) ) {
+                $design['term_locale_settings'] = Nova_Bridge_Suite_Layout_Locales::term_locale_settings( substr( $resource, 10 ) );
                 $design['term_main_language'] = function_exists( 'pll_default_language' ) ? pll_default_language() : apply_filters( 'wpml_default_language', null );
                 $design['term_taxonomies'] = Nova_WordPress_Fixed_Terms::taxonomies( substr( $resource, 10 ) );
                 $design['reference_term_links'] = Nova_WordPress_Fixed_Terms::reference_links( $example ?: (int) ( $design['source_reference']['reference_id'] ?? 0 ), $design['term_taxonomies'] );

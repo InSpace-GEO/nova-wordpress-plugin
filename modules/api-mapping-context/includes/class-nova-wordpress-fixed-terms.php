@@ -70,10 +70,17 @@ final class Nova_WordPress_Fixed_Terms {
     public static function validate( $rules ): void {
         if ( ! is_array( $rules ) || array_values( $rules ) !== $rules || count( $rules ) > 250 ) { throw new InvalidArgumentException( 'Choose up to 250 fixed terms per layout.' ); }
         foreach ( $rules as $rule ) {
-            if ( ! is_array( $rule ) || count( $rule ) !== 3 || ! is_string( $rule['taxonomy'] ?? null ) || ! preg_match( '/^[a-zA-Z0-9_-]{1,32}$/D', $rule['taxonomy'] )
+            if ( ! is_array( $rule ) || array_diff( array_keys( $rule ), [ 'taxonomy', 'locale', 'slug', 'excluded_languages' ] ) || ! is_string( $rule['taxonomy'] ?? null ) || ! preg_match( '/^[a-zA-Z0-9_-]{1,32}$/D', $rule['taxonomy'] )
                 || ! is_string( $rule['locale'] ?? null ) || ! preg_match( '/^(?:\*|[a-z]{2,3}(?:-[a-z0-9]{2,8})*)$/D', $rule['locale'] )
                 || ! is_string( $rule['slug'] ?? null ) || '' === $rule['slug'] || strlen( $rule['slug'] ) > 200 ) {
                 throw new InvalidArgumentException( 'Choose a registered term and a valid destination locale.' );
+            }
+            if ( array_key_exists( 'excluded_languages', $rule ) ) {
+                $excluded = $rule['excluded_languages'];
+                if ( ! is_array( $excluded ) || array_values( $excluded ) !== $excluded || count( $excluded ) > 250 ) { throw new InvalidArgumentException( 'Choose valid term languages.' ); }
+                foreach ( $excluded as $code ) {
+                    if ( ! is_string( $code ) || ! preg_match( '/^[a-z0-9][a-z0-9_-]{0,31}$/iD', $code ) ) { throw new InvalidArgumentException( 'Choose a valid term language.' ); }
+                }
             }
         }
     }
@@ -88,12 +95,13 @@ final class Nova_WordPress_Fixed_Terms {
         }
         $eligible = self::taxonomies( $type );
         $groups = [];
-        foreach ( $rules as $rule ) { $groups[$rule['taxonomy']][$rule['locale']][] = $rule['slug']; }
+        foreach ( $rules as $rule ) { $groups[$rule['taxonomy']][$rule['locale']][] = $rule; }
         $result = [];
         foreach ( $groups as $taxonomy => $scopes ) {
             if ( ! isset( $eligible[$taxonomy] ) ) { return new WP_Error( 'fixed_taxonomy_unavailable', 'A selected taxonomy is unavailable for this post type or posting user.' ); }
-            $slugs = $all ? array_merge( ...array_values( $scopes ) ) : ( $scopes[$locale] ?? $scopes['*'] ?? [] );
-            foreach ( array_unique( $slugs ) as $slug ) {
+            $selected = $all ? array_merge( ...array_values( $scopes ) ) : ( $scopes[$locale] ?? $scopes['*'] ?? [] );
+            foreach ( $selected as $rule ) {
+                $slug = $rule['slug'];
                 $matches = self::all_language_terms( [ 'taxonomy' => $taxonomy, 'slug' => $slug, 'hide_empty' => false, 'number' => 2, 'lang' => '' ] );
                 if ( is_wp_error( $matches ) ) { return $matches; }
                 if ( count( $matches ) !== 1 || $matches[0]->slug !== $slug ) { return new WP_Error( 'fixed_term_missing', 'A selected slug must identify exactly one term in its taxonomy. Review the saved mapping.' ); }
@@ -103,6 +111,10 @@ final class Nova_WordPress_Fixed_Terms {
                     $code = function_exists( 'pll_default_language' ) ? pll_default_language() : apply_filters( 'wpml_default_language', null );
                 }
                 if ( $code ) {
+                    if ( ! $all && in_array( $code, $rule['excluded_languages'] ?? [], true ) ) {
+                        $result[$taxonomy] = $result[$taxonomy] ?? [];
+                        continue;
+                    }
                     if ( function_exists( 'pll_is_translated_taxonomy' ) && pll_is_translated_taxonomy( $taxonomy ) ) {
                         $id = (int) pll_get_term( $id, $code );
                     } elseif ( apply_filters( 'wpml_is_translated_taxonomy', false, $taxonomy ) ) {

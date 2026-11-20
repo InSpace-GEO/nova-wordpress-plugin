@@ -74,6 +74,7 @@
 .nlr .nlr-term-option [aria-pressed="true"]::before { content: '✓ '; }
 .nlr .nlr-term-option button + button { padding-inline: .4rem; }
 
-.nlr .nlr-term-translations { align-self: center; padding-inline: .35rem; }
-.nlr .nlr-term-translations summary { cursor: pointer; font-size: .875rem; }
-.nlr .nlr-term-translations ul { margin: .35rem 0; padding-inline-start: 1rem; }
+.nlr .nlr-term-panel { clear: both; padding: .65rem .85rem; margin-bottom: .65rem; border-inline-start: 2px solid var(--nova-border,#ddd); }
+.nlr .nlr-term-panel .nlr-check { padding: .3rem 0; align-items: center; }
+.nlr .nlr-term-panel label { overflow-wrap: anywhere; font-weight: normal; }
+.nlr .nlr-term-option { align-self: start; }

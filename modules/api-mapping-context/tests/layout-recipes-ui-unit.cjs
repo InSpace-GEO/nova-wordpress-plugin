@@ -793,13 +793,13 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
  });
  await test('fixed taxonomy picker persists separate default and regional choices', async () => {
   const t = await visualMounted({ request: async (route, payload, design) => {
-   if (route === '/design') return {...design, term_taxonomies: {category: 'Categories'}};
+   if (route === '/design') return {...design, term_taxonomies: {category: 'Categories'}, term_locale_settings:{provider:'polylang',catalog:[{code:'de',locale:'de_AT'}]}};
    if (route === '/term-search') return { terms: [{label:'News',slug:'news'}, {label:'Regional',slug:'regional'}], more:false };
   }});
   t.controller.next(); await t.controller.capture(42);
   const click = label => t.host.all().find(el => el.tag === 'button' && el.ownText === label).events.click();
   await new Promise(resolve=>setImmediate(resolve)); click('News');
-  controlFor(t,'New locale code').value='de-AT'; click('Use locale'); await new Promise(resolve=>setImmediate(resolve));
+  const locale=controlFor(t,'Destination locale'); locale.value='de-at'; locale.events.change(); await new Promise(resolve=>setImmediate(resolve));
   assert(t.host.textContent.includes('Inherited from default'));
   click('Regional');
   assert.deepEqual(t.controller.state.recipe.fixed_terms, [
@@ -809,6 +809,18 @@ async function categoryMounted(settings={}){const current=categoryDesign(),choic
   assert(t.host.all().some(el => el.ownText === 'News' && el.attributes['aria-pressed'] === 'true'));
   const regional = controlFor(t,'Destination locale'); regional.value='de-at'; regional.events.change();
   click('Regional'); assert(t.host.textContent.includes('Inherited from default'));
+ });
+ await test('term instructions follow the active provider and single-locale setups omit the switcher', async () => {
+  for (const [provider, name] of Object.entries({core:'',wpml:'WPML',polylang:'Polylang',translatepress:'TranslatePress',weglot:'Weglot'})) {
+   const t=await visualMounted({request:async(route,payload,design)=>{
+    if(route==='/design')return {...design,term_taxonomies:{category:'Categories'},term_locale_settings:{provider,catalog:[]}};
+    if(route==='/term-search')return {terms:[],more:false};
+   }});
+   t.controller.next(); await t.controller.capture(42);
+   const section=t.host.all().find(el=>el.className.includes('nlr-fixed-terms'));
+   for(const candidate of ['WPML','Polylang','TranslatePress','Weglot']) assert.equal(section.textContent.includes(candidate),candidate===name);
+   assert(!section.textContent.includes('Destination locale')); assert(!section.textContent.includes('Add another locale'));
+  }
  });
  await test('plain and pretty REST routes keep profile and recovery parameters separate',async () => {
   const route='/nova-bridge/v1/mapping/layout-recipes';

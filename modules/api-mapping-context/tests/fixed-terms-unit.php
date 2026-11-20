@@ -39,6 +39,9 @@ check( $resolve( 'de-CH' ) === [ 'post_tag' => [12], 'topicGroup' => [10] ], 'Ot
 check( $resolve( 'fr-FR', 'fr' )['topicGroup'] === [30], 'Native translated taxonomy uses the exact linked term.' );
 check( $resolve( 'it-IT', 'it' ) === [ 'post_tag' => [12], 'topicGroup' => [] ], 'Skip the missing translation and keep the other taxonomy.' );
 check( Nova_WordPress_Fixed_Terms::resolve( $rules, 'post', 'de-AT' )->code === 'fixed_taxonomy_unavailable', 'Reject taxonomies from another post type.' );
+$rules[0]['excluded_languages'] = [ 'fr' ];
+check( Nova_WordPress_Fixed_Terms::resolve( $rules, 'story', 'fr-FR', false, 'fr' ) === [ 'post_tag' => [12], 'topicGroup' => [] ], 'Unchecking one translation skips only that term in its destination language.' );
+check( Nova_WordPress_Fixed_Terms::resolve( $rules, 'story', 'de-AT' )['topicGroup'] === [11], 'A local override still takes precedence over a default exclusion.' );
 $rules[0]['slug'] = 'deleted';
 check( Nova_WordPress_Fixed_Terms::resolve( $rules, 'story', 'en-US' )->code === 'fixed_term_missing', 'Removed terms cannot create new terms.' );
 $family = Nova_WordPress_Fixed_Terms::picker_term( get_term( 41, 'book_topic' ), '' );
