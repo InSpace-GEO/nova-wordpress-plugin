@@ -465,7 +465,9 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $publication = $routing['publication'] ?? 'preserve';
                 if ( ! $static_term && ! $shared_translation ) {
                     $publication = Nova_Bridge_Suite_Publication_Policy::publication( $snapshot, $publication, $target ? (string) get_post_status( $target ) : '' );
-                } elseif ( 'draft' === ( $snapshot['publication_status'] ?? null ) && ( $static_term || ! Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) ) ) {
+                } elseif ( 'draft' === ( $snapshot['publication_status'] ?? null )
+                    && ! ( $static_term && 'taxonomy:product_cat' === ( $configuration['record']['resource_id'] ?? '' ) )
+                    && ( $static_term || ! Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) ) ) {
                     return $this->native_failure( $job, $snapshot, 'publication_policy_unavailable', [ 'no_native_commit' => true ] );
                 }
                 if ( ! in_array( $publication, [ 'preserve', 'publish', 'draft' ], true ) || ( $static_term && 'publish' !== $publication ) ) { return $this->native_failure( $job, $snapshot, 'publication_policy_unavailable', [ 'no_native_commit' => true ] ); }

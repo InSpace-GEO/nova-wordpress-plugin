@@ -161,6 +161,7 @@ function deliver_category( array $snapshot, array $connection, bool $lose_succes
     } finally { remove_filter( 'pre_http_request', [ $server, 'request' ], 1 ); }
 }
 $wire = $snapshot;
+$wire['publication_status'] = 'draft';
 $wire['configuration'] = ensure( Nova_Bridge_Suite_Posting_Protocol::public_configuration( $profile['template'] ) );
 $wire['content'] = $snapshot['destination_values'];
 $worker_update = deliver_category( $wire, $connection );
