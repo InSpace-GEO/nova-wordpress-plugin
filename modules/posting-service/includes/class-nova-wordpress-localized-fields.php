@@ -29,7 +29,7 @@ final class Nova_WordPress_Localized_Fields {
         }
         if ( ! is_singular() ) { return; }
         $trp = class_exists( 'TRP_Translate_Press' );
-        $language = $trp ? (string) ( $GLOBALS['TRP_LANGUAGE'] ?? '' ) : ( new Nova_WordPress_Weglot() )->get_current_code();
+        $language = $trp ? (string) ( $GLOBALS['TRP_LANGUAGE'] ?? '' ) : ( defined( 'GTRANSLATE_VERSION' ) ? new Nova_WordPress_GTranslate() : new Nova_WordPress_Weglot() )->get_current_code();
         $provider = Nova_Bridge_Suite_Translation_Writer::provider( $language );
         if ( ! is_array( $provider ) ) { return; }
         $id = (int) get_queried_object_id();
@@ -95,7 +95,7 @@ final class Nova_WordPress_Localized_Fields {
             add_filter( 'option_elementor_element_cache_ttl', $disable_cache, 99 );
             add_filter( 'default_option_elementor_element_cache_ttl', $disable_cache, 99 );
         }
-        add_filter( $trp ? 'trp_pre_translating_html' : 'weglot_modify_original_content', [ $renderer, 'protect' ], 20 );
+        add_filter( $trp ? 'trp_pre_translating_html' : ( defined( 'GTRANSLATE_VERSION' ) && ! function_exists( 'weglot_get_service' ) ? 'nova_gtranslate_render_html' : 'weglot_modify_original_content' ), [ $renderer, 'protect' ], 20 );
         add_filter( $trp ? 'trp_translated_html' : 'weglot_render_dom', [ $renderer, 'restore_attributes' ], PHP_INT_MAX );
     }
 

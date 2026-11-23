@@ -189,7 +189,7 @@ final class Nova_Bridge_Suite_Translation_Source {
 
     /** Includes an original delivery frozen before URL-family metadata was introduced. */
     public static function is_provider_original( array $content ): bool {
-        return ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) ) &&
+        return ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) || defined( 'GTRANSLATE_VERSION' ) ) &&
             null === Nova_Bridge_Suite_Translation_Writer::provider( $content['language'] ?? '' );
     }
 
@@ -219,7 +219,7 @@ final class Nova_Bridge_Suite_Translation_Source {
     private static function family( array $plan, int $id, bool $link ) {
         $target = $plan['target'];
         $native = in_array( $target['native_language']['provider'] ?? '', [ 'wpml', 'polylang' ], true );
-        $dictionary = class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' );
+        $dictionary = class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) || defined( 'GTRANSLATE_VERSION' );
         if ( ! $native && ( ! $link || ! $dictionary ) ) { return true; }
         $identity = $plan['delivery_identity'];
         $key = self::family_key( $identity );

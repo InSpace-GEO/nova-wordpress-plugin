@@ -7,7 +7,7 @@ final class Nova_WordPress_Taxonomy_Route {
         global $wp_rewrite;
         // Earlier native adapters still perform their own validation when no rewrite API is available.
         if ( ! is_object( $wp_rewrite ) || ! method_exists( $wp_rewrite, 'get_extra_permastruct' ) ) { return $url; }
-        if ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'pll_get_post_language' ) || defined( 'ICL_SITEPRESS_VERSION' ) ) { return $url; }
+        if ( ( defined( 'GTRANSLATE_VERSION' ) && $language && ! Nova_WordPress_GTranslate::matches_source( $language ) ) || class_exists( 'TRP_Translate_Press' ) || function_exists( 'pll_get_post_language' ) || defined( 'ICL_SITEPRESS_VERSION' ) ) { return $url; }
         $catalog = function_exists( 'weglot_get_service' ) ? Nova_WordPress_Weglot::catalog() : [];
         $code = null;
         if ( $catalog && $language ) {

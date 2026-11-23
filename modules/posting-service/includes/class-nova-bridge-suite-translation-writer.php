@@ -5,6 +5,7 @@ require_once __DIR__ . '/class-nova-bridge-suite-publication-policy.php';
 require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
 require_once __DIR__ . '/class-nova-wordpress-weglot.php';
+require_once __DIR__ . '/class-nova-wordpress-gtranslate.php';
 require_once __DIR__ . '/class-nova-wordpress-translatepress.php';
 require_once __DIR__ . '/class-nova-bridge-suite-stored-custom-fields.php';
 
@@ -32,8 +33,9 @@ final class Nova_Bridge_Suite_Translation_Writer {
     private static function selection( string $language, bool $include_languages = false ) {
         $trp = class_exists( 'TRP_Translate_Press' );
         $wg = function_exists( 'weglot_get_service' ) || defined( 'WEGLOT_VERSION' );
-        if ( ! $trp && ! $wg ) { return null; }
-        if ( ( $trp && $wg ) || defined( 'ICL_SITEPRESS_VERSION' ) || function_exists( 'pll_get_post_language' ) ) {
+        $gt = Nova_WordPress_GTranslate::active();
+        if ( ! $trp && ! $wg && ! $gt ) { return null; }
+        if ( ( (int) $trp + (int) $wg + (int) $gt > 1 ) || defined( 'ICL_SITEPRESS_VERSION' ) || function_exists( 'pll_get_post_language' ) ) {
             return self::error( 'provider_conflict', 'Multiple translation plugins claim the delivery language.' );
         }
         if ( $trp ) {
@@ -42,11 +44,11 @@ final class Nova_Bridge_Suite_Translation_Writer {
                 $languages[] = [ 'code' => $code, 'alias' => $settings['url-slugs'][$code] ?? $code ];
             }
         } else {
-            $catalog = Nova_WordPress_Weglot::catalog(); $source = $catalog['source'] ?? ''; $languages = $catalog['languages'] ?? [];
+            $catalog = $gt ? Nova_WordPress_GTranslate::catalog() : Nova_WordPress_Weglot::catalog(); $source = $catalog['source'] ?? ''; $languages = $catalog['languages'] ?? [];
         }
         $code = self::match_language( $language, $languages );
         if ( ! $source || ! $code ) { return self::error( 'language_unknown', 'No single active provider language matches the requested locale.' ); }
-        $context = [ 'provider' => $trp ? 'translatepress' : 'weglot', 'source' => $source, 'language' => $code ];
+        $context = [ 'provider' => $trp ? 'translatepress' : ( $gt ? 'gtranslate' : 'weglot' ), 'source' => $source, 'language' => $code ];
         if ( $include_languages ) { $context['languages'] = array_column( $languages, 'code' ); }
         return $context;
     }
@@ -62,8 +64,13 @@ final class Nova_Bridge_Suite_Translation_Writer {
         return is_array( $a ) && is_array( $b ) && $a['provider'] === $b['provider'] && $a['language'] === $b['language'];
     }
 
+    public static function copy_provider( string $provider ): ?string {
+        return [ 'weglot' => Nova_WordPress_Weglot::class, 'gtranslate' => Nova_WordPress_GTranslate::class ][$provider] ?? null;
+    }
+
     public static function translated_url( array $provider, string $original ) {
-        $url = 'weglot' === $provider['provider'] ? Nova_WordPress_Weglot::url( $original, $provider['language'] )
+        $copy = self::copy_provider( $provider['provider'] );
+        $url = $copy ? $copy::url( $original, $provider['language'] )
             : Nova_WordPress_TranslatePress::url( $original, $provider['language'] );
         if ( ! is_string( $url ) || '' === $url ) { return self::error( 'url', 'The translation provider did not return a localized URL.' ); }
         return Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url );
@@ -155,6 +162,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
         // native plan; the immutable delivery URL remains available in the receipt.
         $url = self::delivery_url( $canonical['identity'], $content['language'] );
         if ( is_wp_error( $url ) ) { return $url; }
+        if ( 'gtranslate' === $context['provider'] && $intended !== $url ) { return self::error( 'url', 'The delivery URL differs from the configured GTranslate URL for this original.' ); }
         $test_target = Nova_Bridge_Suite_Publication_Policy::validate_shared_test_target( $content, $intended, $url );
         if ( is_wp_error( $test_target ) ) { return $test_target; }
         $target = $context + [ 'post_id' => (int) $post->ID, 'post_type' => $type, 'url' => $url ];
@@ -267,11 +275,12 @@ final class Nova_Bridge_Suite_Translation_Writer {
             $rows = $ids ? Nova_WordPress_TranslatePress::evidence( $t['post_id'], $t['language'], $ids ) : self::error( 'readback', 'No TranslatePress entries were witnessed.' );
             return is_wp_error( $rows ) ? $rows : $rows + $proof;
         }
-        $stored = Nova_WordPress_Weglot::get( $t['post_id'], $t['language'] );
+        $copy = self::copy_provider( $t['provider'] );
+        $stored = $copy::get( $t['post_id'], $t['language'] );
         foreach ( $fields as $key => $value ) {
             if ( 'meta' === $key ) {
-                foreach ( $value as $name => $expected ) { if ( ( $stored['meta'][$name] ?? null ) !== $expected ) { return self::error( 'readback', 'A localized Weglot field differs from the saved mapping.' ); } }
-            } elseif ( ( $stored[$key] ?? null ) !== $value ) { return self::error( 'readback', 'The localized Weglot copy differs from the saved mapping.' ); }
+                foreach ( $value as $name => $expected ) { if ( ( $stored['meta'][$name] ?? null ) !== $expected ) { return self::error( 'readback', 'A localized field differs from the saved mapping.' ); } }
+            } elseif ( ( $stored[$key] ?? null ) !== $value ) { return self::error( 'readback', 'The localized copy differs from the saved mapping.' ); }
         }
         return $fields + $proof;
     }
@@ -310,7 +319,7 @@ final class Nova_Bridge_Suite_Translation_Writer {
         global $wpdb;
         if ( empty( $wpdb->posts ) ) { return self::error( 'storage', 'The native publication lock is unavailable.' ); }
         $target = $plan['provider'];
-        $scope = 'translatepress' === $target['provider'] ? $target['provider'] : 'weglot:' . $target['post_id'];
+        $scope = 'translatepress' === $target['provider'] ? $target['provider'] : $target['provider'] . ':' . $target['post_id'];
         $lock = Nova_Bridge_Suite_Native_Lock::name( $wpdb, 'nova-localize:', $wpdb->posts . ':' . $scope, 48 );
         if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $lock ) ) ) { return self::error( 'busy', 'Another native translation is being saved. Retry this delivery shortly.' ); }
         try { return self::apply_locked( $plan, $op ); }
@@ -336,7 +345,8 @@ final class Nova_Bridge_Suite_Translation_Writer {
         $record['mapped_fields'] = array_replace( $record['mapped_fields'] ?? [], $fields['mapped_fields'] ?? [] );
         unset( $fields['mapped_fields'] );
         if ( $fields ) {
-            $result = 'weglot' === $target['provider'] ? Nova_WordPress_Weglot::apply( $target['post_id'], $target['language'], $fields )
+            $copy = self::copy_provider( $target['provider'] );
+            $result = $copy ? $copy::apply( $target['post_id'], $target['language'], $fields )
                 : Nova_WordPress_TranslatePress::save( $target['post_id'], [ 'language' => $target['language'] ] + $fields );
             if ( is_wp_error( $result ) ) { return $result; }
         }

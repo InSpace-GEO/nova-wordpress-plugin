@@ -19,8 +19,8 @@ require_once __DIR__ . '/class-nova-wordpress-owned-output.php';
  */
 class Nova_WordPress_Weglot_Renderer
 {
-    private Nova_WordPress_Weglot $language_service;
-    private Nova_WordPress_Weglot $storage_service;
+    private Nova_WordPress_Weglot|Nova_WordPress_GTranslate $language_service;
+    private Nova_WordPress_Weglot|Nova_WordPress_GTranslate $storage_service;
 
     private ?array $payload = null;
     private int $post_id    = 0;
@@ -30,7 +30,7 @@ class Nova_WordPress_Weglot_Renderer
     /** @var array<int,string> CSS selectors for builder elements whose text this payload changed. */
     private array $builder_notranslate_selectors = [];
 
-    public function __construct(Nova_WordPress_Weglot $language_service, Nova_WordPress_Weglot $storage_service)
+    public function __construct(Nova_WordPress_Weglot|Nova_WordPress_GTranslate $language_service, Nova_WordPress_Weglot|Nova_WordPress_GTranslate $storage_service)
     {
         $this->language_service = $language_service;
         $this->storage_service  = $storage_service;
@@ -752,7 +752,8 @@ class Nova_WordPress_Weglot_Renderer
         // Two independent key spaces: the index deliberately sits outside
         // META_PREFIX so a locale payload can never collide with it. Both clauses
         // are load-bearing.
-        return Nova_WordPress_Weglot::META_INDEX === $meta_key
+        return ( $this->storage_service instanceof Nova_WordPress_GTranslate && str_starts_with( $meta_key, Nova_WordPress_GTranslate::META_PREFIX ) )
+            || Nova_WordPress_Weglot::META_INDEX === $meta_key
             || 0 === strpos($meta_key, Nova_WordPress_Weglot::META_PREFIX);
     }
 

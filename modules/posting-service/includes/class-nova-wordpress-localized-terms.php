@@ -6,7 +6,7 @@ require_once __DIR__ . '/class-nova-bridge-suite-term-translation-writer.php';
 final class Nova_WordPress_Localized_Terms {
     public static function on_request(): void {
         $trp = class_exists( 'TRP_Translate_Press' );
-        $language = $trp ? (string) ( $GLOBALS['TRP_LANGUAGE'] ?? '' ) : ( new Nova_WordPress_Weglot() )->get_current_code();
+        $language = $trp ? (string) ( $GLOBALS['TRP_LANGUAGE'] ?? '' ) : ( defined( 'GTRANSLATE_VERSION' ) ? new Nova_WordPress_GTranslate() : new Nova_WordPress_Weglot() )->get_current_code();
         $provider = Nova_Bridge_Suite_Translation_Writer::provider( $language );
         if ( ! is_array( $provider ) ) { return; }
         $id = (int) get_queried_object_id();
