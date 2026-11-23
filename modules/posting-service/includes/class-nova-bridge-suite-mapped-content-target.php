@@ -113,8 +113,55 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         $pattern = str_replace( array_merge( array_keys( self::POST_DATE_TOKENS ), [ '%postname%' ] ), array_merge( array_values( self::POST_DATE_TOKENS ), [ preg_quote( $slug, '#' ) ] ), $pattern );
         return 1 === preg_match( '#^' . preg_quote( $base, '#' ) . $pattern . '$#D', $native['path'] );
     }
+    /** Expand taxonomy segments against existing terms, inside the writer's native language context. */
+    private static function post_term_route( string $structure, string $home, string $path, array $language ) {
+        global $wp_rewrite;
+        $tokens = [ '%category%' => 'category' ];
+        foreach ( $wp_rewrite->rewritecode ?? [] as $i => $tag ) {
+            if ( in_array( $tag, [ '%tag%', '%post_tag%' ], true ) && 'tag=' === ( $wp_rewrite->queryreplace[$i] ?? '' ) ) {
+                $tokens[$tag] = 'post_tag';
+            }
+        }
+        $pieces = explode( '/', trim( $structure, '/' ) );
+        $patterns = []; $fields = [];
+        foreach ( $pieces as $index => $piece ) {
+            if ( isset( $tokens[$piece] ) ) {
+                $taxonomy = $tokens[$piece];
+                if ( isset( $fields[$taxonomy] ) ) { return self::error( 'create_route', 'A taxonomy occurs twice in the post permalink.' ); }
+                $fields[$taxonomy] = $index;
+                $patterns[] = '(?P<' . $taxonomy . '>' . ( 'category' === $taxonomy ? '[^/]+(?:/[^/]+)*' : '[^/]+' ) . ')';
+            } else {
+                $patterns[] = str_replace( '%postname%', '[^/]+', preg_quote( $piece, '#' ) );
+            }
+        }
+        if ( ! $fields ) { return [ $structure, [] ]; }
+        $base = self::normalize_url( $home ); if ( is_wp_error( $base ) ) { return $base; }
+        $pattern = '#^' . preg_quote( rtrim( $base['path'], '/' ), '#' ) . '/' . implode( '/', $patterns ) . '$#D';
+        if ( ! preg_match( $pattern, $path, $match ) ) { return self::error( 'create_route', 'The planned URL does not match the post taxonomy permalink.' ); }
+        $terms = [];
+        foreach ( $fields as $taxonomy => $index ) {
+            $object = get_taxonomy( $taxonomy );
+            if ( ! $object || ! is_object_in_taxonomy( 'post', $taxonomy ) || ! current_user_can( $object->cap->assign_terms ) ) { return self::error( 'permission', 'The publishing user cannot assign the permalink taxonomy.', 403 ); }
+            $id = 0;
+            foreach ( explode( '/', $match[$taxonomy] ) as $segment ) {
+                $slug = sanitize_title( rawurldecode( $segment ) );
+                $args = [ 'taxonomy' => $taxonomy, 'hide_empty' => false, 'slug' => $slug, 'number' => 2 ];
+                if ( 'category' === $taxonomy ) { $args['parent'] = $id; }
+                if ( ( $language['provider'] ?? '' ) === 'polylang' && function_exists( 'pll_is_translated_taxonomy' ) && pll_is_translated_taxonomy( $taxonomy ) ) { $args['lang'] = $language['code']; }
+                $found = get_terms( $args );
+                if ( ! is_array( $found ) || count( $found ) !== 1 || rawurldecode( $found[0]->slug ) !== rawurldecode( $segment ) ) {
+                    return self::error( 'create_route', 'The permalink must identify one existing term at each level of its taxonomy path.' );
+                }
+                $id = (int) $found[0]->term_id;
+            }
+            $terms[$taxonomy] = $id;
+            $pieces[$index] = $match[$taxonomy];
+        }
+        return [ '/' . implode( '/', $pieces ) . '/', $terms ];
+    }
+
     /** Derive native routing from the site's registered permalink structure only. */
-    public static function creation( string $resource, string $url, ?string $language = null, ?array $provider_context = null, bool $dated_posts = false ) {
+    public static function creation( string $resource, string $url, ?string $language = null, ?array $provider_context = null, bool $dated_posts = false, bool $post_terms = false ) {
         $language_home = $provider_context['home'] ?? null;
         $wanted = self::owned_url( $url, $language_home ); if ( is_wp_error( $wanted ) ) { return $wanted; }
         if ( isset( wp_parse_url( $wanted['identity'] )['query'] ) ) { return self::error( 'create_route', 'Creation requires a native pretty permalink without query parameters.' ); }
@@ -129,6 +176,12 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         // slug URL NOVA delivers, and the dated permalink WordPress gives that post is accepted afterwards.
         $dated = $dated_posts && ! $term && 'post' === $name && null !== self::dated_post_structure();
         if ( $dated ) { $structure = '/%postname%/'; }
+        $route_terms = [];
+        if ( $post_terms && 'post_type:post' === $resource && is_string( $structure ) && preg_match( '/%(category|tag|post_tag)%/', $structure ) ) {
+            $route = self::post_term_route( $structure, $language_home ?? get_option( 'home', home_url( '/' ) ), $wanted['path'], $native_language ?? [] );
+            if ( is_wp_error( $route ) ) { return $route; }
+            [ $structure, $route_terms ] = $route;
+        }
         if ( ! is_string( $structure ) || substr_count( $structure, $token ) !== 1 || preg_match( '/%[a-zA-Z0-9_]+%/', str_replace( $token, '', $structure ) ) ) { return self::error( 'create_route', 'This native permalink structure needs an explicit certified creation adapter.' ); }
         if ( isset( $provider_context['code'] ) && 'wpml' === $provider_context['provider'] && ! in_array( $name, [ 'post', 'page' ], true ) ) {
             $base = trim( (string) ( $object->rewrite['slug'] ?? '' ), '/' );
@@ -154,7 +207,7 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         $occupied = self::resolve( $url, null, null, $language_home ); if ( ! is_wp_error( $occupied ) ) { return self::error( 'target_exists', 'The planned URL already belongs to an existing native item.' ); } if ( 'nova_mapped_target_not_found' !== $occupied->get_error_code() ) { return $occupied; }
         // Dated posts are not found by their undated URL. WordPress would rename a second post with this slug.
         if ( $dated && get_posts( [ 'post_type' => 'post', 'name' => $slug, 'post_status' => [ 'publish', 'future', 'private', 'pending' ], 'posts_per_page' => 1, 'offset' => 0, 'fields' => 'ids', 'suppress_filters' => true ] ) ) { return self::error( 'target_exists', 'A post with this slug already exists.' ); }
-        return [ 'slug' => $slug, 'parent' => $parent, 'target_url' => $wanted['identity'] ] + ( null !== $language ? [ 'language' => $language, 'native_language' => $native_language ] : [] );
+        return [ 'slug' => $slug, 'parent' => $parent, 'target_url' => $wanted['identity'] ] + ( $route_terms ? [ 'route_terms' => $route_terms ] : [] ) + ( null !== $language ? [ 'language' => $language, 'native_language' => $native_language ] : [] );
     }
     private static function routing_resources() {
         if ( ! current_user_can( 'manage_options' ) && ! Nova_Bridge_Suite_Posting_Actor::eligible( get_current_user_id() ) ) { return self::error( 'permission', 'The configured publishing user cannot inspect site URLs.', 403 ); }
