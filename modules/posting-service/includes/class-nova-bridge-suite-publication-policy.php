@@ -20,12 +20,12 @@ final class Nova_Bridge_Suite_Publication_Policy {
     }
 
     public static function allows_shared_test( $provider ): bool {
-        return is_array( $provider ) && 'weglot' === ( $provider['provider'] ?? '' );
+        return is_array( $provider ) && in_array( $provider['provider'] ?? '', [ 'weglot', 'gtranslate' ], true );
     }
 
     public static function validate_shared_test_target( array $content, string $intended, string $resolved ) {
         if ( self::test_url( $content['url'] ?? null ) && $intended !== $resolved ) {
-            return new WP_Error( 'nova_translation_test_url', 'A Weglot test requires an exact match with the resolved demo URL.', [ 'status' => 409 ] );
+            return new WP_Error( 'nova_translation_test_url', 'A shared-language test requires an exact match with the resolved demo URL.', [ 'status' => 409 ] );
         }
         return true;
     }

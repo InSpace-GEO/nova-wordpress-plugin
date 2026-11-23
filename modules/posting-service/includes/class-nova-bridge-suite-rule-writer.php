@@ -7,6 +7,7 @@ require_once __DIR__ . '/class-nova-bridge-suite-native-lock.php';
 require_once __DIR__ . '/class-nova-wordpress-environment.php';
 require_once __DIR__ . '/class-nova-bridge-suite-posting-url-scope.php';
 
+require_once __DIR__ . '/class-nova-wordpress-gtranslate.php';
 final class Nova_Bridge_Suite_Rule_Writer_Failure extends RuntimeException {
     public $reason;
     public function __construct( string $reason, string $message ) { $this->reason = $reason; parent::__construct( $message ); }
@@ -87,7 +88,7 @@ final class Nova_Bridge_Suite_Rule_Writer {
     }
     private static function routing( array $content, array $profile ): array {
         $language = $content['language'] ?? '';
-        if ( ! is_string( $language ) || '' === $language || strtolower( explode( '-', str_replace( '_', '-', $language ) )[0] ) !== strtolower( explode( '-', str_replace( '_', '-', get_locale() ) )[0] ) ) { self::fail( 'locale', 'The delivery language does not match this WordPress site. Local rules do not choose a multilingual destination automatically.' ); }
+        if ( ! is_string( $language ) || '' === $language || ( Nova_WordPress_GTranslate::active() ? ! Nova_WordPress_GTranslate::matches_source( $language ) : strtolower( explode( '-', str_replace( '_', '-', $language ) )[0] ) !== strtolower( explode( '-', str_replace( '_', '-', get_locale() ) )[0] ) ) ) { self::fail( 'locale', 'The delivery language does not match this WordPress site. Local rules do not choose a multilingual destination automatically.' ); }
         if ( ! is_string( $content['url'] ?? null ) || ! in_array( $profile['post_type'], [ 'page', 'post' ], true ) ) { self::fail( 'url', 'The initial delivery route supports canonical WordPress pages and posts with a simple slug permalink.' ); }
         $content['url'] = Nova_Bridge_Suite_Posting_Url_Scope::canonical_site_url( $content['url'], $language );
         $identity = self::origin_path( $content['url'] ); $home = self::origin_path( home_url( '/' ) );

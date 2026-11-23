@@ -2,7 +2,10 @@
 /** Per-language copy on the original post, using the Bridge 2.8 storage and render format. */
 defined( 'ABSPATH' ) || exit;
 
+require_once __DIR__ . '/class-nova-wordpress-localized-post-storage.php';
+
 final class Nova_WordPress_Weglot {
+    use Nova_WordPress_Localized_Post_Storage;
     public const META_INDEX = '_nova_weglot_languages';
     public const META_PREFIX = '_nova_weglot_i18n_';
 
@@ -53,25 +56,4 @@ final class Nova_WordPress_Weglot {
     }
 
     public function structured_meta_keys(): array { return [ '_elementor_data' ]; }
-
-    public static function get( int $id, string $code ): ?array {
-        $stored = get_post_meta( $id, self::key( $code ), true );
-        return is_array( $stored ) ? $stored : null;
-    }
-
-    private static function key( string $code ): string {
-        return self::META_PREFIX . str_replace( '-', '_', strtolower( $code ) );
-    }
-
-    public static function apply( int $id, string $code, array $fields ) {
-        $current = self::get( $id, $code ) ?? [];
-        $patch = $fields;
-        if ( isset( $patch['meta'] ) ) { $patch['meta'] = array_replace( $current['meta'] ?? [], $patch['meta'] ); }
-        $updated = array_replace( $current, $patch, [ 'language' => $code, 'source_post_id' => $id ] );
-        update_post_meta( $id, self::key( $code ), wp_slash( $updated ) );
-        if ( self::get( $id, $code ) !== $updated ) {
-            return new WP_Error( 'nova_translation_readback', 'WordPress did not retain the Weglot translation.' );
-        }
-        return true;
-    }
 }

@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.10.1
+Stable tag: 1.11.0
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,10 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.11.0 =
+* Use the GTranslate original language when publishing to a WordPress site whose administrative locale differs.
+* Publish supplied localized copy at the verified original's hosted language subdirectory. Supported mappings include Core, Gutenberg, Elementor, scalar custom fields, and WooCommerce categories and product tags. GTranslate can translate the original when NOVA supplies no localization.
 
 = 1.10.1 =
 * New posts can use an existing category from the requested permalink, including nested categories. Registered tag permalinks are also supported. The writer checks fixed term assignments and verifies the WordPress URL before publication.

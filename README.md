@@ -158,6 +158,12 @@ Open a pull request into `main` and describe how you verified the change. To run
 
 The plugin derives from NOVA Bridge Suite commit `7e124d48d914b805a31bee340eb6f7fe338d61cc`. Retained wire names and option keys preserve saved mappings.
 
+## GTranslate publishing
+
+NOVA publishes original content in the language configured as the original in GTranslate. This also applies to the free language widget. Sites with hosted language subdirectories can receive a separate localized delivery for a published original. The delivery's locale and URL must match an enabled language directory and the original's path. Separate localized writes require hosted subdirectory routing. Subdomains, custom domains, and translated slugs with different paths fall outside this release.
+
+Localized deliveries use the existing shared-source writers for fixed Core, Gutenberg and Elementor layouts, supported scalar custom fields, and mapped WooCommerce category and product-tag content. NOVA stores localized fields on the original object. GTranslate can translate the source automatically for languages without supplied copy.
+
 ## Manual releases
 
 Keep public release notes and PR descriptions product-focused. Use synthetic examples in committed tests and exclude client identities, private notes and source exports.

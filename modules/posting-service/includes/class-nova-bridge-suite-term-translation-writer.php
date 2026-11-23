@@ -72,6 +72,7 @@ final class Nova_Bridge_Suite_Term_Translation_Writer {
         if ( is_wp_error( $localized ) ) { return $localized; }
         $url = Nova_Bridge_Suite_Translation_Writer::delivery_url( $localized['identity'], $content['language'] );
         if ( is_wp_error( $url ) ) { return $url; }
+        if ( 'gtranslate' === $provider['provider'] && $intended !== $url ) { return self::error( 'url', 'The delivery URL differs from the configured GTranslate URL for this original.' ); }
         $test_target = Nova_Bridge_Suite_Publication_Policy::validate_shared_test_target( $content, $intended, $url );
         if ( is_wp_error( $test_target ) ) { return $test_target; }
         return $provider + [ 'taxonomy' => $taxonomy, 'term_id' => $id, 'source_url' => $source_url, 'url' => $url ];
