@@ -222,16 +222,16 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         return is_wp_error( $verified ) ? $verified : $target;
     }
 
-    public static function creation( string $resource, string $url, string $language ) {
+    public static function creation( string $resource, string $url, string $language, bool $post_terms = false ) {
         if ( self::provider() === 'core' ) {
             $default = self::native_default();
-            return is_wp_error( $default ) ? $default : Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $default, null, true );
+            return is_wp_error( $default ) ? $default : Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $default, null, true, $post_terms );
         }
         if ( ! preg_match( '/^post_type:([a-z0-9_-]{1,20})$/D', $resource, $match ) ) { return self::error( 'Choose a registered native post destination.' ); }
         $context = self::context( $language, $match[1], $url );
         if ( is_wp_error( $context ) ) { return $context; }
-        $target = self::in_language( $context, static function () use ( $context, $resource, $url, $language ) {
-            return Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $language, $context, true );
+        $target = self::in_language( $context, static function () use ( $context, $resource, $url, $language, $post_terms ) {
+            return Nova_Bridge_Suite_Mapped_Content_Target::creation( $resource, $url, $language, $context, true, $post_terms );
         } );
         if ( ! is_wp_error( $target ) && $target['parent'] && self::post_language( $target['parent'], $context ) !== $context['code'] ) { return self::error( 'The native parent belongs to another language.' ); }
         return $target;

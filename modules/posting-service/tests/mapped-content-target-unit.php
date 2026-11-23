@@ -10,13 +10,16 @@ function sanitize_title($v){return trim(preg_replace('/[^a-z0-9]+/','-',strtolow
 $permalink_reads=0; $links=[1=>'https://site.example/sub/parent/shared/',2=>'https://site.example/sub/other/shared/',3=>'https://site.example/sub/parent/',4=>'https://site.example/sub/en/parent/shared/'];$term_links=[10=>'https://site.example/sub/product-category/floor/',11=>'https://site.example/sub/product-category/floor/wood/'];
 function url_to_postid($url){return $GLOBALS['rewrite_match'] ?? 0;}
 function get_posts($args){$ids=($args['post_type']==='page')?array_keys($GLOBALS['links']):[];return array_slice($ids,$args['offset'], $args['posts_per_page']);}
-function get_terms($args){$ids=array_keys($GLOBALS['term_links']); if (!empty($GLOBALS['wpml']) && empty($args['wpml_skip_filters'])) { $ids=array_filter($ids,static fn($id)=>$id!==11); } return array_slice($ids,$args['offset'],$args['number']);}
+function get_terms($args){
+    if ( isset( $args['slug'] ) ) { return $GLOBALS['route_terms'][$args['taxonomy']][$args['parent'] ?? 0][$args['slug']] ?? []; }
+    $ids=array_keys($GLOBALS['term_links']); if (!empty($GLOBALS['wpml']) && empty($args['wpml_skip_filters'])) { $ids=array_filter($ids,static fn($id)=>$id!==11); } return array_slice($ids,$args['offset'],$args['number']);}
 function get_permalink($id){++$GLOBALS['permalink_reads'];return $GLOBALS['links'][$id]??'';} function get_term_link($id,$taxonomy=''){if(is_object($id)){$id=$id->term_id;}return $GLOBALS['term_links'][$id]??'';}
 class WP_Term { static function get_instance($id,$taxonomy){return get_term($id,$taxonomy);} }
 function get_term($id,$taxonomy=''){return (object)['term_id'=>$id,'term_taxonomy_id'=>$id+100];}
-function get_taxonomy($name){return $name==='product_cat' ? (object)['rewrite'=>['hierarchical'=>true]] : null;}
+function is_object_in_taxonomy($type,$taxonomy){return $type==='post' && in_array($taxonomy,['category','post_tag'],true);}
+function get_taxonomy($name){if(is_object_in_taxonomy('post',$name)){return (object)['cap'=>(object)['assign_terms'=>'assign_terms']];}return $name==='product_cat' ? (object)['rewrite'=>['hierarchical'=>true]] : null;}
 function get_post_type_object($name){return in_array($name,['page','post'],true)?(object)['hierarchical'=>$name==='page']:null;}
-class Rewrite {public $structures=[];function get_extra_permastruct($name){return $this->structures[$name] ?? '/product-category/%product_cat%/';}function get_page_permastruct(){return '/%pagename%/';}} $wp_rewrite=new Rewrite();
+class Rewrite {public $structures=[], $rewritecode=[], $queryreplace=[];function get_extra_permastruct($name){return $this->structures[$name] ?? '/product-category/%product_cat%/';}function get_page_permastruct(){return '/%pagename%/';}} $wp_rewrite=new Rewrite();
 class Nova_Bridge_Suite_Document_Mapping {static function resources(){return [['id'=>'post_type:page','type'=>'post_type','post_type'=>'page','availability'=>'available','can_inspect_existing'=>true],['id'=>'taxonomy:product_cat','type'=>'taxonomy','taxonomy'=>'product_cat','availability'=>'available','can_inspect_existing'=>true]];}}
 function apply_filters($name,$v,...$args){
  if($name==='wpml_current_language'){return $GLOBALS['native_language']??'nl';}
@@ -93,6 +96,19 @@ bad( Target::creation( 'post_type:post', 'https://www.site.example/dated-article
 $options['permalink_structure'] = '/%category%/%postname%/';
 check( null === Target::dated_post_structure(), 'Only post-date tags qualify as a dated structure.' );
 bad( Target::creation( 'post_type:post', 'https://www.site.example/dated-article/', 'nl-NL', null, true ), 'create_route' );
+$route_terms['category'][0]['nieuws'] = [ (object) [ 'term_id' => 50, 'slug' => 'nieuws' ] ];
+$route_terms['category'][50]['lokaal'] = [ (object) [ 'term_id' => 51, 'slug' => 'lokaal' ] ];
+$route_terms['post_tag'][0]['redactie'] = [ (object) [ 'term_id' => 52, 'slug' => 'redactie' ] ];
+$route = static fn( $path ) => Nova_Bridge_Suite_Stored_Layout_Language::creation( 'post_type:post', 'https://www.site.example/' . $path, 'nl-NL', true );
+check( good( $route( 'nieuws/story/' ), 'Category from URL.' )['route_terms'] === [ 'category' => 50 ], 'Plan assigns the existing category.' );
+check( good( $route( 'nieuws/lokaal/story/' ), 'Category hierarchy.' )['route_terms'] === [ 'category' => 51 ], 'Assign the leaf, with its actual ancestor path.' );
+bad( $route( 'lokaal/story/' ), 'create_route' );
+$options['permalink_structure'] = '/%tag%/%postname%/';
+bad( $route( 'redactie/story/' ), 'create_route' );
+$wp_rewrite->rewritecode = [ '%tag%' ]; $wp_rewrite->queryreplace = [ 'tag=' ];
+check( good( $route( 'redactie/story/' ), 'Registered tag route.' )['route_terms'] === [ 'post_tag' => 52 ], 'Only the tag taxonomy is assigned.' );
+$options['permalink_structure'] = '/%category%/%postname%/';
+$denied = [ 'assign_terms:' ]; bad( $route( 'nieuws/story/' ), 'permission' ); $denied = [];
 // Large inventories never turn unrelated objects into URL candidates.
 $options['home'] = 'https://site.example/sub';
 $links = []; $term_links = [];

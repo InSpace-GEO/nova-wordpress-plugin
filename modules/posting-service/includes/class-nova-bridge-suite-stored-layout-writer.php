@@ -152,7 +152,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         return [ 'post_id' => $id, 'target' => self::checked( Nova_Bridge_Suite_Stored_Layout_Language::existing( $resource, $id, $url, $content['language'] ) ), 'association' => null ];
     }
     private static function creation_target( string $type, string $url, string $language, ?array $association ): array {
-        $target = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( 'post_type:' . $type, $url, $language ) );
+        $target = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( 'post_type:' . $type, $url, $language, true ) );
         self::assert_unreserved( $type, $target );
         return [ 'post_id' => 0, 'target' => $target, 'association' => $association ];
     }
@@ -257,6 +257,14 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             $plan = [ 'format' => self::FORMAT, 'operation_id' => $operation, 'context' => $context, 'site_id' => $content['site_id'], 'template_id' => $configuration['template']['id'], 'template_revision' => $configuration['template']['revision'], 'profile_digest' => $configuration['profile_digest'], 'layout_digest' => $compiled['layout_digest'], 'post_type' => $type, 'payload' => $payload, 'post_fields' => $post_fields, 'target' => $target, 'target_post_id' => $target_id, 'desired_status' => $status, 'provider' => $provider, 'native_before' => $before, 'association_before' => $association, 'delivery_identity' => array_intersect_key( $content, array_flip( [ 'site_id', 'url_id', 'content_item_id', 'content_item_version_id', 'version_number', 'source_sha256', 'language', 'url_family' ] ) ) ];
             if ( ! $target_id && ! empty( $local['fixed_terms'] ) ) {
                 $plan['fixed_terms'] = self::checked( Nova_WordPress_Fixed_Terms::resolve( $local['fixed_terms'], $type, $content['language'] ?? '', false, in_array( $target['native_language']['provider'] ?? '', [ 'wpml', 'polylang' ], true ) ? $target['native_language']['code'] : '' ) );
+            }
+            if ( ! $target_id ) {
+                foreach ( $target['route_terms'] ?? [] as $taxonomy => $term_id ) {
+                    if ( isset( $plan['fixed_terms'][$taxonomy] ) && ! in_array( $term_id, $plan['fixed_terms'][$taxonomy], true ) ) {
+                        self::fail( 'permalink', 'The fixed term selection conflicts with the delivery permalink.' );
+                    }
+                    $plan['fixed_terms'][$taxonomy] ??= [ $term_id ];
+                }
             }
             if ( $target_id && ! empty( $local['fixed_terms'] ) ) {
                 $plan['preserve_term_taxonomies'] = array_values( array_unique( array_column( $local['fixed_terms'], 'taxonomy' ) ) );
@@ -432,7 +440,8 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                         }
                         self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, 0 ) );
                         self::assert_unreserved( $plan['post_type'], $plan['target'] );
-                        self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( 'post_type:' . $plan['post_type'], $plan['target']['target_url'], $plan['delivery_identity']['language'] ) );
+                        $fresh = self::checked( Nova_Bridge_Suite_Stored_Layout_Language::creation( 'post_type:' . $plan['post_type'], $plan['target']['target_url'], $plan['delivery_identity']['language'], true ) );
+                        if ( ( $fresh['route_terms'] ?? [] ) !== ( $plan['target']['route_terms'] ?? [] ) ) { self::fail( 'permalink', 'The permalink term changed after planning.' ); }
                         self::checkpoint( self::association_key( $plan['delivery_identity'] ), $plan['delivery_identity'] + [ 'state' => 'pending', 'operation_id' => $operation, 'post_id' => 0 ] );
                         $record['state'] = 'creating'; self::checkpoint( $key, $record ); $marker = self::reservation_marker( $plan );
                         $protect = static function ( $data, $postarr, $raw ) use ( $marker ) { if ( ( $raw['post_content_filtered'] ?? null ) === $marker ) { $data['post_content_filtered'] = $marker; } return $data; };
