@@ -2,6 +2,7 @@
 /** Local exact URL ownership and editorial object resolution; never fetches a URL. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-posting-actor.php';
+require_once __DIR__ . '/class-nova-wordpress-gtranslate.php';
 final class Nova_Bridge_Suite_Mapped_Content_Target {
     private const BATCH = 250;
     private static function error( string $code, string $message, int $status = 422 ): WP_Error { return new WP_Error( 'nova_mapped_' . $code, $message, [ 'status' => $status, 'error_code' => $code ] ); }
@@ -66,8 +67,8 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
             if ( ! is_string( $code ) || '' === $code || ! in_array( $requested, [ strtolower( $code ), strtolower( str_replace( '_', '-', (string) $locale ) ) ], true ) ) { return self::error( 'create_language_unsupported', 'Only the verified native default language can be created by this adapter. No item was inserted.' ); }
             return [ 'provider' => 'wpml', 'code' => $code ];
         }
-        $locale = function_exists( 'get_locale' ) ? strtolower( str_replace( '_', '-', get_locale() ) ) : '';
-        return in_array( $requested, [ $locale, explode( '-', $locale )[0] ], true ) ? [ 'provider' => 'core', 'code' => $locale ] : self::error( 'create_language_unsupported', 'This site cannot create content in the requested language.' );
+        $locale = Nova_WordPress_GTranslate::active() ? Nova_WordPress_GTranslate::source() : ( function_exists( 'get_locale' ) ? strtolower( str_replace( '_', '-', get_locale() ) ) : '' );
+        return ( Nova_WordPress_GTranslate::active() ? Nova_WordPress_GTranslate::matches_source( $requested ) : in_array( $requested, [ $locale, explode( '-', $locale )[0] ], true ) ) ? [ 'provider' => 'core', 'code' => $locale ] : self::error( 'create_language_unsupported', 'This site cannot create content in the requested language.' );
     }
     /** Request-local native language context; no persistent settings are changed. */
     public static function with_creation_language( array $target, callable $work ) {
@@ -342,8 +343,8 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
             $translatedDetails = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $translatedElement, 'element_type' => $type ] ); $actualCode = is_object( $translatedDetails ) ? ( $translatedDetails->language_code ?? '' ) : ( $translatedDetails['language_code'] ?? '' );
             if ( $translated < 1 || $actualCode !== $code || (int) apply_filters( 'wpml_object_id', $translated, $name, false, $source ) !== $id ) { return self::error( 'target_translation_missing', 'No verified native translation exists for this URL and language.', 409 ); }
         } else {
-            $locale = function_exists( 'get_locale' ) ? strtolower( str_replace( '_', '-', get_locale() ) ) : '';
-            if ( $requested !== $locale && $requested !== explode( '-', $locale )[0] ) { return self::error( 'target_language_unsupported', 'This site cannot verify a separate native item for the requested language.', 409 ); }
+            $locale = Nova_WordPress_GTranslate::active() ? Nova_WordPress_GTranslate::source() : ( function_exists( 'get_locale' ) ? strtolower( str_replace( '_', '-', get_locale() ) ) : '' );
+            if ( Nova_WordPress_GTranslate::active() ? ! Nova_WordPress_GTranslate::matches_source( $requested ) : ( $requested !== $locale && $requested !== explode( '-', $locale )[0] ) ) { return self::error( 'target_language_unsupported', 'This site cannot verify a separate native item for the requested language.', 409 ); }
             return $target + [ 'language' => $language ];
         }
         if ( ! current_user_can( $term ? 'edit_term' : 'edit_post', $translated ) ) { return self::error( 'target_permission', 'The configured actor cannot edit the translated item.', 403 ); }

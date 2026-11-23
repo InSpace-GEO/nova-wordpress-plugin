@@ -11,7 +11,8 @@ Nova_Bridge_Suite_WPML_Support::bootstrap();
 add_action( 'plugins_loaded', static function () {
     $trp = class_exists( 'TRP_Translate_Press' );
     $weglot_active = function_exists( 'weglot_get_service' );
-    if ( $trp || $weglot_active ) {
+    $gt = defined( 'GTRANSLATE_VERSION' ) && class_exists( 'GTranslate', false ) && ! $trp && ! $weglot_active && ! defined( 'ICL_SITEPRESS_VERSION' ) && ! function_exists( 'pll_get_post_language' );
+    if ( $gt || $trp || $weglot_active ) {
         require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-bridge-suite-translation-writer.php';
         require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-wordpress-localized-fields.php';
         add_action( 'wp', [ 'Nova_WordPress_Localized_Fields', 'on_request' ] );
@@ -20,9 +21,10 @@ add_action( 'plugins_loaded', static function () {
         require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-wordpress-translatepress-renderer.php';
         add_action( 'wp', [ 'Nova_WordPress_TranslatePress_Renderer', 'on_request' ] );
     }
-    if ( ! $weglot_active ) { return; }
+    if ( ! $weglot_active && ! $gt ) { return; }
     require_once NOVA_BRIDGE_SUITE_PLUGIN_DIR . 'modules/posting-service/includes/class-nova-wordpress-weglot-renderer.php';
-    $weglot = new Nova_WordPress_Weglot();
+    if ( $gt ) { add_action( 'template_redirect', [ Nova_WordPress_GTranslate::class, 'render' ], 0 ); }
+    $weglot = $gt ? new Nova_WordPress_GTranslate() : new Nova_WordPress_Weglot();
     ( new Nova_WordPress_Weglot_Renderer( $weglot, $weglot ) )->hooks();
 }, 20 );
 

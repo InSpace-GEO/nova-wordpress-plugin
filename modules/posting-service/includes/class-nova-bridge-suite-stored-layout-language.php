@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
 require_once __DIR__ . '/class-nova-bridge-suite-draft-slug.php';
+require_once __DIR__ . '/class-nova-wordpress-gtranslate.php';
 final class Nova_Bridge_Suite_Stored_Layout_Language {
     private static function error( string $message ): WP_Error {
         return new WP_Error( 'nova_stored_layout_language', $message, [ 'status' => 409 ] );
@@ -23,6 +24,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
     private static function native_default() {
         if ( self::provider() === 'polylang' ) { return pll_default_language( 'slug' ); }
         if ( self::provider() === 'wpml' ) { return apply_filters( 'wpml_default_language', null ); }
+        if ( Nova_WordPress_GTranslate::active() ) { return Nova_WordPress_GTranslate::source(); }
         $locale = get_option( 'WPLANG', null );
         if ( null === $locale ) { $locale = function_exists( 'get_locale' ) ? get_locale() : 'en_US'; }
         return is_string( $locale ) ? str_replace( '_', '-', '' === $locale ? 'en_US' : $locale ) : self::error( 'The native WordPress locale is unavailable.' );
@@ -118,7 +120,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
     /** Compare configured language slots, including native code/locale aliases. */
     public static function same_language_slot( string $first, string $second ): bool {
         if ( 'core' === self::provider() ) {
-            if ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) ) {
+            if ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) || defined( 'GTRANSLATE_VERSION' ) ) {
                 return Nova_Bridge_Suite_Translation_Writer::same_language_slot( $first, $second );
             }
             return self::locale( $first ) === self::locale( $second );
@@ -173,7 +175,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
     public static function delivery_url( $url, string $language ) {
         // The native original uses WordPress storage, but its public URL belongs to the provider's
         // source language. WordPress's interface locale may be completely different.
-        if ( 'core' === self::provider() && ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) ) ) {
+        if ( 'core' === self::provider() && ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) || defined( 'GTRANSLATE_VERSION' ) ) ) {
             return Nova_Bridge_Suite_Translation_Writer::delivery_url( $url, $language );
         }
         if ( ! is_string( $url ) || '' === $url || 0 === strpos( $url, '//' ) || in_array( $url[0], [ '?', '#' ], true ) ) { return self::error( 'The delivery URL is invalid.' ); }

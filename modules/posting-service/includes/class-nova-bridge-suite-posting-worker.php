@@ -9,6 +9,7 @@ require_once __DIR__ . '/class-nova-bridge-suite-translation-source.php';
 require_once __DIR__ . '/class-nova-bridge-suite-term-translation-writer.php';
 require_once __DIR__ . '/class-nova-wordpress-weglot-source-writer.php';
 
+require_once __DIR__ . '/class-nova-wordpress-gtranslate.php';
 final class Nova_Bridge_Suite_Posting_Worker {
     private const WRITERS = [
         'static_recipe_v1' => 'Nova_Bridge_Suite_Static_Term_Writer',
@@ -385,6 +386,13 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $payload = $job['payload']; unset( $payload['attempt_resume_phase'] );
                 $job = $this->jobs->save( $job, [ 'payload' => $payload, 'phase' => $phase ] );
                 if ( is_wp_error( $job ) ) { return $job; }
+            }
+            if ( $this->default_dispatch && in_array( $job['phase'], [ 'received', 'planned', 'applying' ], true ) ) {
+                $language_check = Nova_WordPress_GTranslate::check_delivery( $snapshot, $job['phase'], $job['payload']['native_writer'] ?? '' );
+                if ( is_wp_error( $language_check ) ) {
+                    if ( 'applying' === $job['phase'] ) { return $this->block( $job, $language_check->get_error_code() ); }
+                    return $this->native_failure( $job, $snapshot, $language_check->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $language_check->get_error_message() );
+                }
             }
             $actor_eligible = Nova_Bridge_Suite_Posting_Actor::eligible( $actor );
             if ( ! $actor_eligible && 'committed' !== $job['phase'] ) {

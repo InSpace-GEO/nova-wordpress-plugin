@@ -18,11 +18,12 @@ final class Nova_WordPress_Translation_Fields {
                 if ( isset( $sources[$binding['source_field']] ) ) { $values[$binding['field_id']] = $sources[$binding['source_field']]; }
             }
         }
-        $compiled = Nova_Bridge_Suite_Stored_Layout::compile( Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $local ), $values, $content['site_id'] . ':' . $content['url_id'], '', 'weglot' === $target['provider'] );
+        $copy = Nova_Bridge_Suite_Translation_Writer::copy_provider( $target['provider'] );
+        $compiled = Nova_Bridge_Suite_Stored_Layout::compile( Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $local ), $values, $content['site_id'] . ':' . $content['url_id'], '', null !== $copy );
         if ( is_wp_error( $compiled ) ) { return $compiled; }
         $payload = $compiled['writer_payload']; $builder = $compiled['builder']; $fields = [];
         if ( ! empty( $payload['nova_media'] ) ) {
-            if ( 'weglot' !== $target['provider'] || ! in_array( $builder, [ 'core', 'gutenberg', 'elementor' ], true ) ) { return self::unsupported( 'localized media' ); }
+            if ( null === $copy || ! in_array( $builder, [ 'core', 'gutenberg', 'elementor' ], true ) ) { return self::unsupported( 'localized media' ); }
             require_once __DIR__ . '/class-nova-bridge-suite-native-media.php';
             $valid = Nova_Bridge_Suite_Native_Media::validate( $builder, $payload );
             if ( is_wp_error( $valid ) ) { return $valid; }
@@ -51,7 +52,7 @@ final class Nova_WordPress_Translation_Fields {
         // A source-shared provider only needs the native document when it has a writable document slot.
         // Retained styling and protected slots belong to the original in every language.
         if ( $bindings && ! $document ) { return $fields ?: self::unsupported( 'empty translation' ); }
-        if ( 'elementor' === $builder && 'weglot' === $target['provider'] ) {
+        if ( 'elementor' === $builder && null !== $copy ) {
             $document = wp_json_encode( $payload['elementor_data'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
             if ( false === $document ) { return self::unsupported( 'Elementor document' ); }
             $fields['meta'] = [ '_elementor_data' => $document ];
@@ -61,8 +62,8 @@ final class Nova_WordPress_Translation_Fields {
             // Render the approved block document to the actual HTML the translation provider serves.
             $fields['content'] = wp_kses_post( do_blocks( $payload['native_document'] ) );
         } else { return self::unsupported( $builder ); }
-        if ( 'weglot' === $target['provider'] ) {
-            $previous = Nova_WordPress_Weglot::get( $target['post_id'], $target['language'] ) ?? [];
+        if ( null !== $copy ) {
+            $previous = $copy::get( $target['post_id'], $target['language'] ) ?? [];
             $ownership = [ 'format' => 'nova.owned-output/v1', 'elements' => [] ];
             if ( is_array( $compiled['ownership_ranges'] ?? null ) && isset( $fields['content'] ) ) {
                 $ownership['content'] = [ 'hash' => hash( 'sha256', $fields['content'] ), 'ranges' => $compiled['ownership_ranges'] ];
@@ -220,6 +221,7 @@ final class Nova_WordPress_Translation_Fields {
     }
 
     private static function owned( array $local, array $values, array $target ) {
+        $copy = Nova_Bridge_Suite_Translation_Writer::copy_provider( $target['provider'] );
         $fields = []; $meta = []; $seo = [];
         $registered = get_registered_meta_keys( 'post', $target['post_type'] );
         foreach ( $values as $id => $value ) {
@@ -240,8 +242,8 @@ final class Nova_WordPress_Translation_Fields {
             elseif ( ! isset( $m[3] ) && 'blog_key_takeaways' === $m[1] ) { $meta[$m[1]][(int) $m[2]] = $safe; }
             else { return self::unsupported( $path ); }
         }
-        if ( $meta ) { $fields['weglot' === $target['provider'] ? 'meta' : 'custom_fields'] = $meta; }
-        if ( $seo && 'weglot' === $target['provider'] ) {
+        if ( $meta ) { $fields[null !== $copy ? 'meta' : 'custom_fields'] = $meta; }
+        if ( $seo && null !== $copy ) {
             $fields['meta'] = array_merge( $fields['meta'] ?? [], Nova_Bridge_Suite_Owned_CPT_SEO::plan( $seo['title'] ?? null, $seo['description'] ?? null ) );
         } else { foreach ( $seo as $key => $value ) { $fields['seo_' . $key] = $value; } }
         return $fields ?: self::unsupported( 'empty translation' );
