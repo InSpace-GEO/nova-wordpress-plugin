@@ -856,7 +856,7 @@ final class Nova_Bridge_Suite_Recipe_Native_Adapter {
             } elseif ( 'core/html' !== $parent['blockName'] ) {
                 $inline = self::inline_value( (string) $value, 'core/heading' === $parent['blockName'] );
                 if ( is_wp_error( $inline ) ) {
-                    $rich_body = ! empty( $binding['paragraph_body'] ) || preg_match( '/^nova_role_rich_text_[a-f0-9]{16}$/D', $binding['id'] ?? '' );
+                    $rich_body = ! empty( $binding['paragraph_body'] ) || preg_match( '/^nova_role_(?:rich_text|intro)_[a-f0-9]{16}$/D', $binding['id'] ?? '' );
                     if ( ! $rich_body || 'core/paragraph' !== $parent['blockName'] || 'html' !== $binding['format'] ) { return $inline; }
                     require_once dirname( __DIR__ ) . '/adapters/gutenberg-article.php';
                     $body = Nova_Mapping_Gutenberg_Article::paragraph_body( $parent, (string) $value );

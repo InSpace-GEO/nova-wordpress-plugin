@@ -90,4 +90,13 @@ recipe_assert( 'core/group' === $body['blockName'] && [ 'core/group', 'core/para
 recipe_assert( [ 'core/paragraph', 'core/heading', 'core/list' ] === array_column( $body['innerBlocks'][0]['innerBlocks'], 'blockName' ), 'Section content remains editable as individual blocks' );
 recipe_assert( $blocks[2] === $native['document'][2], 'The protected following form survives expansion' );
 $recipe['bindings'][3]['id'] = 'nova_role_intro_1234567890abcdef';
-recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, $values, 'inline-intro' ) ), 'An introduction still obeys the inline paragraph constraint' );
+$values['value_3'] = '<p>One <strong>introduction</strong>.</p>';
+$intro = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, $values, 'single-intro' ), 'Compile a single introduction paragraph' );
+$paragraph = parse_blocks( $intro['writer_payload']['native_document'] )[1]['innerBlocks'][3];
+recipe_assert( 'core/paragraph' === $paragraph['blockName'] && $paragraph['innerHTML'] === $values['value_3'], 'Keep a single introduction paragraph and its inline markup' );
+$values['value_3'] = '<p>First <em>paragraph</em>.</p><p>Second paragraph.</p>';
+$intro = recipe_ok( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, $values, 'expanded-intro' ), 'Expand a multi-paragraph introduction' );
+$output = parse_blocks( $intro['writer_payload']['native_document'] );
+recipe_assert( array_column( $output[1]['innerBlocks'][3]['innerBlocks'], 'innerHTML' ) === [ '<p>First <em>paragraph</em>.</p>', '<p>Second paragraph.</p>' ], 'Preserve the supplied introduction paragraphs and inline formatting' );
+$recipe['bindings'][3]['id'] = 'nova_role_custom_1234567890abcdef';
+recipe_assert( is_wp_error( Nova_Bridge_Suite_Recipe_Engine::compile( $recipe, $values, 'inline-custom' ) ), 'Unrelated paragraph roles retain the inline constraint' );

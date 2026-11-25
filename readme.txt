@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.11.2
+Stable tag: 1.11.3
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.11.3 =
+* Gutenberg paragraphs mapped as Introduction now accept multiple paragraphs and preserve inline formatting. Existing saved Introduction mappings work without re-saving the layout.
 
 = 1.11.2 =
 * Single-site installations with an HTTP Site Address can publish relative delivery paths when WordPress reports the same host and installation path over HTTPS.
