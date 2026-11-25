@@ -130,4 +130,13 @@ $homes = ['en'=>'https://example.test/shop/', 'de'=>'https://example.test/shop/d
 $prefix = good( Language::delivery_url( 'de/article/', 'de-DE' ) );
 wpml_check( $prefix === 'https://example.test/shop/de/article/', 'Keep explicit locale prefix on a subdirectory installation exactly once' );
 wpml_check( is_wp_error( Language::delivery_url( '/shop/de/article/', 'en-US' ) ), 'Default language cannot claim another language directory' );
+$active['nl'] = [ 'default_locale' => 'nl_NL' ];
+$homes['nl'] = 'https://example.test/shop/nl/';
+$belgian = good( Language::creation( 'post_type:post', $homes['nl'] . 'story/', 'nl-BE' ) );
+wpml_check( $belgian['native_language']['code'] === 'nl' && $belgian['language'] === 'nl-BE', 'Keep the delivery locale while selecting the only Dutch slot' );
+wpml_check( is_wp_error( Language::delivery_url( '/shop/de/story/', 'nl-BE' ) ), 'Fallback cannot claim another language directory' );
+$active['nl-be'] = [ 'default_locale' => 'nl_BE' ];
+$homes['nl-be'] = 'https://example.test/shop/be/';
+wpml_check( good( Language::language_home( 'nl_BE' ) ) === rtrim( $homes['nl-be'], '/' ), 'Exact Belgian locale wins over base Dutch' );
+wpml_check( is_wp_error( Language::language_home( 'nl-SR' ) ), 'Multiple Dutch slots block a regional fallback' );
 echo "Stored-layout WPML checks: $checks passed.\n";
