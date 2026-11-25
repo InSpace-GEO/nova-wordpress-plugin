@@ -3,6 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
+require_once __DIR__ . '/class-nova-wordpress-native-language.php';
 require_once __DIR__ . '/class-nova-bridge-suite-draft-slug.php';
 require_once __DIR__ . '/class-nova-wordpress-gtranslate.php';
 final class Nova_Bridge_Suite_Stored_Layout_Language {
@@ -69,19 +70,17 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         $provider = self::provider();
         $records = self::languages( $provider );
         if ( is_wp_error( $records ) ) { return $records; }
-        $requested = self::locale( $language );
-        $matches = [];
+        $contexts = [];
         $homes = [];
         foreach ( $records as $record ) {
             $home = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $record['home'] );
             if ( is_wp_error( $home ) || null !== parse_url( $record['home'], PHP_URL_QUERY ) || ! is_string( $record['code'] ) || ! is_string( $record['locale'] ) ) { return self::error( 'This language setup requires verified pretty-permalink homes.' ); }
             $homes[] = [ 'url' => $home, 'code' => $record['code'] ];
-            if ( '' !== $requested && in_array( $requested, [ self::locale( $record['code'] ), self::locale( $record['locale'] ) ], true ) ) {
-                $matches[] = [ 'provider' => $provider, 'code' => $record['code'], 'locale' => $record['locale'], 'home' => $home['identity'], 'post_type' => $type, 'routing_version' => 2 ];
-            }
+            $contexts[$record['code']] = [ 'provider' => $provider, 'code' => $record['code'], 'locale' => $record['locale'], 'home' => $home['identity'], 'post_type' => $type, 'routing_version' => 2 ];
         }
-        if ( count( $matches ) !== 1 ) { return self::error( 'The requested delivery language does not match exactly one configured language.' ); }
-        $context = $matches[0];
+        $native_code = Nova_WordPress_Native_Language::code( $language, $records );
+        if ( null === $native_code ) { return self::error( 'The requested delivery language does not match exactly one configured language.' ); }
+        $context = $contexts[$native_code];
         if ( $type !== '' ) {
             if ( 'polylang' === $provider && ( ! function_exists( 'pll_is_translated_post_type' ) || ! pll_is_translated_post_type( $type ) ) ) { return self::error( 'Polylang does not translate the mapped post type.' ); }
             if ( 'wpml' === $provider && false === apply_filters( 'wpml_is_translated_post_type', null, $type ) ) { return self::error( 'WPML does not translate the mapped post type.' ); }
@@ -126,7 +125,11 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
             return self::locale( $first ) === self::locale( $second );
         }
         $a = self::context( $first ); $b = self::context( $second );
-        return is_array( $a ) && is_array( $b ) && $a['code'] === $b['code'];
+        if ( ! is_array( $a ) || ! is_array( $b ) || $a['code'] !== $b['code'] ) { return false; }
+        // Routing two deliveries to one native slot does not make their regional identities interchangeable.
+        $aliases = [ self::locale( $a['code'] ), self::locale( $a['locale'] ) ];
+        return self::locale( $first ) === self::locale( $second ) ||
+            ( in_array( self::locale( $first ), $aliases, true ) && in_array( self::locale( $second ), $aliases, true ) );
     }
 
     /** A site's registered permastruct can be shared when its native languages use the same path and CPT base. */

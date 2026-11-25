@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-posting-actor.php';
 require_once __DIR__ . '/class-nova-wordpress-gtranslate.php';
 require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
+require_once __DIR__ . '/class-nova-wordpress-native-language.php';
 final class Nova_Bridge_Suite_Mapped_Content_Target {
     private const BATCH = 250;
     private static function error( string $code, string $message, int $status = 422 ): WP_Error { return new WP_Error( 'nova_mapped_' . $code, $message, [ 'status' => $status, 'error_code' => $code ] ); }
@@ -334,14 +335,20 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         $term = 'term' === $target['reference_type']; $name = substr( $target['resource_id'], strpos( $target['resource_id'], ':' ) + 1 ); $id = $target['reference_id'];
         if ( function_exists( 'pll_get_post_language' ) && function_exists( 'pll_get_term_language' ) ) {
             $source = $term ? pll_get_term_language( $id, 'slug' ) : pll_get_post_language( $id, 'slug' ); $codes = (array) pll_languages_list( [ 'fields' => 'slug' ] ); $locales = (array) pll_languages_list( [ 'fields' => 'locale' ] ); $code = null;
-            foreach ( $codes as $index => $candidate ) { if ( in_array( $requested, [ strtolower( (string) $candidate ), strtolower( str_replace( '_', '-', (string) ( $locales[$index] ?? '' ) ) ) ], true ) ) { $code = (string) $candidate; } }
+            $records = [];
+            foreach ( $codes as $index => $candidate ) { $records[] = [ 'code' => (string) $candidate, 'locale' => (string) ( $locales[$index] ?? '' ) ]; }
+            $code = Nova_WordPress_Native_Language::code( $requested, $records );
             if ( ! is_string( $source ) || '' === $source || null === $code ) { return self::error( 'target_language_unavailable', 'The requested language cannot be verified by the installed multilingual provider.', 409 ); }
             $translated = $source === $code ? $id : (int) ( $term ? pll_get_term( $id, $code ) : pll_get_post( $id, $code ) );
             if ( $translated < 1 || ( $term ? pll_get_term_language( $translated, 'slug' ) : pll_get_post_language( $translated, 'slug' ) ) !== $code || (int) ( $term ? pll_get_term( $translated, $source ) : pll_get_post( $translated, $source ) ) !== $id ) { return self::error( 'target_translation_missing', 'No verified native translation exists for this URL and language.', 409 ); }
         } elseif ( function_exists( 'has_filter' ) && ( has_filter( 'wpml_element_language_details' ) || defined( 'ICL_SITEPRESS_VERSION' ) ) ) {
             $element = $term ? WP_Term::get_instance( $id, $name ) : null; $elementId = $term ? (int) ( $element->term_taxonomy_id ?? 0 ) : $id; $type = ( $term ? 'tax_' : 'post_' ) . $name;
             $details = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $elementId, 'element_type' => $type ] ); $source = is_object( $details ) ? ( $details->language_code ?? '' ) : ( $details['language_code'] ?? '' ); $code = null;
-            foreach ( (array) apply_filters( 'wpml_active_languages', null, [ 'skip_missing' => 0 ] ) as $candidate => $data ) { if ( in_array( $requested, [ strtolower( (string) $candidate ), strtolower( str_replace( '_', '-', (string) ( $data['default_locale'] ?? '' ) ) ) ], true ) ) { $code = (string) $candidate; } }
+            $records = [];
+            foreach ( (array) apply_filters( 'wpml_active_languages', null, [ 'skip_missing' => 0 ] ) as $candidate => $data ) {
+                $records[] = [ 'code' => (string) ( $data['language_code'] ?? $data['code'] ?? $candidate ), 'locale' => (string) ( $data['default_locale'] ?? '' ) ];
+            }
+            $code = Nova_WordPress_Native_Language::code( $requested, $records );
             if ( ! is_string( $source ) || '' === $source || null === $code ) { return self::error( 'target_language_unavailable', 'The requested language cannot be verified by the installed multilingual provider.', 409 ); }
             $translated = $source === $code ? $id : (int) apply_filters( 'wpml_object_id', $id, $name, false, $code );
             $translatedObject = $term && $translated ? WP_Term::get_instance( $translated, $name ) : null; $translatedElement = $term ? (int) ( $translatedObject->term_taxonomy_id ?? 0 ) : $translated;
