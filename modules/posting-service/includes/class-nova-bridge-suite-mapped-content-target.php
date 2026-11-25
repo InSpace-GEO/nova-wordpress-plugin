@@ -3,6 +3,7 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 require_once __DIR__ . '/class-nova-bridge-suite-posting-actor.php';
 require_once __DIR__ . '/class-nova-wordpress-gtranslate.php';
+require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
 final class Nova_Bridge_Suite_Mapped_Content_Target {
     private const BATCH = 250;
     private static function error( string $code, string $message, int $status = 422 ): WP_Error { return new WP_Error( 'nova_mapped_' . $code, $message, [ 'status' => $status, 'error_code' => $code ] ); }
@@ -27,11 +28,15 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         sort( $query, SORT_STRING ); $identity = $origin . $path . ( $query ? '?' . implode( '&', $query ) : '' );
         return [ 'origin' => $origin, 'path' => $path, 'identity' => $identity ];
     }
+    private static function site_home() {
+        return Nova_WordPress_Delivery_Host::routing_home( get_option( 'home', home_url( '/' ) ) );
+    }
+
     private static function owned_url( $url, ?string $language_home = null ) {
         $target = self::normalize_url( $url ); if ( is_wp_error( $target ) ) { return $target; }
         // The stored home option avoids a request-language filter narrowing a shared
         // installation to just its current language's subdirectory.
-        $home = $language_home ?? get_option( 'home', home_url( '/' ) ); $site = self::normalize_url( is_string( $home ) && '' !== $home ? $home : home_url( '/' ) );
+        $home = $language_home ?? self::site_home(); $site = self::normalize_url( is_string( $home ) && '' !== $home ? $home : home_url( '/' ) );
         if ( is_wp_error( $site ) || $target['origin'] !== $site['origin'] || ( '/' !== $site['path'] && $target['path'] !== $site['path'] && 0 !== strpos( $target['path'], $site['path'] . '/' ) ) ) { return self::error( 'foreign_target_url', 'This URL does not belong to the connected WordPress site.', 403 ); }
         return $target;
     }
@@ -105,7 +110,7 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
     public static function same_native_url( string $actual, string $wanted, string $resource ): bool {
         if ( $actual === $wanted ) { return true; }
         if ( 'post_type:post' !== $resource || null === ( $structure = self::dated_post_structure() ) ) { return false; }
-        $native = self::normalize_url( $actual ); $delivery = self::normalize_url( $wanted ); $home = self::normalize_url( get_option( 'home', home_url( '/' ) ) );
+        $native = self::normalize_url( $actual ); $delivery = self::normalize_url( $wanted ); $home = self::normalize_url( self::site_home() );
         if ( is_wp_error( $native ) || is_wp_error( $delivery ) || is_wp_error( $home ) || $native['origin'] !== $delivery['origin'] || isset( wp_parse_url( $wanted )['query'] ) || isset( wp_parse_url( $actual )['query'] ) ) { return false; }
         $base = '/' === $home['path'] ? '' : $home['path'];
         if ( 0 !== strpos( $delivery['path'], $base . '/' ) ) { return false; }
@@ -179,7 +184,7 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         if ( $dated ) { $structure = '/%postname%/'; }
         $route_terms = [];
         if ( $post_terms && 'post_type:post' === $resource && is_string( $structure ) && preg_match( '/%(category|tag|post_tag)%/', $structure ) ) {
-            $route = self::post_term_route( $structure, $language_home ?? get_option( 'home', home_url( '/' ) ), $wanted['path'], $native_language ?? [] );
+            $route = self::post_term_route( $structure, $language_home ?? self::site_home(), $wanted['path'], $native_language ?? [] );
             if ( is_wp_error( $route ) ) { return $route; }
             [ $structure, $route_terms ] = $route;
         }
@@ -194,7 +199,7 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
                 $structure = substr( $path, 0, -strlen( $suffix ) ) . '/' . trim( $localized, '/' ) . '/' . $token;
             }
         }
-        $route_home = $language_home ?? get_option( 'home', home_url( '/' ) );
+        $route_home = $language_home ?? self::site_home();
         if ( null === $language_home && ( $native_language['provider'] ?? '' ) === 'wpml' ) { $route_home = apply_filters( 'wpml_permalink', rtrim( $route_home, '/' ) . '/', $native_language['code'], true ); }
         if ( ! is_string( $route_home ) ) { return self::error( 'create_route', 'The native default-language home URL is unavailable.' ); }
         $marker = 'nova-mapped-route-slot'; $route = self::owned_url( rtrim( $route_home, '/' ) . '/' . ltrim( str_replace( $token, $marker, $structure ), '/' ), $language_home ); if ( is_wp_error( $route ) ) { return $route; }

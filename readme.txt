@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.11.1
+Stable tag: 1.11.2
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.11.2 =
+* Single-site installations with an HTTP Site Address can publish relative delivery paths when WordPress reports the same host and installation path over HTTPS.
 
 = 1.11.1 =
 * Deliveries mapped to WooCommerce product categories publish the category even when the delivery requests a draft. This includes test deliveries and updates to existing categories.
