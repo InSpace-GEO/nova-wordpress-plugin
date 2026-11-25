@@ -32,7 +32,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
 
     private static function site_home(): string {
         $home = get_option( 'home', '' );
-        return is_string( $home ) && '' !== $home ? $home : home_url( '/' );
+        return is_string( $home ) && '' !== $home ? Nova_WordPress_Delivery_Host::routing_home( $home ) : home_url( '/' );
     }
 
     /** These homes come exclusively from the active plugin. A delivery cannot authorize its own domain. */

@@ -3,7 +3,9 @@
 define('ABSPATH', __DIR__); $checks=0; $denied=[]; $options=['home'=>'https://site.example/sub','permalink_structure'=>'/blog/%postname%/'];
 class WP_Error {private $code;private $message;private $data;function __construct($code,$message,$data=[]){$this->code=$code;$this->message=$message;$this->data=$data;} function get_error_code(){return $this->code;} function get_error_message(){return $this->message;} function get_error_data(){return $this->data;} }
 function is_wp_error($v){return $v instanceof WP_Error;} function current_user_can($cap,...$args){return !in_array($cap.':'.implode(':',$args),$GLOBALS['denied'],true);}
-function wp_parse_url($v){return parse_url($v);} function get_option($key,$default=false){return $GLOBALS['options'][$key] ?? $default;} function home_url($path='/'){return 'https://site.example/sub'. $path;} function get_locale(){return 'nl_NL';}
+function wp_parse_url($v){return parse_url($v);} function get_option($key,$default=false){return $GLOBALS['options'][$key] ?? $default;} function home_url($path='/'){return ($GLOBALS['effective_home'] ?? 'https://site.example/sub') . $path;} function get_locale(){return 'nl_NL';}
+function is_multisite() { return $GLOBALS['network_site'] ?? false; }
+function trailingslashit( $path ) { return rtrim( $path, '/\\' ) . '/'; }
 function has_filter($name){return in_array($name, $GLOBALS['permalink_filters'] ?? [], true) || (!empty($GLOBALS['wpml']) && $name==='wpml_element_language_details');}
 function do_action($name,...$args){if($name==='wpml_switch_language'){$GLOBALS['native_language']=$args[0];}}
 function sanitize_title($v){return trim(preg_replace('/[^a-z0-9]+/','-',strtolower($v)),'-');}
@@ -55,6 +57,20 @@ class Target_Candidate_DB {
     }
 }
 $wpdb = new Target_Candidate_DB();
+$options['home'] = 'http://site.example/sub';
+$local = 'https://site.example/sub/parent/';
+good( Target::resolve( $local, 'post_type:page' ), 'HTTP setting and effective HTTPS subdirectory resolve the existing native page.' );
+good( Target::creation( 'post_type:page', 'https://site.example/sub/new-page' ), 'Creation uses the same effective installation root.' );
+bad( Target::resolve( 'https://site.example/outside' ), 'foreign_target_url' );
+bad( Target::resolve( 'http://site.example/sub/parent/' ), 'target_url' );
+foreach ( [ 'http://site.example/sub', 'https://other.example/sub', 'https://site.example/sub/en', 'https://site.example:8443/sub' ] as $effective_home ) {
+    bad( Target::resolve( $local ), 'foreign_target_url' );
+}
+unset( $effective_home );
+$network_site = true;
+bad( Target::resolve( $local ), 'foreign_target_url' );
+$network_site = false;
+$options['home'] = 'https://site.example/sub';
 $a=good(Target::normalize_url('https://SITE.example:443/sub/%C3%A9/?b=two+words&a=%21'),'Normalize canonical URL.');check($a['identity']==='https://site.example/sub/%C3%A9?a=%21&b=two%20words','Stable service-compatible path/query canonicalization.');
 foreach(['https://x.example/a%2fb','https://x.example/a//b','https://x.example/%2e%2e/x','https://u:p@x.example/a','https://x.example/a#x','http://x.example/a','https://x.example/a?a=1&a=2'] as $url){bad(Target::normalize_url($url),'target_url');}
 $item=good(Target::resolve('https://SITE.example:443/sub/parent/shared'),'Resolve exact hierarchy.');check($item['reference_id']===1 && $item['requested_url']==='https://site.example/sub/parent/shared','Parent hierarchy keeps similarly named sibling distinct.');

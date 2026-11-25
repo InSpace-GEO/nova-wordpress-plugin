@@ -3,6 +3,18 @@
 defined( 'ABSPATH' ) || exit;
 
 final class Nova_WordPress_Delivery_Host {
+    /** Use WordPress's effective HTTPS scheme only for the same configured single-site root. */
+    public static function routing_home( $home ) {
+        if ( ! is_string( $home ) || 0 !== stripos( $home, 'http://' ) || is_multisite() ) { return $home; }
+        $parts = wp_parse_url( $home );
+        if ( ! is_array( $parts ) || empty( $parts['host'] ) || array_diff( array_keys( $parts ), [ 'scheme', 'host', 'path' ] ) ) { return $home; }
+
+        // Compare the entire root. A filtered home for another domain or language directory cannot authorize a write.
+        $https = 'https://' . substr( $home, 7 );
+        $effective = home_url( '/' );
+        return is_string( $effective ) && trailingslashit( $https ) === $effective ? $https : $home;
+    }
+
     public static function canonicalize( $url, $home, array $other_homes = [] ) {
         if ( ! is_string( $url ) || ! is_string( $home ) ) { return $url; }
         // Match the entire authority. Leave credentials, malformed URLs and relative paths to the normal validator.
