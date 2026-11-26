@@ -404,6 +404,26 @@ foreach ( [ 'crash_insert', 'crash_save', 'crash_publish', 'partial' ] as $inter
     $new = ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( planned( 2, '502' ), op( 2 ) ) );
     check( $new['post_id'] === 10 && $inserts === 1 && $posts[10]->post_title === "New creator's café 😀 502", 'A newer version takes over the same page after ' . $interruption );
 }
+foreach ( [ 'trash', 'delete' ] as $removal ) {
+    reset_native(); [ $demo, $config ] = fixture();
+    $demo['url'] = '/lorem-ipsum-demo-informative/';
+    $writer = Nova_Bridge_Suite_Stored_Layout_Writer::class;
+    $old = ok( $writer::plan( $demo, $config, [ 'operation_id' => op( 1 ) ] ) );
+    $crash_save = true;
+    check( is_wp_error( $writer::apply( $old, op( 1 ) ) ), 'Demo save interrupted.' );
+    if ( 'trash' === $removal ) {
+        $posts[10]->post_status = 'trash';
+        $posts[10]->post_name .= '__trashed';
+    } else { unset( $posts[10] ); }
+    $evidence = ok( $writer::supersede( $old, op( 1 ) ) );
+    check( $evidence === [ 'state' => 'retired', 'post_id' => 10, 'demo_removed' => true ] && ok( $writer::supersede( $old, op( 1 ) ) ) === $evidence, 'Repeatable retirement after ' . $removal );
+    check( is_wp_error( $writer::plan( $demo, $config, [ 'operation_id' => op( 2 ) ] ) ), 'Equal demo version cannot replace itself.' );
+    $demo['content_item_version_id'] = '502';
+    $fresh = ok( $writer::plan( $demo, $config, [ 'operation_id' => op( 2 ) ] ) );
+    $result = ok( $writer::apply( $fresh, op( 2 ) ) );
+    ok( $writer::verify( $fresh, $result ) );
+    check( 10 !== $result['post_id'] && 2 === $inserts, 'One new Elementor demo after ' . $removal );
+}
 reset_native(); $old = planned(); $crash_insert = true; Nova_Bridge_Suite_Stored_Layout_Writer::apply( $old, op( 1 ) ); unset( $posts[10] );
 check( is_wp_error( Nova_Bridge_Suite_Stored_Layout_Writer::supersede( $old, op( 1 ) ) ) && $inserts === 1, 'A lost reservation with no uniquely identifiable native page is not blindly recreated.' );
 reset_native(); $old = planned(); ok( Nova_Bridge_Suite_Stored_Layout_Writer::apply( $old, op( 1 ) ) ); $meta[10]['_elementor_page_settings']['background_color'] = '#human';

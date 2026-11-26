@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.11.4
+Stable tag: 1.11.5
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.11.5 =
+* Send a newer stored-layout test delivery after trashing or deleting the page created by an unfinished delivery.
 
 = 1.11.4 =
 * WPML and Polylang can publish a regional delivery under its base language when the site has a single language slot for that language. Exact configured locales take precedence.

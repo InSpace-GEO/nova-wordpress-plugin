@@ -116,6 +116,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             if ( self::deleted_demo( $association, $url ) ) {
                 return self::creation_target( $type, $url, $content['language'], $association );
             }
+            if ( ! empty( $association['demo_removed'] ) ) { self::fail( 'target_changed', 'The removed demo is no longer eligible for replacement.' ); }
             $wanted = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url ) );
             $target = $association['target'];
             if ( $wanted['identity'] !== $target['target_url'] ) {
@@ -558,20 +559,34 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 $record = self::option( self::operation_key( $operation ) );
                 if ( ! $record ) { return self::recover( $plan, $operation ); }
                 if ( ( $record['plan_digest'] ?? '' ) !== $plan['plan_digest'] ) { self::fail( 'operation_reused', 'The retired operation belongs to another plan.' ); }
-                if ( 'committed' === $record['state'] ) { self::verify_record( $plan, $record ); }
                 $id = (int) ( $record['post_id'] ?: self::reserved_post( $plan ) );
                 if ( ! $id ) {
                     if ( 'creating' === $record['state'] ) { self::fail( 'create_unknown', 'An uncertain creation has no unique reservation.' ); }
                     return [ 'state' => 'not_committed', 'no_native_commit' => true ];
                 }
+                $current = self::association( $plan['delivery_identity'], ! empty( $plan['compact_beaver_scope'] ) );
+                if ( $current !== $plan['association_before'] && ( $current['operation_id'] ?? '' ) !== $operation ) { self::fail( 'association_changed', 'Another operation owns the URL.' ); }
+                $association = $plan['delivery_identity'] + [ 'state' => 'retired', 'post_id' => $id, 'target' => $plan['target'], 'template_id' => $plan['template_id'], 'operation_id' => $operation, 'creation_operation' => self::owner( $plan )['creation_operation'] ];
+                // Only a checkpointed post ID proves which demo disappeared. An uncertain insert still needs reconciliation.
+                if ( ! empty( $record['post_id'] ) && self::deleted_demo( $association, $plan['target']['target_url'] ) ) {
+                    $post = get_post( $id );
+                    $owner = $post ? get_post_meta( $id, self::OWNER, true ) : '';
+                    if ( $post && ( $post->post_type !== $plan['post_type'] || ! current_user_can( 'edit_post', $id ) ||
+                        ( '' !== $owner && $owner !== self::owner( $plan ) ) ||
+                        ( ! $plan['target_post_id'] && $post->post_content_filtered !== self::reservation_marker( $plan ) ) ) ) {
+                        self::fail( 'ownership', 'The trashed demo does not match the retained operation.' );
+                    }
+                    $association['demo_removed'] = true;
+                    self::checkpoint( self::association_key( $plan['delivery_identity'] ), $association );
+                    return [ 'state' => 'retired', 'post_id' => $id, 'demo_removed' => true ];
+                }
+                if ( 'committed' === $record['state'] ) { self::verify_record( $plan, $record ); }
                 $state = self::plan_state( $plan, $id );
                 if ( ! current_user_can( 'edit_post', $id ) || $state['type'] !== $plan['post_type'] ||
                     ( ! $plan['target_post_id'] && $state['reservation'] !== self::reservation_marker( $plan ) ) ||
                     ( $state['owner'] !== '' && $state['owner'] !== self::owner( $plan ) ) ) { self::fail( 'ownership', 'The retired page identity cannot be reconciled.' ); }
                 self::check_url( $plan, $id );
-                $current = self::association( $plan['delivery_identity'], ! empty( $plan['compact_beaver_scope'] ) );
-                if ( $current !== $plan['association_before'] && ( $current['operation_id'] ?? '' ) !== $operation ) { self::fail( 'association_changed', 'Another operation owns the URL.' ); }
-                $association = $plan['delivery_identity'] + [ 'state' => 'retired', 'post_id' => $id, 'target' => $plan['target'], 'template_id' => $plan['template_id'], 'native_digest' => self::digest( $state ), 'operation_id' => $operation, 'creation_operation' => self::owner( $plan )['creation_operation'] ];
+                $association['native_digest'] = self::digest( $state );
                 foreach ( [ 'theme_presentation', 'elementor_document_settings' ] as $key ) { if ( isset( $plan['payload'][$key] ) ) { $association[$key] = $plan['payload'][$key]; } }
                 self::retain_provider_scope( $association, $plan );
                 self::checkpoint( self::association_key( $plan['delivery_identity'] ), $association );
