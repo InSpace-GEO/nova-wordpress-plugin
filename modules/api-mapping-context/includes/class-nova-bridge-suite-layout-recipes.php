@@ -511,7 +511,10 @@ final class Nova_Bridge_Suite_Layout_Recipes {
             $summary = '<aside aria-label="Assigned terms">';
             foreach ( $terms as $taxonomy => $ids ) {
                 $summary .= '<p>' . esc_html( get_taxonomy( $taxonomy )->labels->name ) . ' ';
-                foreach ( $ids as $id ) { $summary .= '<mark>' . esc_html( get_term( $id, $taxonomy )->name ) . '</mark> '; }
+                foreach ( $ids as $id ) {
+                    $term = apply_filters( 'wpml_is_translated_taxonomy', false, $taxonomy ) ? WP_Term::get_instance( $id, $taxonomy ) : get_term( $id, $taxonomy );
+                    if ( $term && ! is_wp_error( $term ) ) { $summary .= '<mark>' . esc_html( $term->name ) . '</mark> '; }
+                }
                 $summary .= '</p>';
             }
             $html = str_replace( '</body>', $summary . '</aside></body>', $html );
