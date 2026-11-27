@@ -7,6 +7,47 @@ require_once __DIR__ . '/class-nova-wordpress-delivery-host.php';
 require_once __DIR__ . '/class-nova-wordpress-native-language.php';
 final class Nova_Bridge_Suite_Mapped_Content_Target {
     private const BATCH = 250;
+    private static $wpml_scan = null;
+
+    /** A cold domain-per-language catalog can take longer than one webhook request to resolve. */
+    public static function with_wpml_cache_budget( callable $work, float $seconds = 3.0 ) {
+        global $sitepress;
+        if ( ! is_callable( [ $sitepress, 'get_setting' ] ) || 2 !== (int) $sitepress->get_setting( 'language_negotiation_type' )
+            || ! is_callable( [ 'WPML_Absolute_Url_Persisted', 'get_instance' ] ) || ! defined( 'WPML_Absolute_Url_Persisted::OPTION_KEY' ) ) { return $work(); }
+        $cache = WPML_Absolute_Url_Persisted::get_instance();
+        if ( ! is_callable( [ $cache, 'get' ] ) || ! is_callable( [ $cache, 'persist' ] ) ) { return $work(); }
+
+        $previous = self::$wpml_scan;
+        $scan = (object) [ 'cache' => $cache, 'remaining' => $seconds, 'continuation' => null ];
+        self::$wpml_scan = $scan;
+        try {
+            $result = $work();
+            return $scan->continuation ?? $result;
+        } finally { self::$wpml_scan = $previous; }
+    }
+
+    private static function wpml_permalink( string $url, string $language ) {
+        $scan = self::$wpml_scan;
+        if ( ! $scan || null !== $scan->cache->get( $url, $language ) ) { return apply_filters( 'wpml_permalink', $url, $language, true ); }
+
+        $start = microtime( true );
+        $resolved = apply_filters( 'wpml_permalink', $url, $language, true );
+        // WPML also caches false for a URL that needs no translation. Count only work its cache can retain.
+        if ( null !== $scan->cache->get( $url, $language ) ) {
+            $scan->remaining -= microtime( true ) - $start;
+            if ( $scan->remaining <= 0 ) {
+                // The worker runs after WPML's normal shutdown persistence priority. The next request repeats
+                // the full ownership scan against current objects and hooks, using WPML's own permalink cache.
+                $scan->cache->persist();
+                $persisted = get_option( WPML_Absolute_Url_Persisted::OPTION_KEY, [] );
+                $saved = isset( $persisted[$url][$language] ) && $persisted[$url][$language] === $scan->cache->get( $url, $language );
+                $scan->continuation = new WP_Error( $saved ? 'nova_wpml_permalink_warmup' : 'nova_wpml_permalink_cache_unavailable', 'Continuing native permalink resolution.' );
+                return $scan->continuation;
+            }
+        }
+        return $resolved;
+    }
+
     private static function error( string $code, string $message, int $status = 422 ): WP_Error { return new WP_Error( 'nova_mapped_' . $code, $message, [ 'status' => $status, 'error_code' => $code ] ); }
     /** Same identity rules as the mapped service; no redirects or basename aliases. */
     public static function normalize_url( $url ) {
@@ -60,7 +101,9 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
                 } finally { do_action( 'wpml_switch_language', $previous ); }
                 if ( is_wp_error( $url ) || ! is_string( $url ) ) { return self::error( 'native_url', 'The native term has no canonical URL.' ); }
             }
-            $url = apply_filters( 'wpml_permalink', $url, $language, true ); if ( ! is_string( $url ) ) { return self::error( 'native_url', 'The native language URL could not be verified.' ); }
+            $url = self::wpml_permalink( $url, $language );
+            if ( self::$wpml_scan && null !== self::$wpml_scan->continuation ) { return self::$wpml_scan->continuation; }
+            if ( ! is_string( $url ) ) { return self::error( 'native_url', 'The native language URL could not be verified.' ); }
         }
         return $url;
     }
@@ -315,7 +358,12 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
                     $id = (int) $id;
                     if ( $id <= $after ) { return self::error( 'target_scan', 'Native URL candidate traversal did not advance.', 503 ); }
                     $after = $id;
-                    $native = self::native_url( $resource['id'], $term ? 'term' : 'post', $id ); if ( is_wp_error( $native ) ) { continue; } $identity = self::normalize_url( $native );
+                    $native = self::native_url( $resource['id'], $term ? 'term' : 'post', $id );
+                    if ( is_wp_error( $native ) ) {
+                        if ( self::$wpml_scan && self::$wpml_scan->continuation === $native ) { return $native; }
+                        continue;
+                    }
+                    $identity = self::normalize_url( $native );
                     if ( is_wp_error( $identity ) || $identity['identity'] !== $wanted['identity'] ) { continue; }
                     $key = ( $term ? 'term:' : 'post:' ) . $id; $matches[$key] = [ 'resource_id' => $resource['id'], 'reference_type' => $term ? 'term' : 'post', 'reference_id' => $id, 'url' => $native ];
                     if ( count( $matches ) > 1 ) { return self::error( 'target_ambiguous', 'Several native items claim this URL. Resolve their canonical links before rewriting.', 409 ); }
