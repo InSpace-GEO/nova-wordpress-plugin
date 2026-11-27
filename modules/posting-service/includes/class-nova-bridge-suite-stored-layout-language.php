@@ -208,6 +208,30 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         } );
     }
 
+    /** A manually published WPML original is a translation sibling, never an owned write target. */
+    public static function published_wpml_primary( array $family, string $type ) {
+        $url = self::delivery_url( $family['primary_url'], $family['primary_language'] );
+        if ( is_wp_error( $url ) ) { return $url; }
+        $context = self::context( $family['primary_language'], $type, $url );
+        if ( is_wp_error( $context ) ) { return $context; }
+        return self::in_language( $context, static function () use ( $url, $type, $context ) {
+            $id = (int) url_to_postid( $url );
+            $post = $id ? get_post( $id ) : null;
+            if ( ! $post || 'publish' !== $post->post_status || '' !== $post->post_password ) { return 0; }
+            if ( ! current_user_can( 'edit_post', $id ) ) { return self::error( 'The publishing user cannot edit the primary page.' ); }
+            $actual = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( get_permalink( $id ) );
+            $wanted = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url );
+            if ( is_wp_error( $actual ) || is_wp_error( $wanted ) || $actual['identity'] !== $wanted['identity'] ||
+                $post->post_type !== $type || self::post_language( $id, $context ) !== $context['code'] ) {
+                return self::error( 'The primary URL must identify the exact published page in the requested language.' );
+            }
+            foreach ( [ '_nova_stored_layout_owner', '_nova_owned_cpt_owner' ] as $key ) {
+                if ( get_post_meta( $id, $key, true ) !== '' ) { return self::error( 'The primary page already has a retained NOVA owner. Reconcile its association before linking.' ); }
+            }
+            return $id;
+        } );
+    }
+
     public static function existing( string $resource, int $id, string $url, string $language = '' ) {
         $post = get_post( $id );
         if ( ! $post || $resource !== 'post_type:' . $post->post_type ) { return self::error( 'The saved layout must match the native post type.' ); }

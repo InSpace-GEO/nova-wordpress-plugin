@@ -14,6 +14,7 @@ function update_option( $key, $value, $autoload = false ) { $GLOBALS['options'][
 function get_post( $id ) { return $GLOBALS['posts'][$id] ?? null; }
 function get_post_meta( $id, $key, $single = true ) { return $GLOBALS['owners'][$id][$key] ?? ''; }
 function get_permalink( $id ) { return $GLOBALS['links'][$id] ?? ''; }
+function url_to_postid( $url ) { return (int) array_search( rtrim( $url, '/' ), array_map( static fn( $link ) => rtrim( $link, '/' ), $GLOBALS['links'] ), true ); }
 function current_user_can( ...$args ) { return true; }
 function wp_parse_url( $url ) { return parse_url( $url ); }
 function home_url( $path = '/' ) { return 'https://example.test' . $path; }
@@ -28,6 +29,7 @@ if ( $provider === 'polylang' ) {
     function pll_save_post_translations( $members ) { ++$GLOBALS['saves']; foreach ( $members as $id ) { $GLOBALS['groups'][$id] = $members; } }
 } else { define( 'ICL_SITEPRESS_VERSION', 'fixture' ); }
 function apply_filters( $key, $value, ...$args ) {
+    if ( $key === 'wpml_current_language' ) { return $GLOBALS['current_language'] ?? 'en'; }
     if ( $key === 'wpml_element_language_details' ) { return $GLOBALS['details'][$args[0]['element_id']] ?? []; }
     if ( $key === 'wpml_active_languages' ) { return array_map( static function ( $locale ) { return [ 'default_locale' => $locale ]; }, $GLOBALS['languages'] ); }
     if ( $key === 'wpml_permalink' ) { return $value === 'https://example.test/' ? language_home( $args[0] ) : $value; }
@@ -40,6 +42,7 @@ function apply_filters( $key, $value, ...$args ) {
     return $value;
 }
 function do_action( $key, $value ) {
+    if ( $key === 'wpml_switch_language' ) { $GLOBALS['current_language'] = $value; }
     if ( $key === 'wpml_set_element_language_details' ) { ++$GLOBALS['saves']; $GLOBALS['details'][$value['element_id']] = array_intersect_key( $value, array_flip( [ 'trid', 'language_code', 'source_language_code' ] ) ); }
 }
 require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-mapped-content-target.php';
@@ -55,7 +58,7 @@ function identity( $url, $language, $group = '50' ) {
     return $row;
 }
 function plan( $identity, $code ) { return [ 'delivery_identity' => $identity, 'post_type' => 'page', 'target' => [ 'native_language' => [ 'routing_version' => 2, 'provider' => $GLOBALS['provider'], 'code' => $code, 'post_type' => 'page' ] ] ]; }
-function native_post( $id, $code, $url ) { $GLOBALS['posts'][$id] = (object) [ 'post_type' => 'page', 'post_status' => 'publish' ]; $GLOBALS['details'][$id] = [ 'trid' => $id, 'language_code' => $code, 'source_language_code' => null ]; $GLOBALS['links'][$id] = $url; }
+function native_post( $id, $code, $url ) { $GLOBALS['posts'][$id] = (object) [ 'post_type' => 'page', 'post_status' => 'publish', 'post_password' => '' ]; $GLOBALS['details'][$id] = [ 'trid' => $id, 'language_code' => $code, 'source_language_code' => null ]; $GLOBALS['links'][$id] = $url; }
 function association( $identity, $id ) { $key = 'nova_layout_page_' . hash( 'sha256', $identity['site_id'] . ':' . $identity['url_id'] . ':' . strtolower( str_replace( '_', '-', $identity['language'] ) ) ); $GLOBALS['options'][$key] = $identity + [ 'state' => 'committed', 'post_id' => $id ]; $GLOBALS['owners'][$id]['_nova_stored_layout_owner'] = array_intersect_key( $identity, array_flip( [ 'site_id', 'url_id' ] ) ); }
 function linked( $first, $second, $code ) { return $GLOBALS['provider'] === 'polylang' ? pll_get_post( $first, $code ) === $second : apply_filters( 'wpml_object_id', $first, 'page', false, $code ) === $second; }
 
@@ -148,4 +151,20 @@ foreach ( [ [ 0, 1, 2, 3, 4 ], [ 4, 3, 2, 1, 0 ] ] as $order ) {
     check( $before === $saves, 'Five-locale update replay is idempotent' );
 }
 
+if ( 'wpml' === $provider ) {
+    reset_fixture();
+    native_post( 10, 'en', 'https://example.test/original/' );
+    native_post( 20, 'fr', 'https://example.test/fr/localise/' );
+    $plan = plan( identity( '200', 'fr-FR' ), 'fr' );
+    good( Source::preflight( $plan, 0 ), 'An explicit manual original passes read-only preflight' );
+    check( $saves === 0, 'Preflight preserves manual groups' );
+    good( Source::link( $plan, 20 ), 'A manually published original can receive its translation' );
+    check( linked( 10, 20, 'fr' ) && linked( 20, 10, 'en' ) && ! $owners, 'The pair is reciprocal without claiming the manual original' );
+    $before = $saves;
+    good( Source::link( $plan, 20 ), 'An existing manual link is idempotent' );
+    native_post( 30, 'fr', 'https://example.test/fr/other/' );
+    check( is_wp_error( Source::preflight( $plan, 30 ) ) && $before === $saves && linked( 10, 20, 'fr' ), 'An occupied French slot survives a competing delivery' );
+    $details[10]['language_code'] = 'nl-nl';
+    check( is_wp_error( Source::preflight( $plan, 20 ) ), 'A different native source language is refused' );
+}
 echo "URL family native $provider checks: $checks passed.\n";
