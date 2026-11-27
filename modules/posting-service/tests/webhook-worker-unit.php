@@ -197,4 +197,27 @@ delivery_check( 0 === $diagnostic['jobs_claimed'] && 'nova_posting_storage' === 
 [ $store, $server, $request ] = wake_fixture();
 ( new Nova_Bridge_Suite_Posting_Worker( Nova_Bridge_Suite_Posting_Settings::connection() ) )->run( static function () { throw new RuntimeException( 'Fixture diagnostic sink failure' ); } );
 delivery_check( 'complete' === $store->row['state'] && 1 === Contract_Test_Writer::$apply, 'An observer failure cannot alter worker execution or native write count.' );
+class Nova_Bridge_Suite_Stored_Layout_Writer extends Contract_Test_Writer {
+    public static $cold_policy = true;
+    public static $cold_plan = true;
+    public static function policy( $snapshot, $configuration ) {
+        if ( self::$cold_policy ) { self::$cold_policy = false; return new WP_Error( 'nova_wpml_permalink_warmup' ); }
+        return Nova_Bridge_Suite_Mapping_Sync::frozen_policy( null, $snapshot, $configuration );
+    }
+    public static function plan( $snapshot, $config, $context ) {
+        if ( self::$cold_plan ) { self::$cold_plan = false; return new WP_Error( 'nova_wpml_permalink_warmup' ); }
+        return parent::plan( $snapshot, $config, $context );
+    }
+}
+[ $store, $server, $request ] = wake_fixture();
+$GLOBALS['wake_fixture']['configuration']['mode'] = 'stored_layout_v3';
+wake_run( $request );
+foreach ( [ 'policy', 'plan' ] as $boundary ) {
+    $diagnostic = get_option( Nova_Bridge_Suite_Posting_Delivery::LAST_RUN_OPTION );
+    delivery_check( 'continue' === $diagnostic['follow_up'] && 1 === $diagnostic['jobs_claimed'] && $diagnostic['successful'] && ! empty( $GLOBALS['wake_cron'] ), 'A cold ' . $boundary . ' ends this batch and schedules a fresh batch plus a cron backstop.' );
+    delivery_check( 'ready' === $store->row['state'] && 'received' === $store->row['phase'] && 1 === count( $server->posts ) && 0 === Contract_Test_Writer::$apply, 'A yielded scan retains the receipt and performs no native write.' );
+    $queued->setValue( null, true );
+    Nova_Bridge_Suite_Posting_Delivery::run_queued();
+}
+delivery_check( 'complete' === $store->row['state'] && 2 === count( $server->posts ) && 1 === Contract_Test_Writer::$apply, 'Completing the exact scan produces one write and one publication receipt.' );
 echo 'PASS ' . $checks . " webhook-driven worker checks.\n";

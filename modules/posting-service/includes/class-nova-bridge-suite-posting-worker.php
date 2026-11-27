@@ -88,6 +88,11 @@ final class Nova_Bridge_Suite_Posting_Worker {
             if ( ! $job ) { break; }
             self::observe( $observe, [ 'jobs_claimed' => $i + 1, 'last_job' => self::job_diagnostic( $job ) ] );
             $result = $this->process( $job );
+            // Continue deliberately yielded WPML work in a fresh request through the normal batch follow-up.
+            if ( is_array( $result ) && 'ready' === $result['state'] && 'nova_wpml_permalink_warmup' === ( $result['last_error'] ?? '' ) ) {
+                self::observe( $observe, [ 'last_job' => self::job_diagnostic( $result ) ] );
+                break;
+            }
             if ( is_wp_error( $result ) ) { self::observe( $observe, [ 'last_error' => $result->get_error_code() ] ); }
             elseif ( is_array( $result ) ) { self::observe( $observe, [ 'last_job' => self::job_diagnostic( $result ), 'last_error' => $result['last_error'] ?? '' ] ); }
             // Foreign work must not consume this installation's three publishing slots.
@@ -118,6 +123,22 @@ final class Nova_Bridge_Suite_Posting_Worker {
             $delay = max( $delay, (int) $seconds );
         }
         return $this->jobs->save( $job, [ 'state' => 'ready', 'next_attempt' => time() + $delay, 'last_error' => substr( $code, 0, 100 ) ] );
+    }
+
+    private function prepare( string $writer, callable $work, ...$args ) {
+        if ( 'stored_layout_v3' === $writer && is_callable( [ 'Nova_Bridge_Suite_Mapped_Content_Target', 'with_wpml_cache_budget' ] ) ) {
+            return Nova_Bridge_Suite_Mapped_Content_Target::with_wpml_cache_budget( static function () use ( $work, $args ) { return $work( ...$args ); } );
+        }
+        return $work( ...$args );
+    }
+
+    private function is_wpml_continuation( WP_Error $error ): bool {
+        return in_array( $error->get_error_code(), [ 'nova_wpml_permalink_warmup', 'nova_wpml_permalink_cache_unavailable' ], true );
+    }
+
+    private function continue_wpml_scan( array $job, WP_Error $error ) {
+        if ( 'nova_wpml_permalink_cache_unavailable' === $error->get_error_code() ) { return $this->retry( $job, $error->get_error_code() ); }
+        return $this->jobs->save( $job, [ 'state' => 'ready', 'next_attempt' => 0, 'attempts' => 0, 'last_error' => $error->get_error_code() ] );
     }
 
     private function paused( array $job ) {
@@ -450,9 +471,12 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $shared_translation = in_array( $writer_name, [ 'dictionary_translation', 'dictionary_term_translation', 'weglot_source' ], true );
                 if ( $shared_translation ) {
                     $selected = call_user_func( [ $this->writer, 'policy' ], $snapshot, $configuration );
+                } elseif ( ( $retained_local || $retained_layout ) && isset( $job['payload']['selected_policy'] ) ) {
+                    $selected = $job['payload']['selected_policy'];
                 } else {
-                    $selected = ( $retained_local || $retained_layout ) && isset( $job['payload']['selected_policy'] ) ? $job['payload']['selected_policy'] : call_user_func( $this->policy, $this->client, $snapshot, $configuration );
+                    $selected = $this->prepare( $writer_name, $this->policy, $this->client, $snapshot, $configuration );
                 }
+                if ( is_wp_error( $selected ) && $this->is_wpml_continuation( $selected ) ) { return $this->continue_wpml_scan( $job, $selected ); }
                 if ( is_wp_error( $selected ) && 'nova_translation_source_pending' === $selected->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
                 if ( is_wp_error( $selected ) ) { return $this->native_failure( $job, $snapshot, $selected->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $selected->get_error_message() ); }
                 if ( ! $static_term && ! $shared_translation && Nova_Bridge_Suite_Publication_Policy::test_url( $snapshot['url'] ?? null ) ) { $selected['routing']['publication'] = 'draft'; }
@@ -475,7 +499,8 @@ final class Nova_Bridge_Suite_Posting_Worker {
                 $context = [ 'site_id' => $job['site_id'], 'delivery_id' => $snapshot['id'], 'content_id' => $snapshot['content_item_id'], 'content_item_id' => $snapshot['content_item_id'], 'content_item_version_id' => $snapshot['content_item_version_id'], 'url_id' => $snapshot['url_id'], 'version' => $snapshot['version_number'], 'operation_id' => $job['operation_id'], 'business_result_id' => $job['operation_id'], 'target_post_id' => $target, 'operation' => $operation, 'desired_status' => $desired, 'actor_user_id' => $actor, 'author_user_id' => $this->author_id( $job ), 'attempt_id' => $fetched['attempt_id'], 'source_sha256' => $snapshot['source_sha256'], 'snapshot_sha256' => hash( 'sha256', $fetched['snapshot_raw'] ), 'delivery_etag' => $fetched['delivery_etag'], 'language' => $snapshot['language'] ];
                 $job = $this->save_payload( $job, [ 'configuration' => $configuration, 'selected_policy' => $selected, 'context' => $context, 'native_writer' => $writer_name ], 'received' );
                 if ( is_wp_error( $job ) ) { return $job; }
-                $plan = call_user_func( [ $this->writer, 'plan' ], $snapshot, $configuration, $context );
+                $plan = $this->prepare( $writer_name, [ $this->writer, 'plan' ], $snapshot, $configuration, $context );
+                if ( is_wp_error( $plan ) && $this->is_wpml_continuation( $plan ) ) { return $this->continue_wpml_scan( $job, $plan ); }
                 if ( is_wp_error( $plan ) && 'nova_translation_source_pending' === $plan->get_error_code() ) { return $this->wait_for_original( $job, $snapshot ); }
                 if ( is_wp_error( $plan ) && 'nova_weglot_source_translation' === $plan->get_error_code() ) { return $this->retry( $job, 'nova_weglot_source_translation' ); }
                 if ( is_wp_error( $plan ) ) { return $this->native_failure( $job, $snapshot, $plan->get_error_code(), [ 'no_native_commit' => true, 'boundary' => 'before_apply' ], $plan->get_error_message() ); }
