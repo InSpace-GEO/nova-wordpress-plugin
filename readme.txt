@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.12.0
+Stable tag: 1.12.1
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.12.1 =
+* Elementor publishing now keeps the mapped WordPress page title when heading widgets display a dynamic page title. Existing saved mappings work without re-saving.
 
 = 1.12.0 =
 * Map the lead image URL, alternative text, enclosing link and article body independently in supported WordPress HTML articles and Elementor Text Editor widgets. Existing whole-content mappings remain available.
