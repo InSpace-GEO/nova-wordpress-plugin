@@ -664,7 +664,7 @@ class Elementor_Service {
 	 * @param int $post_id Post ID.
 	 * @return array|WP_Error|null
 	 */
-	private function get_document_data_from_meta( $post_id ) {
+	public function get_document_data_from_meta( $post_id ) {
 		$has_meta = metadata_exists( 'post', $post_id, '_elementor_data' );
 
 		if ( ! $has_meta ) {

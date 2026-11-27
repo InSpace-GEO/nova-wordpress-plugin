@@ -98,6 +98,10 @@ final class Nova_Bridge_Suite_Stored_Recipe_Layout {
             }
             $bindings[$path] = $binding;
         }
+        if ( in_array( $builder, [ 'core', 'elementor' ], true ) ) {
+            $editable = array_filter( $bindings, static fn( $binding ) => 'recipe' === $binding['kind'] && 'protected' !== $binding['mode'] );
+            self::checked( Nova_Mapping_Embedded_Article::overlap( $editable ) );
+        }
         $layout = [ 'format' => self::FORMAT, 'builder' => $builder, 'resource_id' => $resource, 'post_type' => $type, 'blueprint' => $blueprint, 'post_fields' => $post_fields, 'bindings' => $bindings ];
         if ( ! empty( $locale_snapshot['variants'] ) || ! empty( $locale_snapshot['shared_templates'] ) ) {
             $mapped = array_keys( array_filter( $bindings, static fn( $binding ) => 'protected' !== $binding['mode'] ) );

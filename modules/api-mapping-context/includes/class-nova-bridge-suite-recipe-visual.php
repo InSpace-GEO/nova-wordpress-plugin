@@ -160,7 +160,7 @@ final class Nova_Bridge_Suite_Recipe_Visual {
             if ( 'native_anchor' === $locator['strategy'] ) { $locator['node_id'] = $locator['anchor'] ?? ''; }
             $locator['control_path'] = $field['control_path'] ?? $locator['control_path'] ?? [];
             $locator['element_type'] = $field['element_type'] ?? $locator['element_type'] ?? '';
-            if ( 'core' === $builder ) {
+            if ( 'core' === $builder && 'embedded_article' !== $locator['strategy'] ) {
                 if ( '/document/title' === $field['target'] ) { $locator = [ 'strategy' => 'core', 'control_path' => [ 'taxonomy' === $resource['type'] ? 'name' : 'title' ], 'precision' => 'region' ]; }
                 elseif ( '/document/sections/0/body' === $field['target'] ) { $locator = [ 'strategy' => 'core', 'control_path' => [ 'taxonomy' === $resource['type'] ? 'description' : 'content' ], 'precision' => 'document' ]; }
                 elseif ( 'product_cat' === ( $resource['taxonomy'] ?? '' ) && 'content_below_products' === ( $field['custom_field_key'] ?? '' ) && ! empty( $field['writable'] ) ) { $locator = [ 'strategy' => 'core', 'control_path' => [ 'bottom_content' ], 'precision' => 'region' ]; }

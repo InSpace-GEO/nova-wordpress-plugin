@@ -241,7 +241,7 @@ final class Nova_Mapping_Gutenberg_HTML {
         return array_intersect( $trail, [ 'DIV', 'SPAN' ] ) ? 'text' : null;
     }
 
-    private static function valid_url( string $url, string $attribute ): bool {
+    public static function valid_url( string $url, string $attribute ): bool {
         if ( '' === $url || preg_match( '~[\x00-\x20\x7f<>\[\]\\\\]~', $url ) || str_starts_with( $url, '//' ) ) { return false; }
         $scheme = parse_url( $url, PHP_URL_SCHEME );
         return null === $scheme || ( is_string( $scheme ) && in_array( strtolower( $scheme ), 'src' === $attribute ? [ 'https', 'http' ] : [ 'https', 'http', 'mailto', 'tel' ], true ) );
