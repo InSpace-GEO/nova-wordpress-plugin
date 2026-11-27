@@ -227,7 +227,19 @@ final class Nova_Bridge_Suite_Translation_Source {
         if ( is_wp_error( $anchor ) ) { return $anchor; }
         if ( ! isset( $identity['url_family'] ) && $link && null === $anchor ) { add_option( $key, [ 'language' => $identity['language'] ], '', false ); }
         if ( ! $native ) { return true; }
-        foreach ( self::records( $identity, Nova_Bridge_Suite_Stored_Layout_Language::sibling_locales( $target ) ) as $sibling => $row ) {
+        $records = self::records( $identity, Nova_Bridge_Suite_Stored_Layout_Language::sibling_locales( $target ) );
+        $family = $identity['url_family'] ?? null;
+        if ( $family && 'wpml' === $target['native_language']['provider'] && ! empty( $target['native_language']['routing_version'] ) &&
+            ! Nova_Bridge_Suite_Stored_Layout_Language::same_language_slot( $identity['language'], $family['primary_language'] ) &&
+            ! array_filter( $records, static function ( $row ) use ( $family ) {
+                return $row['url_id'] === $family['primary_url_id'] &&
+                    Nova_Bridge_Suite_Stored_Layout_Language::same_language_slot( $row['language'], $family['primary_language'] );
+            } ) ) {
+            $primary = Nova_Bridge_Suite_Stored_Layout_Language::published_wpml_primary( $family, $plan['post_type'] );
+            if ( is_wp_error( $primary ) ) { return $primary; }
+            if ( $primary ) { $records[$primary] = []; }
+        }
+        foreach ( array_keys( $records ) as $sibling ) {
             if ( $sibling === $id ) { continue; }
             $post = get_post( $sibling );
             if ( ! $post || 'trash' === $post->post_status ) { continue; }

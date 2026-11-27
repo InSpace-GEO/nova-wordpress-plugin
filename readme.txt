@@ -1,5 +1,5 @@
 === NOVA WordPress Plugin ===
-Stable tag: 1.12.1
+Stable tag: 1.12.2
 Requires at least: 6.9
 Requires PHP: 8.0
 License: Proprietary
@@ -10,6 +10,9 @@ Map existing layouts and publish NOVA deliveries to WordPress. Includes optional
 Upload the installable ZIP from the release in WordPress. Deactivate NOVA Bridge Suite before activating the new plugin. Open Settings > NOVA Settings to configure layouts, the connection and optional modules.
 
 == Changelog ==
+
+= 1.12.2 =
+* WPML translations can link to a manually published original when the delivery identifies its primary URL. Existing translation links are checked before writing.
 
 = 1.12.1 =
 * Elementor publishing now keeps the mapped WordPress page title when heading widgets display a dynamic page title. Existing saved mappings work without re-saving.
