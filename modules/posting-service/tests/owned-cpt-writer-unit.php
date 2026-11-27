@@ -137,4 +137,27 @@ foreach ( [ 'service_page', 'blog' ] as $type ) {
     $test_result = ok( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $test_plan, uuid( 401 ) ) );
     check( $test_plan['desired_status'] === 'draft' && $test_result['cms_post_status'] === 'draft', 'Application test items remain drafts in native CPT publication.' );
 }
+function is_multisite() { return ! empty( $GLOBALS['network_site'] ); }
+function get_current_blog_id() { return 7; }
+function get_site() { return (object) [ 'blog_id' => 7, 'domain' => 'example.test', 'path' => '/' ]; }
+function get_site_by_path( $domain, $path ) { return (object) [ 'blog_id' => $GLOBALS['network_path_owner'] ]; }
+function get_site_option( $key, $default ) { return $default; }
+function wp_parse_url( $url, $component = -1 ) { return parse_url( $url, $component ); }
+function trailingslashit( $value ) { return rtrim( $value, '/' ) . '/'; }
+
+reset_fake();
+$network_site = true;
+$network_path_owner = get_current_blog_id();
+$options['home'] = 'http://example.test';
+[ $content, $configuration ] = fixture();
+$content['url'] = '/article/';
+$plan = ok( Nova_Bridge_Suite_Owned_CPT_Writer::plan( $content, $configuration, [ 'operation_id' => uuid( 402 ) ] ) );
+check( $plan['network_https_route'] === [ 'blog_id' => 7, 'home' => 'https://example.test/' ], 'The CPT plan retains the current blog and its verified HTTPS home.' );
+$network_path_owner = 8;
+check( is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $plan, uuid( 402 ) ) ) && ! $inserts && ! $saves, 'The CPT writer cannot reserve or save after another blog claims the planned path.' );
+check( is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::recover( $plan, uuid( 402 ) ) ), 'An uncommitted CPT plan cannot authorize a retry on a remapped path.' );
+$network_path_owner = 7;
+$result = ok( Nova_Bridge_Suite_Owned_CPT_Writer::apply( $plan, uuid( 402 ) ) );
+$network_path_owner = 8;
+check( is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::verify( $plan, $result ) ) && is_wp_error( Nova_Bridge_Suite_Owned_CPT_Writer::recover( $plan, uuid( 402 ) ) ), 'Readback and recovery reject a committed CPT URL now owned by another blog.' );
 echo "Owned CPT writer: $checks checks passed\n";

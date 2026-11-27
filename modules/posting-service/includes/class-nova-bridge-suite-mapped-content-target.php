@@ -80,7 +80,10 @@ final class Nova_Bridge_Suite_Mapped_Content_Target {
         // installation to just its current language's subdirectory.
         $home = $language_home ?? self::site_home(); $site = self::normalize_url( is_string( $home ) && '' !== $home ? $home : home_url( '/' ) );
         if ( is_wp_error( $site ) || $target['origin'] !== $site['origin'] || ( '/' !== $site['path'] && $target['path'] !== $site['path'] && 0 !== strpos( $target['path'], $site['path'] . '/' ) ) ) { return self::error( 'foreign_target_url', 'This URL does not belong to the connected WordPress site.', 403 ); }
-        return $target;
+        // A provider-supplied absolute home has its own existing ownership rules.
+        $network = null === $language_home ? Nova_WordPress_Delivery_Host::network_route() : null;
+        $verified = Nova_WordPress_Delivery_Host::verify_network_destination( $url, $network );
+        return is_wp_error( $verified ) ? $verified : $target;
     }
     /** WPML's plain get_permalink can reflect the current request language. */
     public static function native_url( string $resource, string $kind, int $id ) {

@@ -3,8 +3,16 @@
 define('ABSPATH', __DIR__); $checks=0; $denied=[]; $options=['home'=>'https://site.example/sub','permalink_structure'=>'/blog/%postname%/'];
 class WP_Error {private $code;private $message;private $data;function __construct($code,$message,$data=[]){$this->code=$code;$this->message=$message;$this->data=$data;} function get_error_code(){return $this->code;} function get_error_message(){return $this->message;} function get_error_data(){return $this->data;} }
 function is_wp_error($v){return $v instanceof WP_Error;} function current_user_can($cap,...$args){return !in_array($cap.':'.implode(':',$args),$GLOBALS['denied'],true);}
-function wp_parse_url($v){return parse_url($v);} function get_option($key,$default=false){return $GLOBALS['options'][$key] ?? $default;} function home_url($path='/'){return ($GLOBALS['effective_home'] ?? 'https://site.example/sub') . $path;} function get_locale(){return 'nl_NL';}
+function wp_parse_url($v,$component=-1){return parse_url($v,$component);} function get_option($key,$default=false){return $GLOBALS['options'][$key] ?? $default;} function home_url($path='/'){return ($GLOBALS['effective_home'] ?? 'https://site.example/sub') . $path;} function get_locale(){return 'nl_NL';}
 function is_multisite() { return $GLOBALS['network_site'] ?? false; }
+function get_site() { return $GLOBALS['registered_site'] ?? null; }
+function get_site_by_path( $domain, $path ) {
+    $owner = null;
+    foreach ( $GLOBALS['network_sites'] as $site ) {
+        if ( $domain === $site->domain && str_starts_with( trailingslashit( $path ), $site->path ) && ( ! $owner || strlen( $site->path ) > strlen( $owner->path ) ) ) { $owner = $site; }
+    }
+    return $owner;
+}
 function trailingslashit( $path ) { return rtrim( $path, '/\\' ) . '/'; }
 function has_filter($name){return in_array($name, $GLOBALS['permalink_filters'] ?? [], true) || (!empty($GLOBALS['wpml']) && $name==='wpml_element_language_details');}
 function do_action($name,...$args){if($name==='wpml_switch_language'){$GLOBALS['native_language']=$args[0];}}
@@ -68,6 +76,34 @@ foreach ( [ 'http://site.example/sub', 'https://other.example/sub', 'https://sit
 }
 unset( $effective_home );
 $network_site = true;
+bad( Target::resolve( $local ), 'foreign_target_url' );
+$registered_site = (object) [ 'blog_id' => 1, 'domain' => 'site.example', 'path' => '/sub/' ];
+$sibling_site = (object) [ 'blog_id' => 2, 'domain' => 'site.example', 'path' => '/sub/de/' ];
+$network_sites = [ $registered_site, $sibling_site ];
+good( Target::resolve( $local ), 'Multisite resolves an existing HTTPS target under its registered HTTP home.' );
+good( Target::creation( 'post_type:post', 'https://site.example/sub/blog/new-post/' ), 'Multisite plans a post on the same registered site.' );
+require_once dirname( __DIR__ ) . '/includes/class-nova-bridge-suite-stored-layout-language.php';
+$post_url = Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( '/sub/blog/new-post/', 'nl-NL', $network_route );
+check( $post_url === 'https://site.example/sub/blog/new-post/', 'The relative delivery uses the native HTTPS root.' );
+check( $network_route === [ 'blog_id' => 1, 'home' => 'https://site.example/sub/' ], 'New plans pin the verified HTTPS home and network site.' );
+$options['home'] = 'https://site.example/sub';
+check( Nova_WordPress_Delivery_Host::network_route() === null && Nova_WordPress_Delivery_Host::network_route( true ) === $network_route, 'An HTTPS correction preserves the pinned route on retry, and new HTTPS plans keep their existing behavior.' );
+$options['home'] = 'http://site.example/sub';
+$network_sites[] = (object) [ 'blog_id' => 3, 'domain' => 'site.example', 'path' => '/sub/blog/' ];
+bad( Nova_WordPress_Delivery_Host::verify_network_destination( $post_url, $network_route ), 'foreign_target_url' );
+array_pop( $network_sites );
+bad( Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( '/sub/%64e/article/', 'nl-NL' ), 'foreign_target_url' );
+bad( Target::resolve( 'https://site.example/sub/de/article/' ), 'foreign_target_url' );
+bad( Target::creation( 'post_type:page', 'https://site.example/sub/de/article/' ), 'foreign_target_url' );
+bad( Target::resolve( 'http://site.example/sub/parent/' ), 'target_url' );
+$effective_home = 'http://site.example/sub';
+bad( Target::resolve( $local ), 'foreign_target_url' );
+check( null === Nova_WordPress_Delivery_Host::network_route( true ), 'Worker requests reporting HTTP cannot confirm a frozen HTTPS route.' );
+unset( $effective_home );
+$registered_site->path = '/other/';
+bad( Target::resolve( $local ), 'foreign_target_url' );
+$registered_site->path = '/sub/';
+$registered_site->domain = 'alias.example';
 bad( Target::resolve( $local ), 'foreign_target_url' );
 $network_site = false;
 $options['home'] = 'https://site.example/sub';

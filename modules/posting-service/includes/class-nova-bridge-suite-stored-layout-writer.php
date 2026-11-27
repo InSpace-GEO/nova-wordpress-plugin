@@ -61,8 +61,8 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         return Nova_WordPress_Environment::key( 'nova_layout_page_' . hash( 'sha256', $key ) );
     }
     /** Resolve a site-relative path without changing the authenticated snapshot. */
-    private static function target_url( $url, string $language = '' ) {
-        return Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( $url, $language );
+    private static function target_url( $url, string $language = '', ?array &$network = null ) {
+        return Nova_Bridge_Suite_Stored_Layout_Language::delivery_url( $url, $language, $network );
     }
     private static function decimal( $id ): bool { return is_string( $id ) && 1 === preg_match( '/^[1-9][0-9]{0,18}$/D', $id ); }
     private static function compare( string $a, string $b ): int { return strlen( $a ) <=> strlen( $b ) ?: strcmp( $a, $b ); }
@@ -95,8 +95,8 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         $post = get_post( $id );
         return ! $post || 'trash' === $post->post_status;
     }
-    private static function target( array $content, array $configuration, string $type, ?string &$demo_target_url = null ): array {
-        $url = self::checked( self::target_url( $content['url'] ?? '', $content['language'] ) );
+    private static function target( array $content, array $configuration, string $type, ?string &$demo_target_url = null, ?array &$network = null ): array {
+        $url = self::checked( self::target_url( $content['url'] ?? '', $content['language'], $network ) );
         $resource = 'post_type:' . $type;
         unset( $content['demo_target_url'] );
         $association = self::association( $content );
@@ -225,7 +225,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             }
             $compiled = self::checked( Nova_Bridge_Suite_Stored_Layout::compile( Nova_Bridge_Suite_Writing_Adapter::adaptation_draft( $local ), $values, $content['site_id'] . ':' . $content['url_id'], $content['language'] ) );
             $builder = $compiled['builder'] ?? '';
-            $type = $compiled['post_type']; $resolved = self::target( $content, $configuration, $type, $demo_target_url );
+            $type = $compiled['post_type']; $resolved = self::target( $content, $configuration, $type, $demo_target_url, $network );
             $target_id = $resolved['post_id']; $association = $resolved['association']; $target = $resolved['target'];
             if ( isset( $context['target_post_id'] ) && $context['target_post_id'] !== $target_id ) { self::fail( 'target_changed', 'The delivery URL acquired a different native target after its policy was selected.' ); }
             $publication = Nova_Bridge_Suite_Publication_Policy::publication( $content, $local['routing']['publication'] ?? 'preserve', $target_id ? (string) get_post_status( $target_id ) : '' ); $status = 'preserve' === $publication ? ( $target_id ? get_post_status( $target_id ) : 'draft' ) : $publication;
@@ -290,6 +290,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
                 } ) );
                 $plan['custom_before'] = $target_id ? self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::snapshot( $target_id, $plan['custom_fields'], true ) ) : [];
             }
+            if ( null !== $network ) { $plan['network_https_route'] = $network; }
             self::checked( Nova_Bridge_Suite_Translation_Source::preflight( $plan, $target_id ) );
             $plan_limit = 'beaver' === $builder ? 1572864 : 786432;
             if ( strlen( wp_json_encode( $plan ) ) > $plan_limit ) { self::fail( 'plan_size', 'This layout exceeds the recoverable native journal size.' ); }
@@ -299,6 +300,10 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     private static function assert_plan( array $plan, string $operation ): void {
         $copy = $plan; unset( $copy['plan_digest'] );
         if ( ( $plan['format'] ?? '' ) !== self::FORMAT || $operation !== ( $plan['operation_id'] ?? '' ) || ! Nova_Bridge_Suite_Posting_Protocol::uuid( $operation ) || self::digest( $copy ) !== ( $plan['plan_digest'] ?? '' ) ) { self::fail( 'plan_identity', 'The retained native plan or operation identity changed.' ); }
+    }
+    private static function check_network_route( array $plan ): void {
+        if ( ! isset( $plan['network_https_route'] ) ) { return; }
+        self::checked( Nova_WordPress_Delivery_Host::verify_network_plan( $plan ) );
     }
     private static function reservation_marker( array $plan ): string { return self::FORMAT . ':' . $plan['operation_id'] . ':' . $plan['plan_digest']; }
     private static function reserved_post( array $plan ): int {
@@ -393,6 +398,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         }
     }
     private static function check_url( array $plan, int $id ): void {
+        self::check_network_route( $plan );
         if ( 'publish' === get_post_status( $id ) ) { $url = self::checked( Nova_Bridge_Suite_Mapped_Content_Target::native_url( 'post_type:' . $plan['post_type'], 'post', $id ) ); }
         else {
             $url = Nova_Bridge_Suite_Draft_Slug::permalink( $id );
@@ -428,6 +434,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
         return self::guard( static function () use ( $plan, $operation ) {
             self::assert_plan( $plan, $operation );
             return self::locked( $plan, static function () use ( $plan, $operation ) { return self::checked( Nova_Bridge_Suite_Stored_Layout_Language::with_context( $plan['target'], static function () use ( $plan, $operation ) {
+                self::check_network_route( $plan );
                 if ( self::provider( $plan['post_type'], $plan['payload'], $plan['desired_status'], $plan['builder'] ?? 'elementor' ) !== $plan['provider'] ) { self::fail( 'provider_changed', 'The native provider changed after planning.' ); }
                 $key = self::operation_key( $operation ); $record = self::option( $key );
                 if ( null !== $record && ( ! is_array( $record ) || ( $record['plan_digest'] ?? '' ) !== $plan['plan_digest'] ) ) { self::fail( 'operation_reused', 'This operation belongs to a different native plan.' ); }
@@ -527,6 +534,7 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
     public static function recover( array $plan, string $operation ) {
         return self::guard( static function () use ( $plan, $operation ) {
             self::assert_plan( $plan, $operation ); return self::locked( $plan, static function () use ( $plan, $operation ) {
+                self::check_network_route( $plan );
                 $record = self::option( self::operation_key( $operation ) );
                 if ( ! $record ) {
                     if ( $plan['target_post_id'] && isset( $plan['custom_fields'] ) && self::checked( Nova_Bridge_Suite_Stored_Custom_Fields::snapshot( $plan['target_post_id'], $plan['custom_fields'], true ) ) !== $plan['custom_before'] ) { self::fail( 'custom_changed', 'A mapped custom field changed after planning.' ); }
