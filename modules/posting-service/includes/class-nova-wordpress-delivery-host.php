@@ -3,16 +3,57 @@
 defined( 'ABSPATH' ) || exit;
 
 final class Nova_WordPress_Delivery_Host {
-    /** Use WordPress's effective HTTPS scheme only for the same configured single-site root. */
+    /** Use WordPress's effective HTTPS scheme only for the same configured site root. */
     public static function routing_home( $home ) {
-        if ( ! is_string( $home ) || 0 !== stripos( $home, 'http://' ) || is_multisite() ) { return $home; }
+        return self::effective_https_home( $home ) ?? $home;
+    }
+
+    private static function effective_https_home( $home, bool $recheck = false ): ?string {
+        if ( ! is_string( $home ) ) { return null; }
+        if ( 0 === stripos( $home, 'http://' ) ) { $home = 'https://' . substr( $home, 7 ); }
+        elseif ( ! $recheck || 0 !== stripos( $home, 'https://' ) ) { return null; }
         $parts = wp_parse_url( $home );
-        if ( ! is_array( $parts ) || empty( $parts['host'] ) || array_diff( array_keys( $parts ), [ 'scheme', 'host', 'path' ] ) ) { return $home; }
+        if ( ! is_array( $parts ) || empty( $parts['host'] ) || array_diff( array_keys( $parts ), [ 'scheme', 'host', 'path' ] ) ) { return null; }
 
         // Compare the entire root. A filtered home for another domain or language directory cannot authorize a write.
-        $https = 'https://' . substr( $home, 7 );
-        $effective = home_url( '/' );
-        return is_string( $effective ) && trailingslashit( $https ) === $effective ? $https : $home;
+        if ( trailingslashit( $home ) !== home_url( '/' ) ) { return null; }
+        if ( is_multisite() ) {
+            $site = get_site();
+            if ( ! $site || 0 !== strcasecmp( $site->domain, $parts['host'] ) || $site->path !== trailingslashit( $parts['path'] ?? '/' ) ) { return null; }
+        }
+        return $home;
+    }
+
+    /** Capture the blog and root that authorized the fallback so a resumed write can check them again. */
+    public static function network_route( bool $recheck = false ): ?array {
+        if ( ! function_exists( 'is_multisite' ) || ! is_multisite() ) { return null; }
+        // An administrator may have corrected just the scheme since planning.
+        $home = self::effective_https_home( get_option( 'home', '' ), $recheck );
+        return null === $home ? null : [ 'blog_id' => get_current_blog_id(), 'home' => trailingslashit( $home ) ];
+    }
+
+    /** A network root can contain paths registered to other sites. Check the final URL before using the HTTPS fallback. */
+    public static function verify_network_destination( $url, ?array $network ) {
+        if ( null === $network ) { return $url; }
+        $target = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $url );
+        if ( is_wp_error( $target ) ) { return $target; }
+        $domain = wp_parse_url( $target['origin'], PHP_URL_HOST );
+        $owner = get_site_by_path( $domain, $target['path'] );
+        // A language provider may own an additional domain, but cannot claim a registered sibling.
+        $registered_domain = strtolower( wp_parse_url( $network['home'], PHP_URL_HOST ) );
+        if ( ( $owner && (int) $owner->blog_id !== $network['blog_id'] ) || ( ! $owner && $domain === $registered_domain ) ) {
+            return new WP_Error( 'nova_mapped_foreign_target_url', 'This URL does not belong to the connected WordPress site.', [ 'status' => 403, 'error_code' => 'foreign_target_url' ] );
+        }
+        return $url;
+    }
+
+    public static function verify_network_plan( array $plan ) {
+        if ( ! isset( $plan['network_https_route'] ) ) { return true; }
+        $network = self::network_route( true );
+        if ( $network !== $plan['network_https_route'] ) {
+            return new WP_Error( 'nova_network_home_changed', 'WordPress cannot confirm the HTTPS home used when planning this delivery.' );
+        }
+        return self::verify_network_destination( $plan['target']['target_url'], $network );
     }
 
     public static function canonicalize( $url, $home, array $other_homes = [] ) {

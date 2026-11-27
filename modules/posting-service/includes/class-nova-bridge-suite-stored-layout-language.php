@@ -175,14 +175,16 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         return is_string( $url ) && '' !== $url ? $url : self::error( 'WPML did not return a sample permalink.' );
     }
 
-    public static function delivery_url( $url, string $language ) {
+    public static function delivery_url( $url, string $language, ?array &$network = null ) {
+        $network = null;
         // The native original uses WordPress storage, but its public URL belongs to the provider's
         // source language. WordPress's interface locale may be completely different.
         if ( 'core' === self::provider() && ( class_exists( 'TRP_Translate_Press' ) || function_exists( 'weglot_get_service' ) || defined( 'GTRANSLATE_VERSION' ) ) ) {
             return Nova_Bridge_Suite_Translation_Writer::delivery_url( $url, $language );
         }
         if ( ! is_string( $url ) || '' === $url || 0 === strpos( $url, '//' ) || in_array( $url[0], [ '?', '#' ], true ) ) { return self::error( 'The delivery URL is invalid.' ); }
-        if ( ! preg_match( '/^[a-z][a-z0-9+.-]*:/i', $url ) ) {
+        $relative = ! preg_match( '/^[a-z][a-z0-9+.-]*:/i', $url );
+        if ( $relative ) {
             $home = self::language_home( $language );
             if ( is_wp_error( $home ) ) { return $home; }
             $parts = Nova_Bridge_Suite_Mapped_Content_Target::normalize_url( $home );
@@ -192,9 +194,14 @@ final class Nova_Bridge_Suite_Stored_Layout_Language {
         }
         if ( self::provider() !== 'core' ) {
             $context = self::context( $language, '', $url, true );
-            return is_wp_error( $context ) ? $context : $context['delivery_url'];
+            if ( is_wp_error( $context ) ) { return $context; }
+            $url = $context['delivery_url'];
+            if ( ! $relative ) { return $url; } // This URL was authorized by the provider's own home.
+        } else {
+            $url = Nova_WordPress_Delivery_Host::canonicalize( $url, self::site_home() );
         }
-        return Nova_WordPress_Delivery_Host::canonicalize( $url, self::site_home() );
+        $network = Nova_WordPress_Delivery_Host::network_route();
+        return Nova_WordPress_Delivery_Host::verify_network_destination( $url, $network );
     }
 
     public static function resolve( string $url, ?string $resource, string $language ) {

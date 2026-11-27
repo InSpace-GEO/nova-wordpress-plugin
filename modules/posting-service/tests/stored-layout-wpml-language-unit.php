@@ -9,13 +9,18 @@ class WP_Error {
     public function get_error_message() { return $this->message; }
 }
 function is_wp_error( $value ) { return $value instanceof WP_Error; }
-function wp_parse_url( $url ) { return parse_url( $url ); }
+function wp_parse_url( $url, $component = -1 ) { return parse_url( $url, $component ); }
 function current_user_can( $cap, ...$args ) { return true; }
 function wpml_check( $condition, $message ) { ++$GLOBALS['checks']; if ( ! $condition ) { throw new RuntimeException( $message ); } }
 function good( $value ) { wpml_check( ! is_wp_error( $value ), is_wp_error( $value ) ? $value->get_error_message() : 'Unexpected result' ); return $value; }
 function has_filter( $key ) { return $key === 'wpml_element_language_details'; }
 function home_url( $path = '/' ) { return $GLOBALS['installation'] . $path; }
-function get_option( $key, $default = null ) { return [ 'home' => $GLOBALS['installation'], 'permalink_structure' => '/%postname%/' ][$key] ?? $default; }
+function get_option( $key, $default = null ) { return [ 'home' => $GLOBALS['stored_home'] ?? $GLOBALS['installation'], 'permalink_structure' => '/%postname%/' ][$key] ?? $default; }
+function is_multisite() { return isset( $GLOBALS['network_sites'] ); }
+function get_current_blog_id() { return 1; }
+function get_site() { return $GLOBALS['network_sites']['en.site.test']; }
+function get_site_by_path( $domain, $path ) { return $GLOBALS['network_sites'][$domain] ?? false; }
+function trailingslashit( $path ) { return rtrim( $path, '/' ) . '/'; }
 function get_post_type_object( $type ) { return (object) [ 'hierarchical' => false, 'rewrite' => [ 'slug' => 'services' ] ]; }
 function sanitize_title( $text ) { return trim( strtolower( $text ) ); }
 function get_permalink( $id ) { return home_url( '/' . $GLOBALS['posts'][$id]->post_name . '/' ); }
@@ -79,6 +84,20 @@ $url = 'https://de.site.test/article/';
 $target = good( Language::creation( 'post_type:post', good( Language::delivery_url( $url, 'de-DE' ) ), 'de-DE' ) );
 wpml_check( $target['native_language']['code'] === 'de' && $target['target_url'] === rtrim( $url, '/' ) && $current === 'en', 'Canonical German route from webhook restores English request' );
 wpml_check( good( Language::delivery_url( '/article/', 'de-DE' ) ) === $url, 'Rooted path uses configured German origin' );
+$stored_home = 'http://en.site.test';
+$network_sites = [
+    'en.site.test' => (object) [ 'domain' => 'en.site.test', 'path' => '/', 'blog_id' => 1 ],
+    'de.site.test' => (object) [ 'domain' => 'de.site.test', 'path' => '/', 'blog_id' => 2 ],
+];
+$network_route = null;
+$explicit = good( Language::delivery_url( $url, 'de-DE', $network_route ) );
+wpml_check( $explicit === $url && null === $network_route, 'An explicit WPML HTTPS home retains its provider ownership rules.' );
+wpml_check( good( Language::creation( 'post_type:post', $explicit, 'de-DE' ) )['target_url'] === rtrim( $url, '/' ), 'Explicit provider URLs can still plan native content.' );
+$relative = Language::delivery_url( '/article/', 'de-DE' );
+wpml_check( is_wp_error( $relative ) && 'nova_mapped_foreign_target_url' === $relative->get_error_code(), 'A relative delivery using the HTTPS fallback cannot claim a registered sibling domain.' );
+unset( $network_sites['de.site.test'] );
+wpml_check( good( Language::delivery_url( '/article/', 'de-DE', $network_route ) ) === $url && $network_route === [ 'blog_id' => 1, 'home' => 'https://en.site.test/' ], 'A WPML language domain outside the network registry uses the current site’s verified HTTPS route.' );
+unset( $network_sites, $stored_home );
 $installation = 'https://de.site.test';
 wpml_check( good( Language::creation( 'post_type:post', $url, 'de-DE' ) )['target_url'] === $target['target_url'], 'German and English request homes select the same post' );
 $installation = 'https://en.site.test';
