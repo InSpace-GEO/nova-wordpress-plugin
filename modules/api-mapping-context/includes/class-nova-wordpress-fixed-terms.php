@@ -41,7 +41,11 @@ final class Nova_WordPress_Fixed_Terms {
             $trid = apply_filters( 'wpml_element_trid', null, $term->term_taxonomy_id, $type );
             if ( $trid ) {
                 foreach ( (array) apply_filters( 'wpml_get_element_translations', [], $trid, $type ) as $translation ) {
-                    $members[$translation->language_code] = get_term_by( 'term_taxonomy_id', $translation->element_id, $taxonomy );
+                    $id = (int) apply_filters( 'wpml_object_id', $term->term_id, $taxonomy, false, $translation->language_code );
+                    $member = $id ? WP_Term::get_instance( $id, $taxonomy ) : null;
+                    if ( $member instanceof WP_Term && (int) $member->term_taxonomy_id === (int) $translation->element_id ) {
+                        $members[$translation->language_code] = $member;
+                    }
                 }
             }
         }
@@ -60,6 +64,19 @@ final class Nova_WordPress_Fixed_Terms {
 
     /** Query across languages even when WPML filters the current admin request. */
     public static function all_language_terms( array $args ) {
+        // WPML can rewrite a saved slug to the request language even after switching to "all".
+        // Resolve native IDs first, then read their stored slugs before selecting a translation.
+        if ( isset( $args['slug'] ) && defined( 'WPML\TaxonomyTermTranslation\Hooks::KEY_SKIP_FILTERS' ) && apply_filters( 'wpml_is_translated_taxonomy', false, $args['taxonomy'] ) ) {
+            $ids = get_terms( [ 'fields' => 'ids', \WPML\TaxonomyTermTranslation\Hooks::KEY_SKIP_FILTERS => true ] + $args );
+            if ( is_wp_error( $ids ) ) { return $ids; }
+            $terms = [];
+            foreach ( $ids as $id ) {
+                $term = WP_Term::get_instance( (int) $id, $args['taxonomy'] );
+                if ( is_wp_error( $term ) ) { return $term; }
+                if ( $term ) { $terms[] = $term; }
+            }
+            return $terms;
+        }
         $current = apply_filters( 'wpml_current_language', null );
         if ( ! $current || 'all' === $current ) { return get_terms( $args + [ 'lang' => '' ] ); }
         do_action( 'wpml_switch_language', 'all' );
