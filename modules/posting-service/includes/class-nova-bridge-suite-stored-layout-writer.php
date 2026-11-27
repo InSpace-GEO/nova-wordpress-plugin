@@ -232,7 +232,12 @@ final class Nova_Bridge_Suite_Stored_Layout_Writer {
             if ( ! in_array( $status, [ 'publish', 'draft' ], true ) ) { self::fail( 'publication', 'Stored-layout creation and replacement support draft or published pages.' ); }
             $payload = $compiled['writer_payload']; $post_fields = $compiled['post_fields'];
             $title = $post_fields['title'] ?? '';
-            if ( empty( $local['fields']['/title'] ) || ! in_array( $local['fields']['/title']['mode'] ?? '', [ 'adapt', 'mapped', 'protected' ], true ) ) {
+            $title_mode = $local['fields']['/title']['mode'] ?? '';
+            if ( 'elementor' === $builder ) {
+                // Explicit native title mappings replace the implicit /title field in saved recipes.
+                $title_mode = $local['fields'][Nova_Bridge_Suite_Recipe_Native_Media::TITLE]['mode'] ?? $title_mode;
+            }
+            if ( ! in_array( $title_mode, [ 'adapt', 'mapped', 'protected' ], true ) ) {
                 if ( 'elementor' === $builder ) {
                     $headings = []; $walk = static function ( array $nodes ) use ( &$walk, &$headings ) { foreach ( $nodes as $node ) { if ( ( $node['widgetType'] ?? '' ) === 'heading' && ( $node['settings']['header_size'] ?? '' ) === 'h1' && is_string( $node['settings']['title'] ?? null ) ) { $headings[] = sanitize_text_field( $node['settings']['title'] ); } $walk( $node['elements'] ?? [] ); } }; $walk( $payload['elementor_data'] ?? [] );
                     $title = count( array_unique( $headings ) ) === 1 ? $headings[0] : str_replace( '-', ' ', $target['slug'] );
