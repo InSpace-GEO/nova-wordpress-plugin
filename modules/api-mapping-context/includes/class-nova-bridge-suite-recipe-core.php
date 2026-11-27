@@ -1,6 +1,7 @@
 <?php
 /** Native WordPress content fields, including taxonomy content without drafts. */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once dirname( __DIR__ ) . '/adapters/embedded-article.php';
 final class Nova_Bridge_Suite_Recipe_Core {
     private $taxonomy_scope = false;
     public static function register(): void { Nova_Bridge_Suite_Recipe_Engine::register_adapter( 'core', new self() ); }
@@ -29,6 +30,11 @@ final class Nova_Bridge_Suite_Recipe_Core {
         $fields = [ [ 'target' => '/document/title', 'label' => $term ? 'Category title' : 'Page or category title', 'format' => 'text', 'kind' => 'heading', 'context' => $term ? 'taxonomy' : 'post', 'writable' => true ] ]; $containers = [];
         if ( array_key_exists( 'intro', $blueprint['document'] ) ) { $fields[] = [ 'target' => '/document/intro', 'label' => 'Introduction', 'format' => 'html', 'kind' => 'body', 'writable' => true ]; }
         foreach ( [ 'sections' => [ 'heading' => 'text', 'body' => 'html' ], 'faqs' => [ 'question' => 'text', 'answer' => 'html' ] ] as $collection => $columns ) { $items = []; foreach ( $blueprint['document'][$collection] ?? [] as $index => $row ) { $items[] = [ 'index' => $index, 'label' => ucfirst( $collection ) . ' example ' . ( $index + 1 ) ]; foreach ( $columns as $key => $format ) { if ( ! array_key_exists( $key, $row ) ) { continue; } $fields[] = [ 'target' => '/document/' . $collection . '/' . $index . '/' . $key, 'label' => ucfirst( $key ) . ' in ' . $collection . ' ' . ( $index + 1 ), 'format' => $format, 'kind' => $key, 'writable' => true ]; } } if ( $items ) { $containers[] = [ 'target' => '/document/' . $collection, 'label' => ucfirst( $collection ), 'items' => $items ]; } }
+        if ( ! $term && ! isset( $blueprint['document']['intro'] ) ) {
+            foreach ( $blueprint['document']['sections'] as $index => $row ) {
+                if ( is_string( $row['body'] ?? null ) ) { $fields = array_merge( $fields, Nova_Mapping_Embedded_Article::fields( $row['body'], '/document/sections/' . $index . '/body' ) ); }
+            }
+        }
         if ( $term ) { foreach ( $fields as &$field ) { $field['context'] = 'taxonomy'; if ( '/document/sections/0/body' === $field['target'] ) { $field['label'] = 'Top category content'; $field['kind'] = 'top_content'; } } unset( $field ); }
         $result = [ 'fields' => $fields, 'containers' => $containers, 'warnings' => $term ? [ 'Categories have no draft status. Review the translated field values here; this wizard does not publish a category.' ] : [] ];
         if ( isset( $blueprint['term_fields'] ) && class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) ) { $extra = Nova_Bridge_Suite_Recipe_Term_Fields::describe( $blueprint ); if ( is_wp_error( $extra ) ) { return $result; } foreach ( [ 'fields', 'containers', 'warnings' ] as $part ) { $result[$part] = array_merge( $result[$part], $extra[$part] ?? [] ); } $result['excluded_fields'] = $extra['excluded_fields'] ?? []; $result['declared_term_fields'] = $blueprint['term_fields']['local_declarations'] ?? []; }
@@ -37,12 +43,24 @@ final class Nova_Bridge_Suite_Recipe_Core {
     }
     public function validate_blueprint( array $blueprint ) { if ( ! is_array( $blueprint['document'] ?? null ) || ! is_array( $blueprint['document']['sections'] ?? null ) || ! is_array( $blueprint['document']['faqs'] ?? null ) ) { return new WP_Error( 'nova_recipe_core', 'A complete WordPress content blueprint is required.', [ 'status' => 422 ] ); } $this->taxonomy_scope = 'taxonomy' === ( $blueprint['type'] ?? '' ); if ( isset( $blueprint['term_fields'] ) ) { if ( ! class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) ) { return new WP_Error( 'nova_recipe_core', 'The declared category-field provider is unavailable.', [ 'status' => 409 ] ); } $checked = Nova_Bridge_Suite_Recipe_Term_Fields::validate_blueprint( $blueprint ); if ( is_wp_error( $checked ) ) { return $checked; } } return $blueprint; }
     public function preserve_missing_binding( array $native, array $binding, array $context = [] ): bool { return $this->taxonomy_scope; }
-    public function validate_binding( array $native, array $binding ) { if ( class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) && Nova_Bridge_Suite_Recipe_Term_Fields::owns( $binding['target'] ) ) { return Nova_Bridge_Suite_Recipe_Term_Fields::validate_binding( $native, $binding ); } $value = Nova_Bridge_Suite_Recipe_Engine::get( $native, $binding['target'], $found ); return $found && ( is_scalar( $value ) || ( null === $value && ! isset( $native['document'] ) ) ) ? true : new WP_Error( 'nova_recipe_core', 'Bind an existing WordPress content field.', [ 'status' => 422 ] ); }
+    public function validate_binding( array $native, array $binding ) {
+        if ( Nova_Mapping_Embedded_Article::owner( $binding['target'] ) ) {
+            if ( 'post_type' !== ( $native['type'] ?? '' ) || ! preg_match( '~^/document/sections/[0-9]+/body/article_fields/~', $binding['target'] ) ) { return new WP_Error( 'nova_article_field', 'Select an existing article in a WordPress post.' ); }
+            return Nova_Mapping_Embedded_Article::validate( $native, $binding );
+        }
+        if ( class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) && Nova_Bridge_Suite_Recipe_Term_Fields::owns( $binding['target'] ) ) { return Nova_Bridge_Suite_Recipe_Term_Fields::validate_binding( $native, $binding ); } $value = Nova_Bridge_Suite_Recipe_Engine::get( $native, $binding['target'], $found ); return $found && ( is_scalar( $value ) || ( null === $value && ! isset( $native['document'] ) ) ) ? true : new WP_Error( 'nova_recipe_core', 'Bind an existing WordPress content field.', [ 'status' => 422 ] ); }
     public function validate_region( array $native, array $region ) { if ( class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) && Nova_Bridge_Suite_Recipe_Term_Fields::owns( $region['target'] ) ) { return Nova_Bridge_Suite_Recipe_Term_Fields::validate_region( $native, $region ); } $value = Nova_Bridge_Suite_Recipe_Engine::get( $native, $region['target'], $found ); return $found && Nova_Bridge_Suite_Recipe_Engine::list_array( $value ) ? true : new WP_Error( 'nova_recipe_core', 'Choose a declared WordPress content collection.', [ 'status' => 422 ] ); }
-    public function validate_plan_scope( array $native, array $bindings, array $regions ) { return isset( $native['term_fields'] ) && class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) ? Nova_Bridge_Suite_Recipe_Term_Fields::validate_plan_scope( $native, $bindings, $regions ) : true; }
+    public function validate_plan_scope( array $native, array $bindings, array $regions ) {
+        $overlap = Nova_Mapping_Embedded_Article::overlap( $bindings ); if ( is_wp_error( $overlap ) ) { return $overlap; }
+        return isset( $native['term_fields'] ) && class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) ? Nova_Bridge_Suite_Recipe_Term_Fields::validate_plan_scope( $native, $bindings, $regions ) : true; }
     public function augment_content_schema( array $recipe, array $schema ) { return isset( $recipe['blueprint']['term_fields'] ) && class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) ? Nova_Bridge_Suite_Recipe_Term_Fields::augment_content_schema( $recipe, $schema ) : $schema; }
     public function instantiate( array $prototype, string $seed, array $context = [] ) { return [ 'native' => $prototype, 'context' => $context ]; }
-    public function bind( array $native, array $binding, $value, array $context = [] ) { if ( class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) && Nova_Bridge_Suite_Recipe_Term_Fields::owns( $binding['target'] ) ) { return Nova_Bridge_Suite_Recipe_Term_Fields::bind( $native, $binding, $value ); } Nova_Bridge_Suite_Recipe_Engine::put( $native, $binding['target'], $value ); return $native; }
+    public function bind( array $native, array $binding, $value, array $context = [] ) {
+        if ( Nova_Mapping_Embedded_Article::owner( $binding['target'] ) ) {
+            $valid = $this->validate_binding( $native, $binding );
+            return is_wp_error( $valid ) ? $valid : Nova_Mapping_Embedded_Article::bind( $native, $binding, $value );
+        }
+        if ( class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) && Nova_Bridge_Suite_Recipe_Term_Fields::owns( $binding['target'] ) ) { return Nova_Bridge_Suite_Recipe_Term_Fields::bind( $native, $binding, $value ); } Nova_Bridge_Suite_Recipe_Engine::put( $native, $binding['target'], $value ); return $native; }
     public function replace_region( array $native, array $region, array $children, array $context = [] ) { if ( class_exists( 'Nova_Bridge_Suite_Recipe_Term_Fields' ) && Nova_Bridge_Suite_Recipe_Term_Fields::owns( $region['target'] ) ) { return Nova_Bridge_Suite_Recipe_Term_Fields::replace_region( $native, $region, $children ); } Nova_Bridge_Suite_Recipe_Engine::splice( $native, $region['target'], $region['start'], $region['count'], $children ); return $native; }
     public function finalize( array $blueprint, string $seed, array $context = [] ) {
         $doc = $blueprint['document']; $html = ''; $ownership = [];
@@ -62,6 +80,12 @@ final class Nova_Bridge_Suite_Recipe_Core {
             $original = $context['recipe']['blueprint']['document']['sections'][$index]['body'] ?? null;
             $unchanged = ! array_key_exists( 'intro', $doc ) && [] === $doc['faqs'] && $body === $original;
             $append( '' !== ( $section['heading'] ?? '' ) ? '<h2>' . esc_html( $section['heading'] ) . '</h2>' : '', '/document/sections/' . $index . '/heading' );
+            if ( isset( $section[Nova_Mapping_Embedded_Article::pending_key()] ) ) {
+                try { $body = Nova_Mapping_Embedded_Article::render( $body, $section[Nova_Mapping_Embedded_Article::pending_key()] ); }
+                catch ( InvalidArgumentException $error ) { return new WP_Error( 'nova_article_field', $error->getMessage() ); }
+                unset( $doc['sections'][$index][Nova_Mapping_Embedded_Article::pending_key()] );
+                $doc['sections'][$index]['body'] = $body;
+            }
             $append( $unchanged ? $body : wp_kses_post( $body ), '/document/sections/' . $index . '/body' );
         }
         if ( $doc['faqs'] ?? [] ) {

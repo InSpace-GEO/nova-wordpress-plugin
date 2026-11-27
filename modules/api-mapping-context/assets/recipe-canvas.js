@@ -267,6 +267,29 @@
 	}
 	function locate( document, item, config, htmlTargets, diagnostic ) {
 		var locator = item && item.locator; if ( ! locator || locator.reference_id !== config.referenceId ) { return null; }
+		if ( locator.strategy === 'embedded_article' ) {
+			var roots = locator.node_id === 'post' ? contentRoots( document ) :
+				( safeId.test( locator.node_id ) ? document.querySelectorAll( '[data-id="' + locator.node_id + '"]' ) : [] );
+			var matches = new Set();
+			Array.from( roots ).forEach( function ( root ) {
+				root.querySelectorAll( 'img' ).forEach( function ( img ) {
+					if ( img.getAttribute( 'src' ) === locator.media && ! nativeExcluded( img ) && visible( img, document.defaultView ) ) { matches.add( img ); }
+				} );
+			} );
+			if ( matches.size !== 1 ) { return null; }
+			var img = Array.from( matches )[0], lead = img;
+			for ( var depth = 1; depth < locator.image_depth && lead.parentElement; depth++ ) { lead = lead.parentElement; }
+			var wrapper = lead.parentElement, first = lead.nextElementSibling;
+			if ( ! wrapper || wrapper.tagName !== locator.root_tag || wrapper.firstElementChild !== lead ) { return null; }
+			// wpautop can wrap the authored spacing in an empty paragraph.
+			while ( first && ( first.tagName === 'BR' || ( first.tagName === 'P' && ! first.textContent.trim() && ! first.querySelector( 'img,video,iframe' ) ) ) ) { first = first.nextElementSibling; }
+			if ( ! first || first.tagName !== locator.body_tag ) { return null; }
+			if ( locator.field === 'article_body' ) {
+				var range = document.createRange(); range.setStartBefore( first ); range.setEndAfter( wrapper.lastChild );
+				return { node: first, owner: wrapper, range: range, precision: 'region', customHtml: true };
+			}
+			return { node: img, owner: img, precision: 'field' };
+		}
 		if ( locator.strategy === 'custom_html' ) { if ( htmlTargets && htmlTargets.has( locator.marker ) ) { return htmlTargets.get( locator.marker ); }
             return locator.fallback ? valueMatch( document, locator.fallback ) : null; }
 		if ( locator.strategy === 'value_match' ) {

@@ -10,6 +10,8 @@ if ( ! class_exists( '\\NOVA_Mapping_Elementor\\Elementor_Service', false ) ) {
 }
 require_once __DIR__ . '/class-nova-bridge-suite-elementor-media-controls.php';
 
+require_once dirname( __DIR__ ) . '/adapters/embedded-article.php';
+
 final class Nova_Bridge_Suite_Recipe_Elementor {
     public const VERSION = 'nova-elementor-prototype-adapter-v1';
     private function error( string $message ): WP_Error { return Nova_Bridge_Suite_Recipe_Engine::error( 'elementor', $message ); }
@@ -48,6 +50,13 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
     }
     public function validate_binding( array $native, array $binding ) {
         return $this->safe( function () use ( $native, $binding ) {
+            $owner = Nova_Mapping_Embedded_Article::owner( $binding['target'] );
+            if ( $owner ) {
+                $check = $this->validate_binding( $native, [ 'target' => $owner, 'format' => 'html' ] );
+                [ $node, $path ] = $this->node_for_target( $native, $owner );
+                if ( 'text-editor' !== ( $node['widgetType'] ?? '' ) || [ 'editor' ] !== $path ) { return $this->error( 'Choose a native Text Editor article.' ); }
+                return is_wp_error( $check ) ? $check : Nova_Mapping_Embedded_Article::validate( $native, $binding );
+            }
             list( $node, $path ) = $this->node_for_target( $native, $binding['target'] ); $widget = $node['widgetType'] ?? ''; $settings = $node['settings'];
             if ( Nova_Bridge_Suite_Elementor_Reusable::reference( $node ) ) { Nova_Bridge_Suite_Recipe_Engine::fail( 'This is a shared Elementor component. Create an independent copy for mapping; NOVA never edits the shared original.' ); }
             $value = Nova_Bridge_Suite_Recipe_Engine::get( $native, $binding['target'], $found );
@@ -103,6 +112,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
     }
     public function validate_plan_scope( array $native, array $bindings, array $regions ) {
         return $this->safe( function () use ( $native, $bindings, $regions ) {
+            $overlap = Nova_Mapping_Embedded_Article::overlap( $bindings ); if ( is_wp_error( $overlap ) ) { return $overlap; }
             foreach ( $regions as $region ) { $parts = Nova_Bridge_Suite_Recipe_Engine::parts( $region['target'] ); if ( 'elements' !== end( $parts ) ) { continue; } $parent_pointer = $this->pointer( array_slice( $parts, 0, -1 ) ); $parent = Nova_Bridge_Suite_Recipe_Engine::get( $native, $parent_pointer, $found ); if ( ! $found || ! in_array( $parent['widgetType'] ?? '', [ 'nested-tabs', 'nested-accordion' ], true ) ) { continue; }
                 $list = 'nested-tabs' === $parent['widgetType'] ? 'tabs' : 'items';
                 $prefix = $parent_pointer . '/settings/' . $list . '/'; foreach ( $bindings as $binding ) { if ( 0 !== strpos( $binding['target'], $prefix ) ) { continue; } $index = explode( '/', substr( $binding['target'], strlen( $prefix ) ) )[0]; if ( ctype_digit( $index ) && (int) $index >= $region['start'] && (int) $index < $region['start'] + $region['count'] ) { return $this->error( 'A fixed navigation-label binding overlaps a generated panel range. Use the section title or question for that region, or keep the fixed panel outside the replaced range.' ); } }
@@ -129,6 +139,7 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
     public function bind( array $native, array $binding, $value, array $context = [] ) {
         return $this->safe( function () use ( $native, $binding, $value, $context ) {
             $check = $this->validate_binding( $native, $binding ); if ( is_wp_error( $check ) ) { return $check; }
+            if ( Nova_Mapping_Embedded_Article::owner( $binding['target'] ) ) { return Nova_Mapping_Embedded_Article::bind( $native, $binding, $value ); }
             list( $node, $path ) = $this->node_for_target( $native, $binding['target'] );
             $media = Nova_Bridge_Suite_Elementor_Media_Controls::descriptor( $node, $path );
             $resolved = $media ? ( $context['resolved_media'][$binding['target']] ?? null ) : null;
@@ -254,6 +265,13 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
     public function finalize( array $blueprint, string $seed, array $context = [] ) {
         return $this->safe( function () use ( $blueprint, $seed, $context ) {
             $check = $this->validate_blueprint( $blueprint ); if ( is_wp_error( $check ) ) { return $check; }
+            $this->walk( $blueprint['document'], function ( $node, $parts ) use ( &$blueprint ) {
+                if ( 'text-editor' !== ( $node['widgetType'] ?? '' ) || ! isset( $node['settings'][Nova_Mapping_Embedded_Article::pending_key()] ) ) { return; }
+                $settings = $node['settings'];
+                $settings['editor'] = Nova_Mapping_Embedded_Article::render( $settings['editor'], $settings[Nova_Mapping_Embedded_Article::pending_key()] );
+                unset( $settings[Nova_Mapping_Embedded_Article::pending_key()] );
+                Nova_Bridge_Suite_Recipe_Engine::put( $blueprint, '/document' . $this->pointer( $parts ) . '/settings', $settings );
+            } );
             if ( isset( $context['recipe']['blueprint']['document'] ) ) { $old = $this->anchors_and_links( $context['recipe']['blueprint']['document'] ); $current = $this->anchors_and_links( $blueprint['document'] ); foreach ( $current['links'] as $anchor ) { if ( isset( $old['anchors'][ $anchor ] ) && ! isset( $current['anchors'][ $anchor ] ) ) { return $this->error( 'A fixed native link still targets the removed example anchor #' . $anchor . '. Bind that navigation link to canonical content or remove the stale sample link before creating a draft.' ); } } }
             // A kept-shared component deleted since the mapping was saved is left out; the page is still written.
             $removed = []; $blueprint['document'] = Nova_Bridge_Suite_Elementor_Reusable::without_missing( $blueprint['document'], $removed );
@@ -305,6 +323,10 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
             $post = get_post( $id ); if ( ! $post || 'builder' !== get_post_meta( $id, '_elementor_edit_mode', true ) ) { return $this->error( 'The example does not have an unambiguous active Elementor document.' ); }
             $service = new \NOVA_Mapping_Elementor\Elementor_Service(); $payload = $service->get_page_payload( $id, [ 'include_document' => true, 'include_fields' => false, 'include_element_map' => false ] ); if ( is_wp_error( $payload ) ) { return $payload; }
             $raw = get_post_meta( $id, '_elementor_data', true ); $stored = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+            // Verify the complete stored envelope even when the provider read a legacy encoding.
+            if ( ! is_array( $stored ) && in_array( $payload['document_source'] ?? '', [ 'meta:json-unslashed', 'meta:serialized' ], true ) ) {
+                $stored = $service->get_document_data_from_meta( $id );
+            }
             if ( ! is_array( $stored ) || Nova_Bridge_Suite_Recipe_Engine::digest( $stored ) !== Nova_Bridge_Suite_Recipe_Engine::digest( $payload['document'] ?? null ) ) { return $this->error( 'The provider reader did not return the complete stored native tree.' ); }
             $blueprint = [ 'document' => $stored ]; if ( metadata_exists( 'post', $id, '_elementor_page_settings' ) ) { $blueprint['meta'] = get_post_meta( $id, '_elementor_page_settings', true ); } $blueprint['template'] = (string) get_page_template_slug( $id );
             $theme = Nova_Bridge_Suite_Theme_Presentation::capture( $id ); if ( is_wp_error( $theme ) ) { return $theme; } if ( null !== $theme ) { $blueprint['theme_presentation'] = $theme; }
@@ -357,6 +379,10 @@ final class Nova_Bridge_Suite_Recipe_Elementor {
                         $fields[count( $fields ) - 1]['native_media'] = [ 'kind' => 'elementor', 'url_target' => $target, 'id_target' => $base . $this->pointer( array_merge( [ 'settings' ], $media['id_path'] ) ) ];
                     }
                 }; $visit( $node['settings'], [] );
+                if ( 'text-editor' === $widget && is_string( $node['settings']['editor'] ?? null )
+                    && ! is_wp_error( $this->validate_binding( $blueprint, [ 'target' => $base . '/settings/editor', 'format' => 'html' ] ) ) ) {
+                    $fields = array_merge( $fields, Nova_Mapping_Embedded_Article::fields( $node['settings']['editor'], $base . '/settings/editor', $node['id'] ) );
+                }
                 $this->describe_dynamic( $node, $base, $label, $fields );
             }, [], 0 );
             return [ 'blueprint' => $blueprint, 'fields' => $fields, 'containers' => $containers, 'reusable_blocks' => Nova_Bridge_Suite_Elementor_Reusable::inventory( $blueprint ), 'prototypes' => [], 'capabilities' => $this->capabilities(), 'warnings' => [ 'A captured native example does not declare repetition or semantic grouping. Select and review those regions explicitly.' ] ];
